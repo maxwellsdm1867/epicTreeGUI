@@ -98,14 +98,22 @@ cell_types = ['OnP', 'OffP', 'OnM', ...]
 
 ## 2. PYTHON EXPORT DESIGN
 
-### 2.1 New Export Function
+### 2.1 Export Functions (JSON and MATLAB)
 
-**Add to MEAPipeline class** (or as utility function):
+**Inspiration from datajoint/next-app/api:**
+The datajoint code provides a proven pattern for exporting hierarchical neurophysiology data to JSON. We'll adapt these patterns for both JSON and MATLAB export.
+
+**Add to MEAPipeline class:**
+
+#### 2.1.1 Flat Export (Current Plan - MATLAB-optimized)
 
 ```python
 def export_to_matlab(self, file_path: str, format='mat'):
     """
-    Export pipeline data to MATLAB-readable format.
+    Export pipeline data to MATLAB-readable format (flat structure).
+
+    This is the primary export method for the epochtree GUI. It creates
+    a flat structure optimized for MATLAB indexing and analysis.
 
     Parameters:
         file_path: Output file path
@@ -149,51 +157,275 @@ def export_to_matlab(self, file_path: str, format='mat'):
     elif format == 'json':
         import json
         with open(file_path, 'w') as f:
-            json.dump(export_data, f, indent=2)
+            json.dump(export_data, f, indent=2, default=str)
 
     print(f"Pipeline exported to {file_path}")
 ```
 
-**Helper methods:**
+#### 2.1.2 Hierarchical JSON Export (Optional - datajoint pattern)
+
+```python
+def export_to_json_hierarchical(self, file_path: str, include_metadata: bool = False):
+    """
+    Export pipeline data as hierarchical JSON tree (datajoint-style).
+
+    Inspired by datajoint's generate_tree() function. This format is useful for:
+    - Web applications
+    - Debugging/inspection
+    - Alternative GUI implementations
+    - Integration with other tools
+
+    Structure:
+    {
+        "level": "experiment",
+        "id": "20250115A_data000",
+        "label": "20250115A Block: data000",
+        "experiment_id": "20250115A",
+        "children": [
+            {
+                "level": "cell",
+                "id": 42,
+                "label": "Cell 42 (OnP)",
+                "cell_type": "OnP",
+                "noise_id": 37,
+                "children": [
+                    {
+                        "level": "epoch",
+                        "id": 0,
+                        "label": "Epoch 0",
+                        "parameters": {"contrast": 0.5, ...},
+                        "responses": {...}  # if include_metadata
+                    },
+                    ...
+                ]
+            },
+            ...
+        ]
+    }
+
+    Parameters:
+        file_path: Output JSON file path
+        include_metadata: Include full spike times and RF params (large files)
+    """
+    tree = self._generate_tree_hierarchical(include_metadata=include_metadata)
+
+    import json
+    with open(file_path, 'w') as f:
+        json.dump(tree, f, indent=2, default=str)
+
+    print(f"Hierarchical tree exported to {file_path}")
+
+def _generate_tree_hierarchical(self, include_metadata: bool = False):
+    """Generate hierarchical tree structure (datajoint pattern)"""
+    # Root level: experiment
+    tree = {
+        'level': 'experiment',
+        'id': f"{self.response_block.exp_name}_{self.response_block.datafile_name}",
+        'label': f"{self.response_block.exp_name} Block: {self.response_block.datafile_name}",
+        'exp_name': self.response_block.exp_name,
+        'block_id': int(self.response_block.block_id),
+        'num_epochs': len(self.stim_block.df_epochs),
+        'num_cells': len(self.response_block.cell_ids),
+        'children': []
+    }
+
+    # Level 1: cells
+    for idx, row in self.response_block.df_spike_times.iterrows():
+        cell_id = int(row['cell_id'])
+        cell_node = {
+            'level': 'cell',
+            'id': cell_id,
+            'label': f"Cell {cell_id} ({row['cell_type']})",
+            'cell_type': row['cell_type'],
+            'noise_id': int(row['noise_id']),
+            'children': []
+        }
+
+        # Include RF params if requested
+        if include_metadata:
+            cell_node['rf_params'] = self._get_rf_params_for_cell(cell_id)
+
+        # Level 2: epochs
+        spike_times_list = row['spike_times']
+        for epoch_idx in range(len(spike_times_list)):
+            epoch_node = {
+                'level': 'epoch',
+                'id': epoch_idx,
+                'label': f"Epoch {epoch_idx}",
+                'parameters': self._get_epoch_params_dict(epoch_idx)
+            }
+
+            # Include spike times if requested
+            if include_metadata:
+                epoch_node['spike_times'] = spike_times_list[epoch_idx].tolist() if hasattr(spike_times_list[epoch_idx], 'tolist') else list(spike_times_list[epoch_idx])
+                epoch_node['epoch_start_ms'] = float(self.response_block.d_timing['epochStarts'][epoch_idx])
+                epoch_node['epoch_end_ms'] = float(self.response_block.d_timing['epochEnds'][epoch_idx])
+
+            cell_node['children'].append(epoch_node)
+
+        tree['children'].append(cell_node)
+
+    return tree
+
+def _get_epoch_params_dict(self, epoch_idx: int) -> dict:
+    """Extract epoch parameters as dict"""
+    params = self.stim_block.df_epochs.iloc[epoch_idx]['epoch_parameters']
+    # Convert numpy types to native Python
+    return {k: (v.item() if hasattr(v, 'item') else v)
+            for k, v in params.items()}
+
+def _get_rf_params_for_cell(self, cell_id: int) -> dict:
+    """Get RF params for a specific cell"""
+    if hasattr(self.analysis_chunk, 'rf_params') and cell_id in self.analysis_chunk.rf_params:
+        return {k: float(v) if hasattr(v, 'item') else v
+                for k, v in self.analysis_chunk.rf_params[cell_id].items()}
+    return {}
+```
+
+**Helper methods (complete implementation):**
 
 ```python
 def _format_spike_times_for_matlab(self):
-    """Convert nested lists to MATLAB-friendly structure"""
+    """
+    Convert nested spike times lists to MATLAB-friendly structure.
+
+    Returns:
+        dict: {
+            'cell_42': {
+                'spike_times': [[epoch0_spikes], [epoch1_spikes], ...],
+                'num_epochs': 100
+            },
+            ...
+        }
+    """
     spike_dict = {}
     for idx, row in self.response_block.df_spike_times.iterrows():
         cell_id = int(row['cell_id'])
+        # Convert each epoch's spike times to list
+        spike_times_list = []
+        for epoch_spikes in row['spike_times']:
+            if hasattr(epoch_spikes, 'tolist'):
+                spike_times_list.append(epoch_spikes.tolist())
+            else:
+                spike_times_list.append(list(epoch_spikes))
+
         spike_dict[f'cell_{cell_id}'] = {
-            'spike_times': row['spike_times'],  # List of arrays
-            'num_epochs': len(row['spike_times'])
+            'spike_times': spike_times_list,
+            'num_epochs': len(spike_times_list)
         }
     return spike_dict
 
 def _format_rf_params_for_matlab(self):
-    """Convert RF params dict to MATLAB struct-compatible"""
-    rf_dict = {}
-    for cell_id, params in self.analysis_chunk.rf_params.items():
-        rf_dict[f'cell_{cell_id}'] = {
-            'center_x': float(params['center_x']),
-            'center_y': float(params['center_y']),
-            'std_x': float(params['std_x']),
-            'std_y': float(params['std_y']),
-            'rotation': float(params['rotation'])
+    """
+    Convert RF params dict to MATLAB struct-compatible format.
+
+    Returns:
+        dict: {
+            'cell_42': {
+                'center_x': -120.5,
+                'center_y': 80.2,
+                'std_x': 45.3,
+                'std_y': 52.1,
+                'rotation': 0.34,
+                'has_rf': True
+            },
+            ...
         }
+    """
+    rf_dict = {}
+    for cell_id in self.response_block.cell_ids:
+        if hasattr(self.analysis_chunk, 'rf_params') and cell_id in self.analysis_chunk.rf_params:
+            params = self.analysis_chunk.rf_params[cell_id]
+            rf_dict[f'cell_{cell_id}'] = {
+                'center_x': float(params.get('center_x', 0)),
+                'center_y': float(params.get('center_y', 0)),
+                'std_x': float(params.get('std_x', 0)),
+                'std_y': float(params.get('std_y', 0)),
+                'rotation': float(params.get('rotation', 0)),
+                'has_rf': True
+            }
+        else:
+            # Cell has no RF params (e.g., no noise recording)
+            rf_dict[f'cell_{cell_id}'] = {
+                'center_x': 0.0,
+                'center_y': 0.0,
+                'std_x': 0.0,
+                'std_y': 0.0,
+                'rotation': 0.0,
+                'has_rf': False
+            }
     return rf_dict
 
 def _format_epoch_params_for_matlab(self):
-    """Convert epoch parameters to list of dicts"""
+    """
+    Convert epoch parameters to list of dicts.
+
+    Returns:
+        list: [
+            {'contrast': 0.5, 'size': 200, 'temporal_freq': 4.0},
+            {'contrast': 0.8, 'size': 200, 'temporal_freq': 4.0},
+            ...
+        ]
+    """
     params_list = []
     for idx, row in self.stim_block.df_epochs.iterrows():
         epoch_dict = dict(row['epoch_parameters'])
-        # Convert numpy types to native Python types
+        # Convert numpy types to native Python types for JSON/MATLAB compatibility
         epoch_dict = {k: (v.item() if hasattr(v, 'item') else v)
                      for k, v in epoch_dict.items()}
         params_list.append(epoch_dict)
     return params_list
 ```
 
-### 2.2 Optional: Selective Export
+**Note on implementation location:**
+- Add these methods to `MEAPipeline` class in `mea_pipeline.py`
+- Place after existing `export_to_pkl()` method (around line 497)
+- Total addition: ~200-250 lines of code including docstrings
+
+### 2.2 Export Format Comparison
+
+**Flat vs. Hierarchical Exports:**
+
+| Aspect | Flat (MATLAB-optimized) | Hierarchical (Tree JSON) |
+|--------|------------------------|--------------------------|
+| **Primary use case** | epochtree GUI, MATLAB analysis | Web apps, debugging, inspection |
+| **Structure** | Top-level dict with arrays | Nested tree: exp → cells → epochs |
+| **MATLAB indexing** | ✅ Easy (direct struct access) | ❌ Requires traversal |
+| **File size** | ~10-50 MB (typical dataset) | ~5-20 MB (no metadata), ~50-500 MB (with metadata) |
+| **Readability** | ❌ Hard to inspect manually | ✅ Easy to browse in text editor |
+| **Inspiration** | Custom design | datajoint `generate_tree()` pattern |
+| **When to use** | Default for all GUI exports | Advanced users, web apps, debugging |
+
+**Recommendation:** Use flat export (`export_to_matlab()`) for epochtree GUI. Use hierarchical export only for specialized applications or debugging.
+
+### 2.3 Datajoint Integration Notes
+
+**Code borrowed from datajoint/next-app/api/helpers/query.py:**
+
+The hierarchical export pattern is inspired by datajoint's `generate_tree()` function (lines 160-206), which creates nested JSON structures for neurophysiology data with this hierarchy:
+
+```
+experiment → animal → preparation → cell → epoch_group → epoch_block → epoch → response/stimulus
+```
+
+For MEA data, our simplified hierarchy is:
+```
+experiment (block) → cells → epochs
+```
+
+**Key differences:**
+1. **Levels**: datajoint has 7 levels (experiment down to response/stimulus); we have 3 (exp/block → cells → epochs)
+2. **Database**: datajoint queries from MySQL; we export from in-memory Python objects
+3. **Filtering**: datajoint supports exclude_levels parameter; we support cell_type/epoch filtering
+4. **Metadata**: Both support optional full metadata inclusion (increases file size significantly)
+
+**Adapted patterns:**
+- Recursive tree building with `children` lists
+- Optional metadata inclusion flag
+- JSON serialization with `default=str` for datetime objects
+- Progress tracking with tqdm (for large exports)
+
+### 2.4 Optional: Selective Export
 
 **Add filtering parameters:**
 
@@ -210,7 +442,7 @@ def export_to_matlab(self, file_path: str, format='mat',
         epoch_indices: List of epoch indices to include
     """
     # Filter df_spike_times
-    df = self.response_block.df_spike_times
+    df = self.response_block.df_spike_times.copy()
 
     if cell_types:
         df = df[df['cell_type'].isin(cell_types)]
@@ -224,7 +456,51 @@ def export_to_matlab(self, file_path: str, format='mat',
         )
 
     # Continue with export using filtered df...
+    # Build export_data dict using df instead of self.response_block.df_spike_times
 ```
+
+**Example usage:**
+```python
+# Export only OnP and OffP cells from first 20 epochs
+pipeline.export_to_matlab('onp_offp_subset.mat',
+                         cell_types=['OnP', 'OffP'],
+                         epoch_indices=range(20))
+```
+
+### 2.5 Implementation Summary
+
+**What to implement:**
+1. **Primary: Flat export** (`export_to_matlab()`)
+   - Required for epochtree GUI
+   - Both .mat and .json formats
+   - ~150 lines of code + helpers
+
+2. **Optional: Hierarchical export** (`export_to_json_hierarchical()`)
+   - Advanced use cases, debugging
+   - JSON only
+   - ~100 lines of code + helpers
+
+3. **Optional: Selective filtering**
+   - Filter by cell type, cell IDs, epochs
+   - ~50 lines of code (parameter handling)
+
+**Total code addition:** ~200-300 lines to `mea_pipeline.py`
+
+**Reference code locations:**
+- Datajoint hierarchical export pattern: `datajoint/next-app/api/helpers/query.py` lines 160-253
+  - `generate_tree()` function
+  - `generate_object_tree()` function
+- Datajoint download endpoint: `datajoint/next-app/api/app.py` lines 355-384
+  - Shows how to handle large exports in background thread
+  - Demonstrates JSON serialization with `default=str`
+
+**Key decisions made:**
+1. ✅ Flat export is primary (MATLAB-optimized for GUI)
+2. ✅ Hierarchical export is optional (datajoint pattern for advanced users)
+3. ✅ Support both .mat and .json in flat export
+4. ✅ RF params included with fallback for cells without noise data
+5. ✅ Epoch parameters preserved as list of dicts (MATLAB struct array compatible)
+6. ✅ Spike times stored per cell per epoch (nested structure)
 
 ---
 
@@ -770,39 +1046,164 @@ end
 
 ### Phase 1: Python Export (Week 1)
 
+**Overview:**
+Implement both flat (MATLAB-optimized) and hierarchical (JSON tree) export functions in MEAPipeline class. The flat format is primary for the epochtree GUI; hierarchical format is optional for advanced use cases.
+
 **Tasks:**
+
+**Day 1-2: Flat Export Implementation**
 1. Add `export_to_matlab()` method to MEAPipeline class
-   - File: `new_retinanalysis/src/retinanalysis/classes/mea_pipeline.py`
-   - Add after line 497 (after existing `export_to_pkl`)
-   - Implement helper methods `_format_*_for_matlab()`
+   - File: `retinanalysis/src/retinanalysis/classes/mea_pipeline.py`
+   - Add after existing `export_to_pkl()` method (around line 497)
+   - Implement helper methods:
+     ```python
+     _format_spike_times_for_matlab()
+     _format_rf_params_for_matlab()
+     _format_epoch_params_for_matlab()
+     ```
 
-2. Test export with example data
-   - Use existing demo notebook
-   - Export to both .mat and .json
-   - Verify in MATLAB that data loads correctly
+2. Support both .mat and .json formats
+   - Use `scipy.io.savemat()` for MATLAB format
+   - Use `json.dump()` with `default=str` for datetime handling
+   - Compression enabled for .mat files
 
-3. Optional: Add filtering parameters
-   - Filter by cell type, cell IDs, epochs
-   - Test selective export
+3. Test flat export
+   - Export example pipeline to both formats
+   - Verify data loads in MATLAB
+   - Check all arrays are correct shape
+   - Validate spike times match source data
 
-**Files to modify:**
-- `new_retinanalysis/src/retinanalysis/classes/mea_pipeline.py`
-- (Optional) Add new file: `new_retinanalysis/src/retinanalysis/utils/matlab_export.py`
+**Day 3-4: Hierarchical JSON Export (Optional)**
+4. Add `export_to_json_hierarchical()` method
+   - Implement `_generate_tree_hierarchical()` helper
+   - Pattern inspired by datajoint's `generate_tree()` function
+   - Three-level hierarchy: experiment → cells → epochs
+   - Optional metadata inclusion (spike times, RF params)
 
-**Testing:**
+5. Implement helper methods:
+   ```python
+   _get_epoch_params_dict(epoch_idx)
+   _get_rf_params_for_cell(cell_id)
+   ```
+
+6. Test hierarchical export
+   - Export with and without metadata
+   - Verify tree structure is well-formed
+   - Compare file sizes (metadata adds ~10-100x size)
+   - Test JSON parsing in Python and JavaScript
+
+**Day 5: Selective Export & Polish**
+7. Add selective export parameters (optional enhancement)
+   - `cell_types`: List of cell types to include
+   - `cell_ids`: List of specific cell IDs
+   - `epoch_indices`: List of epochs to include
+   - Filter df_spike_times and epochs before export
+
+8. Documentation and examples
+   - Add docstrings with examples
+   - Create example notebook: `examples/export_to_matlab.ipynb`
+   - Document export formats in README
+
+**Files to create/modify:**
+- `retinanalysis/src/retinanalysis/classes/mea_pipeline.py` (primary changes)
+- `examples/export_to_matlab.ipynb` (new)
+- `docs/export_formats.md` (new, optional)
+
+**Testing checklist:**
 ```python
-# In Python
+# In Python - Basic flat export
 import retinanalysis as ra
 pipeline = ra.create_mea_pipeline('20250115A', 'data000')
+
+# Test 1: MATLAB format
 pipeline.export_to_matlab('test_export.mat', format='mat')
-pipeline.export_to_matlab('test_export.json', format='json')
+
+# Test 2: Flat JSON format
+pipeline.export_to_matlab('test_export_flat.json', format='json')
+
+# Test 3: Hierarchical JSON (optional)
+pipeline.export_to_json_hierarchical('test_export_tree.json', include_metadata=False)
+
+# Test 4: Hierarchical with metadata (optional)
+pipeline.export_to_json_hierarchical('test_export_tree_full.json', include_metadata=True)
+
+# Test 5: Selective export (optional)
+pipeline.export_to_matlab('onp_only.mat', format='mat',
+                         cell_types=['OnP'], epoch_indices=range(10))
 ```
 
 ```matlab
-% In MATLAB
+% In MATLAB - Verify export
 data = load('test_export.mat');
 disp(data)
+
+% Check structure
+assert(isfield(data, 'spike_times'))
+assert(isfield(data, 'cell_ids'))
+assert(isfield(data, 'epoch_params'))
+
+% Access spike times for cell 42, epoch 0
+cell_42 = data.spike_times.cell_42;
+spikes = cell_42.spike_times{1};  % epoch 0
+disp(spikes);
 ```
+
+**Validation & Compatibility Testing:**
+
+1. **Compare with datajoint format** (if available):
+   ```python
+   # Export from datajoint system (if you have access)
+   # Compare structure with hierarchical export
+   import json
+
+   # Load both exports
+   with open('datajoint_export.json', 'r') as f:
+       dj_tree = json.load(f)
+   with open('test_export_tree.json', 'r') as f:
+       our_tree = json.load(f)
+
+   # Compare structure
+   print("Datajoint levels:", [node['level'] for node in dj_tree])
+   print("Our levels:", [node['level'] for node in our_tree['children']])
+   ```
+
+2. **Cross-validate exports**:
+   ```python
+   # Ensure flat and hierarchical exports contain same data
+   import scipy.io
+
+   flat_data = scipy.io.loadmat('test_export.mat')
+   with open('test_export_tree_full.json', 'r') as f:
+       tree_data = json.load(f)
+
+   # Verify cell count matches
+   assert len(flat_data['cell_ids']) == len(tree_data['children'])
+
+   # Verify spike times for cell 42, epoch 0 match
+   flat_spikes = flat_data['spike_times']['cell_42']['spike_times'][0]
+   tree_spikes = [c for c in tree_data['children'] if c['id'] == 42][0]['children'][0]['spike_times']
+   assert np.allclose(flat_spikes, tree_spikes)
+   ```
+
+3. **Test round-trip**:
+   ```matlab
+   % MATLAB: Load, modify, verify
+   data = load('test_export.mat');
+   data.spike_times.cell_42.spike_times{1}  % Access spikes
+   % Verify against original Python data
+   ```
+
+**Success criteria:**
+- ✅ Both .mat and .json export working
+- ✅ Data loads correctly in MATLAB (scipy.io.loadmat)
+- ✅ Spike times accessible per cell per epoch
+- ✅ RF parameters included and formatted correctly
+- ✅ Epoch parameters preserved with all fields
+- ✅ File sizes reasonable (<50MB for typical dataset)
+- ✅ (Optional) Hierarchical JSON validated with tree structure
+- ✅ (Optional) Selective export filters data correctly
+- ✅ Cross-validation: flat and hierarchical exports contain identical data
+- ✅ Format compatible with datajoint patterns (for hierarchical export)
 
 ### Phase 2: MATLAB Data Layer (Week 2)
 
