@@ -1,0 +1,49 @@
+# MATLAB autosave files
+*.asv
+
+# MATLAB temporary files
+*.m~
+
+# Simulink autosave
+*.autosave
+
+# Compiled MEX files
+*.mex*
+
+# P-files
+*.p
+
+# Folder view configuration
+.DS_Store
+
+# Mac system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# MATLAB generated files
+slprj/
+sccprj/
+*.slxc
+
+# Code generation folders
+codegen/
