@@ -10,8 +10,9 @@ The MATLAB MCP (Model Context Protocol) Server enables direct MATLAB interaction
 
 ## Installation Status
 
-✅ **Downloaded:** `~/Downloads/matlab-mcp-core-server` (8.3 MB, Apple Silicon)
+✅ **Installed:** `~/bin/matlab-mcp-core-server` (8.3 MB, Apple Silicon)
 ✅ **Executable:** Permissions set
+✅ **PATH:** Added to ~/.zshrc for global access
 ✅ **MATLAB Verified:** R2022a accessible at `/Applications/MATLAB_R2022a.app`
 
 ## Configuration
@@ -50,10 +51,10 @@ Add this configuration:
 {
   "mcpServers": {
     "matlab": {
-      "command": "/Users/maxwellsdm/Downloads/matlab-mcp-core-server",
+      "command": "/Users/maxwellsdm/bin/matlab-mcp-core-server",
       "args": [
-        "--initial-working-folder=/Users/maxwellsdm/Documents/GitHub/epicTreeGUI",
-        "--matlab-root=/Applications/MATLAB_R2022a.app"
+        "--matlab-root=/Applications/MATLAB_R2022a.app",
+        "--initialize-matlab-on-startup=true"
       ]
     }
   }
@@ -70,10 +71,10 @@ Create or edit `.vscode/mcp.json` in your project:
   "servers": {
     "matlab": {
       "type": "stdio",
-      "command": "/Users/maxwellsdm/Downloads/matlab-mcp-core-server",
+      "command": "/Users/maxwellsdm/bin/matlab-mcp-core-server",
       "args": [
-        "--initial-working-folder=/Users/maxwellsdm/Documents/GitHub/epicTreeGUI",
-        "--matlab-root=/Applications/MATLAB_R2022a.app"
+        "--matlab-root=/Applications/MATLAB_R2022a.app",
+        "--initialize-matlab-on-startup=true"
       ]
     }
   }
@@ -143,13 +144,12 @@ You can customize the server with these optional arguments:
 
 ## Your Configuration
 
-**Recommended settings for this project:**
+**Recommended settings (global, works for all projects):**
 
 ```bash
 claude mcp add --transport stdio matlab \
-  /Users/maxwellsdm/Downloads/matlab-mcp-core-server \
+  ~/bin/matlab-mcp-core-server \
   --matlab-root=/Applications/MATLAB_R2022a.app \
-  --initial-working-folder=/Users/maxwellsdm/Documents/GitHub/epicTreeGUI \
   --initialize-matlab-on-startup=true
 ```
 

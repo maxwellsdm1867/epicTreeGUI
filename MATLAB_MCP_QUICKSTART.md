@@ -1,13 +1,16 @@
 # MATLAB MCP Server - Quick Start
 
-## ✅ Setup Complete
+## ✅ Setup Complete - Global Installation
 
-The MATLAB MCP Core Server has been downloaded and configured for your system.
+The MATLAB MCP Core Server has been installed globally and is accessible from any project.
+
+**Location:** `~/bin/matlab-mcp-core-server`
+**Added to PATH:** Yes (in ~/.zshrc)
 
 ## 🚀 One-Line Setup (Run this in your terminal)
 
 ```bash
-claude mcp add --transport stdio matlab /Users/maxwellsdm/Downloads/matlab-mcp-core-server --matlab-root=/Applications/MATLAB_R2022a.app --initial-working-folder=/Users/maxwellsdm/Documents/GitHub/epicTreeGUI --initialize-matlab-on-startup=true
+claude mcp add --transport stdio matlab ~/bin/matlab-mcp-core-server --matlab-root=/Applications/MATLAB_R2022a.app --initialize-matlab-on-startup=true
 ```
 
 **If that doesn't work,** see [MATLAB_MCP_SETUP.md](MATLAB_MCP_SETUP.md) for manual configuration.
@@ -55,9 +58,9 @@ Once configured, you can ask Claude to:
 
 ## 📁 File Locations
 
-- **Server Binary:** `~/Downloads/matlab-mcp-core-server`
+- **Server Binary:** `~/bin/matlab-mcp-core-server` (globally accessible)
 - **MATLAB:** `/Applications/MATLAB_R2022a.app`
-- **Project:** `/Users/maxwellsdm/Documents/GitHub/epicTreeGUI`
+- **Added to PATH:** `~/bin` in `~/.zshrc`
 - **Test Data:** `python_export/test_exports/test_export.mat`
 
 ## ✨ What You Can Do Now
