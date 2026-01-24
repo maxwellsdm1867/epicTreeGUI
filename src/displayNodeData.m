@@ -84,7 +84,23 @@ function plotRawTrace(ax, epoch)
     if isfield(epoch, 'sample_rate')
         fs = epoch.sample_rate;
     else
-        fs = 10000spike_data.spike_times;
+        fs = 10000;  % Default 10 kHz
+    end
+
+    % Time vector
+    time_ms = (0:length(raw)-1) / fs * 1000;
+
+    % Plot
+    plot(ax, time_ms, raw, 'k-', 'LineWidth', 0.5);
+    xlabel(ax, 'Time (ms)');
+    ylabel(ax, 'Amplitude');
+    title(ax, sprintf('Epoch %d - Raw Trace', epoch.id));
+    grid(ax, 'on');
+end
+
+function plotSpikeData(ax, epoch)
+    % Plot spike data (raster and PSTH)
+    spike_times = epoch.spike_data.spike_times;
     if iscell(spike_times)
         spike_times = spike_times{1};
     end
@@ -163,31 +179,6 @@ function addParameterInfo(ax, params)
     end
 end
 
-function plotSpikeRaster_old(spike_times, epoch)     spike_times = spike_times{1};
-    end
-    
-    if isempty(spike_times)
-        text(ax, 0.5, 0.5, 'No spikes in epoch', ...
-            'HorizontalAlignment', 'center', 'FontSize', 11);
-        return;
-    end
-    
-    % Create 2x1 subplot layout
-    % Top: Spike raster
-    % Bottom: PSTH
-    
-    subplot(2, 1, 1, 'Parent', get(ax, 'Parent'));
-    plotSpikeRaster(spike_times);
-    title(sprintf('Epoch %d - Cell %d', epoch.id, epoch.cell_id));
-    
-    subplot(2, 1, 2, 'Parent', get(ax, 'Parent'));
-    plotPSTH(spike_times);
-    
-    % Add parameter info if available
-    if isfield(epoch, 'parameters') && ~isempty(epoch.parameters)
-        addParameterText(epoch.parameters);
-    end
-end
 
 function plotSpikeRaster(spike_times)
     % Plot spike raster for single trial or multiple trials
@@ -255,11 +246,11 @@ function plotPSTH(spike_times)
     ylabel('Spike Rate (Hz)');
     title('PSTH (smoothed)');
     grid on;
-    xlim([0 max(spike_times)]);
-end
-if ~isempty(spike_times)
+    if ~isempty(spike_times)
         xlim([0 max(spike_times)]);
     end
+end
+
 function plotBlockSummary(ax, block)
     % Summary for epoch block
     
