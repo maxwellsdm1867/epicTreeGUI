@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "matlab": {
+      "type": "stdio",
+      "command": "/Users/maxwellsdm/bin/matlab-mcp-core-server",
+      "args": [
+        "--matlab-root=/Applications/MATLAB_R2022a.app",
+        "--initial-working-folder=/Users/maxwellsdm/Documents/GitHub/epicTreeGUI",
+        "--initialize-matlab-on-startup=true"
+      ]
+    }
+  }
+}
