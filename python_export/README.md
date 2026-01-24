@@ -1,6 +1,40 @@
-# Python to MATLAB Export Tool
+# Python to MATLAB Export Tools
 
-This directory contains tools for exporting RetinAnalysis pipeline data to MATLAB-readable formats.
+This directory contains two export tools:
+
+1. **DataJoint Export** (`export_to_epictree.py`) - Export from DataJoint database to EpicTreeGUI standard format
+2. **RetinAnalysis Export** (`matlab_export.py`) - Export RetinAnalysis pipeline data to MATLAB
+
+## Which Tool Should I Use?
+
+- **Use DataJoint Export** if you have data in a DataJoint database and want full control over querying
+- **Use RetinAnalysis Export** if you're working with MEAPipeline objects directly
+
+---
+
+## Option 1: DataJoint Export (Recommended for Database Queries)
+
+This exports data from DataJoint database to the standardized EpicTreeGUI format.
+
+### Quick Start
+
+```bash
+python export_to_epictree.py
+```
+
+Follow the interactive prompts to select experiments, cell types, and protocols.
+
+### Documentation
+
+- **Export Guide**: [EXPORT_GUIDE.md](EXPORT_GUIDE.md) - Complete usage instructions
+- **Format Specification**: [../DATA_FORMAT_SPECIFICATION.md](../DATA_FORMAT_SPECIFICATION.md)
+- **Workflow Guide**: [../WORKFLOW_GUIDE.md](../WORKFLOW_GUIDE.md)
+
+---
+
+## RetinAnalysis Export (For Direct Pipeline Access)
+
+This exports RetinAnalysis pipeline data to MATLAB-readable formats.
 
 ## Quick Start
 

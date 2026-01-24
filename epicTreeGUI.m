@@ -53,14 +53,15 @@ function epicTreeGUI()
     addSampleTree(tree);
 
     % Nested callback functions
-    function onTreeSelection(src, event)
+    function onTreeSelection(~, event)
         % Handle tree node selection
         selectedNode = event.SelectedNodes;
         if ~isempty(selectedNode)
             handles = fig.UserData;
             nodeData = selectedNode.NodeData;
             if ~isempty(nodeData)
-                handles.dataDisplay.Value = formatNodeData(nodeData);
+                % Use the standard format display function
+                handles.dataDisplay.Value = formatEpicNodeData(nodeData);
             else
                 handles.dataDisplay.Value = sprintf('Selected: %s', selectedNode.Text);
             end
@@ -73,9 +74,27 @@ function epicTreeGUI()
                                  'Select Epoch Tree Data');
         if file ~= 0
             try
-                data = load(fullfile(path, file));
-                % TODO: Populate tree with loaded data
-                uialert(fig, 'Data loaded successfully!', 'Success');
+                % Load data using standard format loader
+                [treeData, metadata] = loadEpicTreeData(fullfile(path, file));
+
+                % Store in figure UserData
+                handles = fig.UserData;
+                handles.treeData = treeData;
+                handles.metadata = metadata;
+                fig.UserData = handles;
+
+                % Build tree
+                buildTreeFromEpicData(handles.tree, treeData);
+
+                % Show success message with summary
+                msg = sprintf(['Data loaded successfully!\n\n', ...
+                              'Experiments: %d\n', ...
+                              'Source: %s\n', ...
+                              'Created: %s'], ...
+                              length(treeData.experiments), ...
+                              metadata.data_source, ...
+                              metadata.created_date);
+                uialert(fig, msg, 'Success');
             catch ME
                 uialert(fig, ME.message, 'Error Loading Data');
             end
@@ -111,24 +130,3 @@ function addSampleTree(tree)
     expand(tree);
 end
 
-function str = formatNodeData(data)
-    % Format node data for display
-    if isempty(data)
-        str = 'No data available';
-        return;
-    end
-
-    fields = fieldnames(data);
-    str = cell(length(fields), 1);
-
-    for i = 1:length(fields)
-        value = data.(fields{i});
-        if isnumeric(value)
-            str{i} = sprintf('%s: %s', fields{i}, num2str(value));
-        elseif ischar(value)
-            str{i} = sprintf('%s: %s', fields{i}, value);
-        else
-            str{i} = sprintf('%s: [%s]', fields{i}, class(value));
-        end
-    end
-end
