@@ -29,10 +29,18 @@ try
             end
         elseif iscell(fval)
             fprintf('[cell array %s]\n', mat2str(size(fval)));
+            % Show first element if it exists
+            if ~isempty(fval)
+                fprintf('    First element type: %s\n', class(fval{1}));
+            end
         elseif isnumeric(fval) || islogical(fval)
             fprintf('[%s %s]\n', class(fval), mat2str(size(fval)));
         elseif ischar(fval)
-            fprintf('[string]: "%s"\n', fval);
+            if length(fval) < 50
+                fprintf('[string]: "%s"\n', fval);
+            else
+                fprintf('[string]: "%s..."\n', fval(1:50));
+            end
         else
             fprintf('[%s]\n', class(fval));
         end
@@ -43,7 +51,7 @@ try
     if isfield(data, 'format_version')
         fprintf('✓ Has format_version: %s\n', data.format_version);
     else
-        fprintf('✗ Missing format_version\n');
+        fprintf('✗ Missing format_version (this is OK for custom formats)\n');
     end
     
     if isfield(data, 'metadata')
@@ -56,9 +64,39 @@ try
         fprintf('✓ Has experiments\n');
         if isstruct(data.experiments)
             fprintf('  Number of experiments: %d\n', length(data.experiments));
+            if length(data.experiments) > 0
+                fprintf('\n  First experiment fields:\n');
+                exp_fields = fieldnames(data.experiments(1));
+                for i = 1:min(10, length(exp_fields))
+                    fprintf('    - %s\n', exp_fields{i});
+                end
+            end
         end
     else
-        fprintf('✗ Missing experiments\n');
+        fprintf('✗ Missing experiments field\n');
+        fprintf('\n=== Checking for alternative data structures ===\n');
+        
+        % Check for epoch data
+        if isfield(data, 'epochs')
+            fprintf('Found "epochs" field\n');
+            if isstruct(data.epochs) && length(data.epochs) > 0
+                fprintf('  First epoch fields:\n');
+                e_fields = fieldnames(data.epochs(1));
+                for i = 1:length(e_fields)
+                    fprintf('    - %s\n', e_fields{i});
+                end
+            end
+        end
+        
+        % Check for responses
+        if isfield(data, 'responses')
+            fprintf('Found "responses" field\n');
+        end
+        
+        % Check for raw traces
+        if isfield(data, 'amp_data') || isfield(data, 'trace')
+            fprintf('Found raw data field\n');
+        end
     end
     
 catch ME
@@ -68,3 +106,4 @@ catch ME
         fprintf('  %s (line %d)\n', ME.stack(i).name, ME.stack(i).line);
     end
 end
+

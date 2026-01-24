@@ -202,9 +202,7 @@ function plotSpikeRaster(spike_times)
                     'Color', 'k', 'LineWidth', 1);
             end
         end
-    if ~isempty(spike_times)
-        xlim([0 max(spike_times)]);
-    end);
+        ylim([0.5 n_trials+0.5]);
         ylabel('Trial');
     else
         % Single trial
@@ -259,7 +257,9 @@ function plotPSTH(spike_times)
     grid on;
     xlim([0 max(spike_times)]);
 end
-
+if ~isempty(spike_times)
+        xlim([0 max(spike_times)]);
+    end
 function plotBlockSummary(ax, block)
     % Summary for epoch block
     
