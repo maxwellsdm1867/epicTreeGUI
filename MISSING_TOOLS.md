@@ -133,7 +133,34 @@ end
 
 ---
 
-## Priority 4: MEDIUM (Data Extraction Utilities) 🔴 NOT DONE
+## Priority 4: MEDIUM (Data Extraction Utilities) ✅ CRITICAL ONE DONE
+
+### P4.0: getSelectedData() **⭐ MOST CRITICAL**
+**Status**: ✅ DONE  
+**Location**: [src/getSelectedData.m](src/getSelectedData.m)  
+**Purpose**: Extract response data from selected epochs - **REQUIRED BY ALL ANALYSIS FUNCTIONS**  
+**Usage Pattern**: Used 20+ times in old code (RFAnalysis, LSTA, SpatioTemporalModel, etc.)  
+**Signature**:
+```matlab
+epochData = getSelectedData(treeData, epochIndices, streamName)
+% Inputs:
+%   treeData: EpicTreeGUI data structure
+%   epochIndices: [1 x N] array of epoch indices
+%   streamName: 'Amp1', 'Amp2', 'Cell', 'Frame Monitor'
+% Output:
+%   epochData: [nEpochs x nSamples] matrix or cell array (for spikes)
+```
+**What it does**:
+- Flattens tree hierarchy to access epochs by index
+- Extracts response data based on stream name
+- Returns matrix format compatible with old analysis code
+- Handles multiple amplifier channels and spike data
+
+**Legacy equivalent**:
+```matlab
+% OLD: tempData = riekesuite.getResponseMatrix(epochList, streamName);
+% NEW: epochData = getSelectedData(treeData, epochIndices, streamName);
+```
 
 ### P4.1: getMeanResponseTrace()
 **Status**: Not yet integrated with real data  

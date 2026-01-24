@@ -94,6 +94,7 @@ The original epochtree system used **Java AuiEpochTree objects** with dynamic sp
 - **GUI Integration**: Tree panel, data viewer, split dropdown menu
 - **Basic Splitters**: `splitOnCellType()`, `splitOnParameter()` (generic)
 - **Data Display**: Raw traces, spike rasters, PSTH plots with smoothing
+- **⭐ Data Extraction**: `getSelectedData()` - **CRITICAL** function used by ALL analysis functions
 
 ### 🟡 In Progress (Phase 4-5)
 - **Additional Splitters**: Date, keywords, 11+ specific parameter splitters
@@ -205,12 +206,13 @@ export_to_epictree           Display tree
 ✅ Basic data display (traces, spikes, PSTH)  
 ✅ 2 splitters (cellType, parameter)  
 ✅ Complete infrastructure analysis  
+✅ **getSelectedData() - THE critical function for all analysis**  
 
 ### Next Steps (Priority Order)
 1. **P2 (High)**: Implement `splitOnExperimentDate.m`, `splitOnKeywords.m`
 2. **P3 (Medium)**: Implement 11+ specific parameter splitters
-3. **P4 (Medium)**: Data extraction utilities (`getMeanResponseTrace`, etc.)
-4. **P5 (High)**: Adapt analysis functions from old_epochtree/
+3. **P4 (Medium)**: Remaining data extraction utilities (`getMeanResponseTrace`, etc.)
+4. **P5 (High)**: Adapt analysis functions from old_epochtree/ (now possible with getSelectedData!)
 
 ### Implementation Guide
 
@@ -271,6 +273,7 @@ When adding new splitters or analysis functions:
 - [epicTreeGUI.m](epicTreeGUI.m) - Lines 1-126: Main GUI with tree, viewer, dropdown
 - [src/rebuildTreeWithSplit.m](src/rebuildTreeWithSplit.m) - Dynamic reorganization router
 - [src/displayNodeData.m](src/displayNodeData.m) - Plot raw traces, spike rasters, PSTH
+- [src/getSelectedData.m](src/getSelectedData.m) - ⭐ Extract response data (CRITICAL for all analysis)
 - [src/splitters/splitOnCellType.m](src/splitters/splitOnCellType.m) - Cell type organization
 - [src/splitters/splitOnParameter.m](src/splitters/splitOnParameter.m) - Generic parameter splits
 
