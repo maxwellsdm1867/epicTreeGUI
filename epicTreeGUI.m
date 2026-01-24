@@ -13,28 +13,42 @@ function epicTreeGUI()
                    'Position', [100 100 1000 600]);
 
     % Create grid layout
-    grid = uigridlayout(fig, [1 2]);
+    grid = uigridlayout(fig, [2 2]);
+    grid.RowHeight = {'fit', '1x'};
     grid.ColumnWidth = {'1x', '2x'};
 
     % Left panel - Tree navigation
     leftPanel = uipanel(grid, 'Title', 'Epoch Tree');
-    leftPanel.Layout.Row = 1;
+    leftPanel.Layout.Row = 2;
     leftPanel.Layout.Column = 1;
+
+    % Splitter control panel (top left)
+    controlPanel = uipanel(grid, 'Title', 'Tree Organization');
+    controlPanel.Layout.Row = 1;
+    controlPanel.Layout.Column = 1;
+
+    % Create split selector dropdown
+    uilabel(controlPanel, 'Text', 'Split by:', ...
+        'Position', [10 40 60 20]);
+    splitDropdown = uidropdown(controlPanel, ...
+        'Position', [75 40 200 20], ...
+        'Items', {'None', 'Cell Type', 'Contrast', 'Size', 'Temporal Frequency'}, ...
+        'ItemsData', {'none', 'cellType', 'contrast', 'size', 'temporalFrequency'}, ...
+        'ValueChangedFcn', @(src, event) onSplitChanged(src, event));
 
     % Right panel - Data display
     rightPanel = uipanel(grid, 'Title', 'Data View');
-    rightPanel.Layout.Row = 1;
+    rightPanel.Layout.Row = [1 2];
     rightPanel.Layout.Column = 2;
 
     % Create tree component
     tree = uitree(leftPanel, ...
-                  'Position', [10 50 280 500], ...
+                  'Position', [10 10 280 500], ...
                   'SelectionChangedFcn', @(src, event) onTreeSelection(src, event));
 
-    % Create text area for data display
-    dataDisplay = uitextarea(rightPanel, ...
-                            'Position', [10 10 580 540], ...
-                            'Editable', 'off');
+    % Create axes for plots instead of text area
+    dataAxes = axes('Parent', rightPanel, ...
+                   'Position', [0.05 0.05 0.9 0.9]);
 
     % Add menu bar
     menuFile = uimenu(fig, 'Text', 'File');
@@ -46,7 +60,10 @@ function epicTreeGUI()
 
     % Store handles in figure UserData
     handles.tree = tree;
-    handles.dataDisplay = dataDisplay;
+    handles.dataAxes = dataAxes;
+    handles.splitDropdown = splitDropdown;
+    handles.treeData = [];
+    handles.metadata = [];
     fig.UserData = handles;
 
     % Add sample data
@@ -57,18 +74,35 @@ function epicTreeGUI()
         % Handle tree node selection
         selectedNode = event.SelectedNodes;
         if ~isempty(selectedNode)
-            handles = fig.UserData;
-            nodeData = selectedNode.NodeData;
-            if ~isempty(nodeData)
-                % Use the standard format display function
-                handles.dataDisplay.Value = formatEpicNodeData(nodeData);
+            handles = fig.visual display function
+                displayNodeData(handles.dataAxes, nodeData, handles.treeData);
             else
-                handles.dataDisplay.Value = sprintf('Selected: %s', selectedNode.Text);
+                cla(handles.dataAxes);
+                text(handles.dataAxes, 0.5, 0.5, sprintf('Selected: %s', selectedNode.Text), ...
+                    'HorizontalAlignment', 'center');
             end
         end
     end
 
-    function loadData()
+    function onSplitChanged(~, event)
+        % Handle split method change
+        handles = fig.UserData;
+        
+        if isempty(handles.treeData)
+            return;
+        end
+        
+        splitMethod = event.Value;
+        
+        % Rebuild tree with new split
+        rebuildTreeWithSplit(handles.tree, handles.treeData, splitMethod); else
+                handles.dataDisplay.Value = sprintf('Selected: %s', selectedNode.Text);
+            end
+        end
+    end
+ with current split method
+                splitMethod = handles.splitDropdown.Value;
+                rebuildTreeWithSplit(handles.tree, treeData, splitMethod
         % Load epoch tree data from file
         [file, path] = uigetfile({'*.mat', 'MATLAB Data Files (*.mat)'}, ...
                                  'Select Epoch Tree Data');
