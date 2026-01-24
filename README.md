@@ -102,7 +102,8 @@ The original epochtree system used **Java AuiEpochTree objects** with dynamic sp
 - **Analysis Functions**: RFAnalysis, LSTA, SpatioTemporalModel (adapting from old_epochtree/)
 
 ### 📋 Documentation Complete
-- **[trd](trd)**: Full technical specification (2100+ lines, Section 0 added Jan 2026)
+- **[trd](trd)**: Full technical specification (2100+ lines, Section 0.8 added Jan 2026)
+- **[JAUIMODEL_FUNCTION_INVENTORY.md](JAUIMODEL_FUNCTION_INVENTORY.md)**: Complete JAR decompilation with all function signatures, inputs, outputs, and dependencies (NEW)
 - **[RIEKE_LAB_INFRASTRUCTURE_SPECIFICATION.md](RIEKE_LAB_INFRASTRUCTURE_SPECIFICATION.md)**: Legacy system analysis (1000+ lines)
 - **[MISSING_TOOLS.md](MISSING_TOOLS.md)**: Implementation checklist (50+ functions, priority-ranked)
 - **[DESIGN_VERIFICATION.md](DESIGN_VERIFICATION.md)**: Verification of complete feature coverage
@@ -277,10 +278,43 @@ When adding new splitters or analysis functions:
 - [src/splitters/splitOnCellType.m](src/splitters/splitOnCellType.m) - Cell type organization
 - [src/splitters/splitOnParameter.m](src/splitters/splitOnParameter.m) - Generic parameter splits
 
+**Tree Utilities** (✅ NEW - Jan 2026):
+- [src/tree/epicTreeTools.m](src/tree/epicTreeTools.m) - **Main class** with all tree functions
+- [src/tree/README.md](src/tree/README.md) - Usage documentation
+
+```matlab
+% Quick example using epicTreeTools class
+data = loadEpicTreeData('experiment.mat');
+tree = epicTreeTools(data);
+tree.buildTree({'cellInfo.type', 'protocolSettings.contrast'});
+onpNode = tree.childBySplitValue('OnP');
+leaves = tree.leafNodes();
+```
+
 **Reference Documentation**:
-- [trd](trd) - Section 0: Legacy infrastructure mapping (NEW Jan 2026)
+
+- [trd](trd) - Section 0.8: JAR function inventory with complete API spec (NEW Jan 2026)
+- [JAUIMODEL_FUNCTION_INVENTORY.md](JAUIMODEL_FUNCTION_INVENTORY.md) - Complete decompilation of jenkins-jauimodel-275.jar with all functions, inputs, outputs, dependencies
 - [RIEKE_LAB_INFRASTRUCTURE_SPECIFICATION.md](RIEKE_LAB_INFRASTRUCTURE_SPECIFICATION.md) - 183 Java classes analyzed
-- [MISSING_TOOLS.md](MISSING_TOOLS.md) - 50+ functions to implement (priority-ranked) │   ├── SpatioTemporalModel.m
+- [MISSING_TOOLS.md](MISSING_TOOLS.md) - 50+ functions to implement (priority-ranked)
+
+### Core MATLAB Functions (✅ IMPLEMENTED via epicTreeTools class)
+
+All functions packaged in the `epicTreeTools` class. See [src/tree/README.md](src/tree/README.md) for usage examples.
+
+| Status | epicTreeTools Method | Java Equivalent | What It Does |
+|--------|---------------------|-----------------|--------------|
+| ✅ | `tree.buildTree(keyPaths)` | `buildTree()` | Group epochs hierarchically by key paths |
+| ✅ | `tree.sortedBy(keyPath)` | `sortedBy()` | Sort epochs by any nested property |
+| ✅ | `epicTreeTools.getNestedValue(obj, keyPath)` | `protocolSettings(key)` | Access nested parameters (static) |
+| ✅ | `tree.childBySplitValue(value)` | `childBySplitValue()` | Navigate tree by split value |
+| ✅ | `node.splitValues()` | `splitValues()` | Get all split params from root to node |
+| ✅ | `epicTreeTools.getResponseData(epoch, name)` | `response.data()` | Get response waveform (static) |
+| ✅ | `tree.leafNodes()` | `leafNodes()` | Get all leaf nodes for batch processing |
+| ✅ | `tree.responseStreamNames()` | `stimuliStreamNames()` | List available streams |
+| ✅ | `epicTreeTools(data)` constructor | `epochList.elements()` | Flatten hierarchy to epoch list |
+
+**Note**: We do NOT replicate the data loading layer (EntityLoader, CoreData, JNI) - that was the old database frontend. We only need the tree organization and data access patterns, which work on our Python-exported MAT files. │   ├── SpatioTemporalModel.m
 │   │   └── ...
 │   ├── splitters/         # Reorganization functions
 │   │   ├── splitOnCellType.m

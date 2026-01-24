@@ -1,1742 +1,1116 @@
-# EpicTreeGUI: Simple Epoch Browser for RetinAnalysis Data
+# EpicTreeGUI: Pure MATLAB Epoch Tree Browser
 
 ## Executive Summary
 
-Build a lightweight MATLAB GUI for browsing epoch data exported from the RetinAnalysis Python pipeline.
+Build a **pure MATLAB** GUI for browsing and analyzing epoch data, replicating ALL functionality from the legacy Rieke Lab epoch tree system (Java/MATLAB), but operating on the standardized data format defined in [DATA_FORMAT_SPECIFICATION.md](DATA_FORMAT_SPECIFICATION.md).
 
-**Scope:**
-- **Python side**: Add JSON/MAT export to existing pipeline (extends current pickle export)
-- **MATLAB side**: Full-featured tree browser GUI with ALL functionality from old epochtree
-  - Tree browser with multiple split functions
-  - Single epoch viewer
-  - All analysis functions: RFAnalysis, LSTA, SpatioTemporalModel, CenterSurround, etc.
-  - MeanSelectedNodes for comparing conditions
-  - Data extraction utilities
-- **Focus**: Complete GUI replication, but with new data source (Python exports)
+**Key Design Decisions:**
+1. **Pure MATLAB** - No Java dependencies. All functionality implemented in native MATLAB.
+2. **Standard Data Format** - Uses `.mat` files conforming to [DATA_FORMAT_SPECIFICATION.md](DATA_FORMAT_SPECIFICATION.md)
+3. **Full Feature Parity** - Replicates ALL functionality from old epochtree system
+
+**Reference Documents:**
+- [EPOCH_TREE_SYSTEM_COMPREHENSIVE_GUIDE.md](EPOCH_TREE_SYSTEM_COMPREHENSIVE_GUIDE.md) - Complete technical analysis of legacy system
+- [DATA_FORMAT_SPECIFICATION.md](DATA_FORMAT_SPECIFICATION.md) - Input data format specification
+- [JAUIMODEL_FUNCTION_INVENTORY.md](JAUIMODEL_FUNCTION_INVENTORY.md) - Legacy Java API reference
 
 ---
 
-## 0. RIEKE LAB INFRASTRUCTURE ANALYSIS & ADAPTATION
+## 1. ARCHITECTURE OVERVIEW
 
-**Critical Discovery**: This project must replicate ALL functionality from the legacy Rieke lab infrastructure (Java/MATLAB system using Symphony database). Complete specification available in [RIEKE_LAB_INFRASTRUCTURE_SPECIFICATION.md](RIEKE_LAB_INFRASTRUCTURE_SPECIFICATION.md).
+### 1.1 System Architecture
 
-### 0.1 Legacy System Components to Replicate
-
-**Legacy Java Classes (from jenkins-jauimodel-275.jar):**
-1. `edu.washington.rieke.Analysis` - Entry point
-   - `getEntityLoader()` → Returns EntityLoader for loading epoch data
-   - `getEpochTreeFactory()` → Returns factory for building trees
-   - `getEpochListFactory()` → Returns factory for epoch lists
-
-2. `edu.washington.rieke.symphony.internal.EntityLoader`
-   - **Purpose**: Load epoch data from exported .mat files
-   - **Method**: `loadEpochList(filePath, dataFolder)` → Returns list of all epochs
-   - **Output**: EpochList containing epochs with metadata, responses, timing
-   - **New MATLAB Equivalent**: `loadEpicTreeData(matFilePath)` function in EpochData class
-
-3. `edu.washington.rieke.symphony.internal.EpochTreeFactory`
-   - **Purpose**: Convert flat epoch list into hierarchical tree structure
-   - **Method**: `buildTree(epochList, splitCriteria)` → Returns organized EpochTree
-   - **Split Criteria**: Array of strings/functions specifying organization method
-   - **New MATLAB Equivalent**: `buildTreeFromEpicData(epicTreeData, splitCriteria)` function
-
-4. `edu.washington.rieke.symphony.internal.EpochTree` (Data Structure)
-   - **Purpose**: Hierarchical node-based organization of epoch data
-   - **Properties**: 
-     - `splitValue` - The organizing criterion value (e.g., "2025-01-01", "ON parasol")
-     - `children` - ArrayList of child TreeNodes
-     - `epochList` - Raw epochs at this level
-   - **New MATLAB Equivalent**: TreeNode struct or class with recursive structure
-
-### 0.2 Protocol Settings Map
-
-**Legacy API Pattern**:
-```matlab
-% Access stimulus parameters via protocolSettings map
-preTime = epoch.protocolSettings.get('preTime')          % Pre-stim duration (ms)
-stimTime = epoch.protocolSettings.get('stimTime')        % Stimulus duration (ms)
-contrast = epoch.protocolSettings.get('contrast')        % Contrast level
-cellType = epoch.protocolSettings.get('cellType')        % Cell type label
-equivalentIntensity = epoch.protocolSettings.get('equivalentIntensity')
-annulusOuter = epoch.protocolSettings.get('annulusOuterDiameter')
-% ... 20+ other parameters
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DATA PACKAGING LAYER (External)                           │
+│  Python/DataJoint → Exports to Standard .mat Format                         │
+└──────────────────────────────┬──────────────────────────────────────────────┘
+                               │ Standard .mat file
+                               ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       PURE MATLAB EPIC TREE GUI                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐           │
+│  │  EpochData.m    │   │  EpochTree.m    │   │  Epoch.m        │           │
+│  │  (Data Loader)  │──▶│  (Tree Node)    │──▶│  (Single Epoch) │           │
+│  └─────────────────┘   └─────────────────┘   └─────────────────┘           │
+│           │                    │                                             │
+│           ▼                    ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────┐           │
+│  │                    epicTreeGUI.m                             │           │
+│  │  ├── Tree Browser Panel (graphicalTree)                     │           │
+│  │  ├── Viewer Panel (singleEpoch)                             │           │
+│  │  └── Split Key Selector                                      │           │
+│  └─────────────────────────────────────────────────────────────┘           │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐           │
+│  │              Analysis Functions & Utilities                   │           │
+│  │  getMeanResponseTrace, getSelectedData, RFAnalysis, etc.     │           │
+│  └─────────────────────────────────────────────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**New MATLAB Pattern**:
-```matlab
-% Access stimulus parameters via struct
-preTime = epoch.protocolSettings.preTime
-stimTime = epoch.protocolSettings.stimTime
-contrast = epoch.protocolSettings.contrast
-cellType = epoch.protocolSettings.cellType
-% ... same parameters now as struct fields
+### 1.2 Key Insight: Dynamic Tree Organization
+
+The epoch tree is NOT a static visualization—it's a **dynamic data organization system**. The same epochs can be viewed through different organizational lenses by changing the split keys.
+
+**Example:** 100 epochs, same data, different organization:
+```
+Split by Cell Type:           Split by Contrast:
+Root                          Root
+├── OnP (40 epochs)           ├── contrast=0.3 (25 epochs)
+│   ├── Epoch 1               │   ├── Epoch 1
+│   └── ...                   │   └── ...
+├── OffP (35 epochs)          ├── contrast=0.5 (35 epochs)
+│   └── ...                   │   └── ...
+└── OnM (25 epochs)           └── contrast=0.8 (40 epochs)
+    └── ...                       └── ...
 ```
 
-**Key Fields** (from code analysis):
-- Temporal: preTime, stimTime, tailTime, epochStart, epochEnd
-- Spatial: annulusOuterDiameter, annulusInnerDiameter, size, contrast, position
-- Stimulus: imageName, equivalentIntensity, backgroundIntensity, stimulusTag
-- Equipment: sourceType, protocolID, stimulusIndex, stimTime
-- Recording: experiment:rig (rig designation), recordingType (whole-cell/cell-attached)
+**User switches dropdown → entire tree rebuilds with different hierarchy.**
 
-### 0.3 Tree Splitting: The Core Pattern
+---
 
-**Legacy System Approach**:
-Epochs are **dynamically reorganized** by splitter functions applied hierarchically:
+## 2. DATA FORMAT MAPPING
+
+### 2.1 Input: Standard Data Format
+
+The GUI reads `.mat` files conforming to [DATA_FORMAT_SPECIFICATION.md](DATA_FORMAT_SPECIFICATION.md):
 
 ```matlab
-% Define splitter functions
-dateSplit = @(list)splitOnExperimentDate(list);
-dateSplit_java = riekesuite.util.SplitValueFunctionAdapter.buildMap(list, dateSplit);
-keywordSplitter = @(list)splitOnKeywords(list);
-keywordSplitter_java = riekesuite.util.SplitValueFunctionAdapter.buildMap(list, keywordSplitter);
+data = struct(...
+    'format_version', '1.0', ...
+    'metadata', metadata_struct, ...
+    'experiments', experiments_array ...  % Array of experiment structs
+);
 
-% Build hierarchical tree with multiple split criteria
-tree = riekesuite.analysis.buildTree(list, {
-    'protocolSettings(sourceType)',     % Direct field access (Level 1)
-    dateSplit_java,                      % Custom function (Level 2)
-    'cell.label',                        % Direct field access (Level 3)
-    'protocolSettings(equivalentIntensity)'  % Direct field access (Level 4)
+% Each experiment contains:
+experiment.cells → cell.epoch_groups → epoch_group.epoch_blocks → epoch_block.epochs → epoch
+
+% Each epoch contains:
+epoch.id
+epoch.parameters          % Protocol settings (contrast, size, etc.)
+epoch.responses           % Array of response structs
+epoch.stimuli             % Array of stimulus structs
+epoch.start_time
+epoch.frame_times_ms
+```
+
+### 2.2 Mapping: Legacy API → New Data Format
+
+| Legacy Java API | New MATLAB Equivalent | Data Source |
+|-----------------|----------------------|-------------|
+| `epoch.protocolSettings.get('contrast')` | `epoch.parameters.contrast` | epoch.parameters struct |
+| `epoch.protocolSettings.get('preTime')` | `epoch.parameters.preTime` | epoch.parameters struct |
+| `epoch.responses.get('Amp1').data()` | `epoch.responses(1).data` | epoch.responses array |
+| `epoch.cell.label` | `cell.label` | Parent cell struct |
+| `epoch.cell.experiment.startDate` | `experiment.start_time` | Parent experiment struct |
+| `epochList.responseStreamNames()` | `getStreamNames(epochs, 'responses')` | Helper function |
+| `riekesuite.getResponseMatrix(list, stream)` | `getResponseMatrix(epochList, streamName)` | Helper function |
+
+### 2.3 Critical Function: getResponseMatrix
+
+**Purpose:** Extract response data matrix from epoch list (THE most important data access function)
+
+```matlab
+function dataMatrix = getResponseMatrix(epochList, streamName)
+    % Returns: [numEpochs × numSamples] matrix of response data
+    %
+    % Legacy: riekesuite.getResponseMatrix(epochList, 'Amp1')
+    % New:    getResponseMatrix(epochList, 'Amp1')
+
+    numEpochs = length(epochList);
+
+    % Get sample count from first epoch
+    firstResponse = findResponse(epochList{1}, streamName);
+    numSamples = length(firstResponse.data);
+
+    % Pre-allocate
+    dataMatrix = zeros(numEpochs, numSamples);
+
+    % Extract data from each epoch
+    for i = 1:numEpochs
+        response = findResponse(epochList{i}, streamName);
+        dataMatrix(i, :) = response.data;
+    end
+end
+
+function response = findResponse(epoch, streamName)
+    % Find response by device_name
+    for i = 1:length(epoch.responses)
+        if strcmp(epoch.responses(i).device_name, streamName)
+            response = epoch.responses(i);
+            return;
+        end
+    end
+    error('Response stream not found: %s', streamName);
+end
+```
+
+### 2.4 Critical Function: getSelectedData
+
+**Purpose:** Get response matrix filtered by selection state (most-used analysis function)
+
+```matlab
+function epochData = getSelectedData(epochList, streamName)
+    % Returns: Response matrix for only selected epochs
+    %
+    % This is THE critical function for all analysis workflows
+    % Source: old_epochtree/tree-utils/getSelectedData.m
+
+    % Get full response matrix
+    tempData = getResponseMatrix(epochList, streamName);
+
+    % Filter by isSelected flag
+    isSelected = false(length(epochList), 1);
+    for i = 1:length(epochList)
+        isSelected(i) = epochList{i}.isSelected;
+    end
+
+    % Return only selected epochs
+    selectedIndices = find(isSelected);
+    epochData = tempData(selectedIndices, :);
+end
+```
+
+---
+
+## 3. TREE BUILDING ALGORITHM
+
+### 3.1 Core Algorithm: buildTree
+
+**This is the heart of the system.** Implements the same algorithm as `GenericEpochTreeFactory.create()`.
+
+```matlab
+function treeNode = buildTree(epochList, splitKeyPaths)
+    % Build hierarchical tree from flat epoch list
+    %
+    % Input:
+    %   epochList: Cell array of epoch structs
+    %   splitKeyPaths: Cell array of split keys (strings or function handles)
+    %
+    % Output:
+    %   treeNode: Root EpochTree node
+    %
+    % Algorithm:
+    %   1. If no split keys left, create leaf node with epochList
+    %   2. Otherwise, group epochs by value at first key
+    %   3. Create child node for each unique value
+    %   4. Recursively build subtrees with remaining keys
+
+    % Create root node
+    treeNode = EpochTree();
+    treeNode.splitKeyPaths = splitKeyPaths;
+
+    % Call recursive helper
+    buildTreeHelper(treeNode, epochList, splitKeyPaths);
+end
+
+function buildTreeHelper(node, epochs, keyPaths)
+    if isempty(keyPaths)
+        % BASE CASE: Leaf node - store epochs here
+        node.isLeaf = true;
+        node.epochList = epochs;
+        return;
+    end
+
+    % Get current split key
+    currentKey = keyPaths{1};
+    remainingKeys = keyPaths(2:end);
+
+    % Group epochs by value at this key
+    groups = groupEpochsByKey(epochs, currentKey);
+
+    % Sort groups by split value
+    groups = sortGroupsByValue(groups);
+
+    % Create child node for each unique value
+    node.isLeaf = false;
+    node.children = {};
+
+    for i = 1:length(groups)
+        child = EpochTree();
+        child.splitKey = currentKey;
+        child.splitValue = groups{i}.value;
+        child.parent = node;
+
+        % Recursively build subtree
+        buildTreeHelper(child, groups{i}.epochs, remainingKeys);
+
+        node.children{end+1} = child;
+    end
+end
+```
+
+### 3.2 Split Key Types
+
+The system supports TWO types of split keys:
+
+#### Type 1: String Key Paths (Direct Property Access)
+
+```matlab
+% Dot notation for nested properties
+'parameters.contrast'           % epoch.parameters.contrast
+'parameters.preTime'            % epoch.parameters.preTime
+'cell.label'                    % epoch's parent cell label
+'cell.type'                     % epoch's parent cell type
+
+% Legacy syntax support (protocolSettings)
+'protocolSettings(contrast)'    % Maps to: epoch.parameters.contrast
+```
+
+**Key Path Resolution:**
+```matlab
+function value = resolveKeyPath(epoch, keyPath)
+    % Handle legacy protocolSettings syntax
+    if startsWith(keyPath, 'protocolSettings(')
+        paramName = extractBetween(keyPath, '(', ')');
+        keyPath = ['parameters.' paramName{1}];
+    end
+
+    % Split path and traverse
+    parts = strsplit(keyPath, '.');
+    value = epoch;
+    for i = 1:length(parts)
+        if isstruct(value) && isfield(value, parts{i})
+            value = value.(parts{i});
+        else
+            value = [];  % Path not found
+            return;
+        end
+    end
+end
+```
+
+#### Type 2: Custom Split Functions
+
+For complex splitting logic that can't be expressed as a key path:
+
+```matlab
+% Define custom split function
+function value = splitOnExperimentDate(epoch)
+    % Access parent experiment's start time
+    value = datestr(epoch.experiment.start_time, 'yyyy-mm-dd');
+end
+
+function value = splitOnKeywords(epoch)
+    % Concatenate all keywords
+    if isfield(epoch, 'keywords') && ~isempty(epoch.keywords)
+        value = strjoin(epoch.keywords, ', ');
+    else
+        value = 'no keywords';
+    end
+end
+
+function value = splitOnCellType(epoch)
+    % Get cell type from parent cell
+    value = epoch.cell.type;
+end
+```
+
+**Using Custom Functions:**
+```matlab
+% Build tree with mix of key paths and functions
+tree = buildTree(epochList, {
+    @splitOnExperimentDate,       % Level 1: Date
+    'cell.label',                 % Level 2: Cell ID
+    'parameters.contrast',        % Level 3: Contrast
+    @splitOnKeywords              % Level 4: Keywords
 });
 ```
 
-**Result**: 4-level hierarchy
-- Level 1: Source type (e.g., "natural image", "noise")
-- Level 2: Experiment date (e.g., "2025-01-15", "2025-01-16")
-- Level 3: Cell ID (e.g., "Cell 42", "Cell 73")
-- Level 4: Equivalent intensity (e.g., "50000", "70000")
+### 3.3 Grouping Function
 
-**New MATLAB Pattern**:
 ```matlab
-% Define split criteria as cell array
-splitCriteria = {
-    'sourceType',           % Level 1
-    'date',                 % Level 2
-    'cellLabel',            % Level 3
-    'equivalentIntensity'   % Level 4
-};
+function groups = groupEpochsByKey(epochs, splitKey)
+    % Group epochs by value at split key
+    %
+    % Returns: Cell array of structs with fields:
+    %   .value  - The split value
+    %   .epochs - Cell array of epochs with this value
 
-% Build hierarchical tree
-treeData = buildHierarchicalTree(epicTreeData, splitCriteria);
-```
+    valueMap = containers.Map();
 
-**Key Insight**: Each splitter returns unique values for that dimension, and they compose hierarchically to create multi-level organization.
+    for i = 1:length(epochs)
+        epoch = epochs{i};
 
-### 0.4 Two Categories of Split Criteria
-
-**Fixed Splitters** (built-in functions):
-1. `splitOnExperimentDate(epochList)` → Returns unique experiment dates
-2. `splitOnCellType(epochList)` → Returns unique cell types (OnP, OffP, OnM, etc.)
-3. `splitOnKeywords(epochList)` → Returns unique epoch keywords/tags
-4. `splitOnRecKeyword()` - Rec type keywords
-5. `splitOnLogIRtag()` - IR tag values
-6. ... 9+ more specific splitters
-
-**Generic Splitter** (parameterized):
-- `splitOnParameter(epochList, paramName)` → Returns unique values of any parameter
-  - Input: `paramName` = 'contrast', 'size', 'equivalentIntensity', etc.
-  - Automatically extracts from protocolSettings for all epochs
-  - Returns unique values sorted appropriately
-
-**Data Access Pattern**:
-```matlab
-% From old code analysis
-for epoch_idx = 1 : epochList.length
-    epoch = epochList.elements(epoch_idx);
-    
-    % Extract parameter value
-    paramValue = epoch.protocolSettings.get(paramName);
-    
-    % Collect unique values
-    uniqueValues{end+1} = paramValue;
-end
-
-% Return organized structure with epochs grouped by parameter value
-```
-
-### 0.5 Analysis Function Workflow
-
-**Legacy System Pattern** (from lin_equiv_paperfigure.m, SpatioTemporalModel.m):
-
-**Step 1: Tree Navigation** 
-```matlab
-% Recursively traverse tree hierarchy
-for ctype_idx = 1 : rootNode.children.length
-    cellTypeNode = rootNode.children.elements(ctype_idx);
-    
-    for date_idx = 1 : cellTypeNode.children.length
-        dateNode = cellTypeNode.children.elements(date_idx);
-        
-        for cell_idx = 1 : dateNode.children.length
-            cellNode = dateNode.children.elements(cell_idx);
-            
-            % Access raw epochs at this level
-            epochList = cellNode.epochList;
-            
-            % Process epochs
+        % Get split value
+        if isa(splitKey, 'function_handle')
+            value = splitKey(epoch);
+        else
+            value = resolveKeyPath(epoch, splitKey);
         end
+
+        % Convert to string key for map
+        valueKey = valueToKey(value);
+
+        % Add to group
+        if valueMap.isKey(valueKey)
+            valueMap(valueKey) = [valueMap(valueKey), {epoch}];
+        else
+            valueMap(valueKey) = {epoch};
+        end
+    end
+
+    % Convert map to cell array of structs
+    keys = valueMap.keys();
+    groups = cell(length(keys), 1);
+    for i = 1:length(keys)
+        groups{i}.value = keyToValue(keys{i});
+        groups{i}.epochs = valueMap(keys{i});
     end
 end
 ```
 
-**Step 2: Epoch Data Extraction**
-```matlab
-% Get response data for each epoch
-for epoch_idx = 1 : epochList.length
-    epoch = epochList.elements(epoch_idx);
-    
-    % Extract timing
-    preTime = epoch.protocolSettings.get('preTime') * 1e-3;        % Convert to seconds
-    stimTime = epoch.protocolSettings.get('stimTime') * 1e-3;
-    tailTime = epoch.protocolSettings.get('tailTime') * 1e-3;
-    
-    % Extract response data
-    response = epoch.get(params.Amp);  % "Amp1", "Amp2", etc. → [nSamples]
-    
-    % Extract stimulus parameters
-    contrast = epoch.protocolSettings.get('contrast');
-    imageID = epoch.protocolSettings.get('imageName');
-end
-```
-
-**Step 3: Spike Processing** (for cell-attached recordings)
-```matlab
-% Convert voltage trace to spike train
-if CellAttachedFlag
-    for epoch = 1:size(response, 1)
-        [SpikeTimes, SpikeAmplitudes, RefractoryViolations] = ...
-            SpikeDetection.Detector(response(epoch, :));
-        
-        % Convert to impulse format
-        spikeTrainResponse(epoch, :) = 0;
-        spikeTrainResponse(epoch, SpikeTimes) = 1 / samplingInterval;
-    end
-end
-```
-
-**New MATLAB Pattern**:
-```matlab
-% Navigate MATLAB tree structure
-function processTreeNode(treeNode)
-    if ~isempty(treeNode.epochList)
-        % Process epochs at this node
-        for idx = 1:length(treeNode.epochList)
-            epoch = treeNode.epochList(idx);
-            
-            % Extract timing and response
-            preTime = epoch.preTime / 1000;      % Already in ms, convert to s
-            response = epoch.response;           % [1 x nSamples]
-            
-            % Extract parameters
-            contrast = epoch.protocolSettings.contrast;
-            
-            % Process...
-        end
-    else
-        % Recurse to children
-        for i = 1:length(treeNode.children)
-            processTreeNode(treeNode.children{i});
-        end
-    end
-end
-```
-
-### 0.6 Critical Mapping: Legacy → New
-
-| Legacy Component | Legacy File | New MATLAB Equivalent | New File |
-|-----------------|------------|----------------------|----------|
-| EntityLoader | jenkins-jauimodel-275.jar | loadEpicTreeData() | src/core/EpochData.m |
-| EpochTreeFactory | jenkins-jauimodel-275.jar | buildTreeFromEpicData() | src/gui/epicTreeGUI.m |
-| EpochTree (data structure) | jenkins-jauimodel-275.jar | TreeNode struct | src/core/TreeNode.m |
-| protocolSettings map | Epoch objects | MATLAB struct | epoch.protocolSettings |
-| splitOnCellType() | old_epochtree/*.m | splitOnCellType.m | src/splitters/splitOnCellType.m ✅ |
-| splitOnParameter() | old_epochtree/*.m | splitOnParameter.m | src/splitters/splitOnParameter.m ✅ |
-| splitOnExperimentDate() | old_epochtree/*.m | splitOnExperimentDate.m | src/splitters/splitOnExperimentDate.m |
-| 11 more splitters | old_epochtree/*.m | Individual .m files | src/splitters/*.m |
-| RFAnalysis.m | old_epochtree/RFAnalysis.m | RFAnalysis.m | src/analysis/RFAnalysis.m |
-| LSTA.m | old_epochtree/LSTA.m | LSTA.m | src/analysis/LSTA.m |
-| SpatioTemporalModel.m | old_epochtree/SpatioTemporalModel.m | SpatioTemporalModel.m | src/analysis/SpatioTemporalModel.m |
-| (+ 5 more) | old_epochtree/*.m | Individual .m files | src/analysis/*.m |
-
-### 0.7 Missing Tools for EpicTree
-
-Based on analysis of legacy system and application to new data format, these tools must be created:
-
-**Phase 1: Core Data Layer** ✅ CRITICAL
-1. `loadEpicTreeData(matFilePath)` - Load .mat file, structure data
-2. TreeNode class/struct - Hierarchical data structure
-3. Adapter methods - Bridge old API to new data format
-
-**Phase 2: Tree Organization** ✅ CRITICAL
-1. `buildTreeFromEpicData(epicTreeData, splitCriteria)` - Build hierarchical tree
-2. `splitOnExperimentDate()` - Basic splitter (not yet done)
-3. `splitOnKeywords()` - Keyword-based splitting (not yet done)
-4. `rebuildTreeWithSplit()` - Dynamic tree reorganization ✅ DONE
-5. Tree integration with GUI - Dynamic split dropdown
-
-**Phase 3: Additional Splitters** 🔴 HIGH PRIORITY
-- `splitOnF1F2Contrast.m`
-- `splitOnF1F2CenterSize.m`
-- `splitOnF1F2Phase.m`
-- `splitOnRadiusOrDiameter.m`
-- `splitOnHoldingSignal.m`
-- `splitOnOLEDLevel.m`
-- `splitOnRecKeyword.m`
-- `splitOnLogIRtag.m`
-- `splitOnJavaArrayList.m`
-- `splitOnPatchContrast_NatImage.m`
-- `splitOnPatchSampling_NatImage.m`
-- (+ any others from legacy code)
-
-**Phase 4: Analysis Function Integration** 🟡 MEDIUM PRIORITY
-All functions need updating to work with new data format:
-1. RFAnalysis.m - RF visualization, parameter access
-2. LSTA.m - Spike-triggered averaging
-3. SpatioTemporalModel.m - LN cascade models
-4. CenterSurround.m - Size tuning analysis
-5. Interneurons.m - Interneuron-specific analysis
-6. Occlusion.m - Occlusion tuning
-7. MeanSelectedNodes.m - Multi-condition comparison
-8. RFAnalysis2.m - Extended RF analysis
-
-**Phase 5: Data Extraction Utilities** 🟡 MEDIUM PRIORITY
-1. `getSelectedData()` - Generic data accessor (replace old method)
-2. `getMeanResponseTrace()` - PSTH computation
-3. `getResponseAmplitudeStats()` - Response statistics
-4. `getCycleAverageResponse()` - Cycle-averaged response
-5. `getF1F2statistics()` - Fourier component analysis
-6. `getLinearFilterAndPrediction()` - Filter computation
-7. `getNoiseStimulusAndResponse()` - Noise reconstruction
-8. `getTreeEpochs()` - Tree traversal
-9. `filterEpochListByEpochGroups()` - Filtering
-10. `makeUniformEpochList()` - Parameter uniformity
-
 ---
 
-## 1. CURRENT STATE ANALYSIS
+## 4. DATA STRUCTURES
 
-### 1.1 Existing Python Export Capability
-
-**What exists:**
-- All classes have `export_to_pkl()` methods
-  - MEAPipeline, MEAResponseBlock, MEAStimBlock, AnalysisChunk
-- Exports via `pickle.dump(self.__dict__,f)`
-- Includes: spike times, cell IDs, cell types, RF parameters, stimulus parameters, timing info
-
-**Pickle export structure (from mea_pipeline.py:481-497):**
-```python
-d_out = {
-    '__dict__': self.__dict__.copy(),
-    'stim_block': self.stim_block.__dict__,
-    'response_block': self.response_block.__dict__,
-    'analysis_chunk': self.analysis_chunk.__dict__,
-    'match_dict': {...},  # noise_id -> protocol_id
-    'corr_dict': {...},   # correlation confidence
-    'typing_file': str
-}
-```
-
-**What's missing:**
-- No JSON export
-- No MATLAB-compatible format (`.mat` file)
-- No selective export (all or nothing)
-- No filtering by cell type, epochs, etc.
-
-### 1.2 Key Data Structures to Export
-
-**From MEAResponseBlock:**
-```python
-df_spike_times = pd.DataFrame({
-    'cell_id': [1, 2, 3, ...],
-    'spike_times': [
-        [[epoch0_spikes], [epoch1_spikes], ...],  # nested lists
-        ...
-    ],
-    'noise_id': [matched noise ID],
-    'cell_type': ['OnP', 'OffP', ...]
-})
-
-d_timing = {
-    'epochStarts': np.array([...]),  # ms
-    'epochEnds': np.array([...]),
-    'frameTimesMs': [np.array([...]), ...]  # per epoch
-}
-```
-
-**From MEAStimBlock:**
-```python
-df_epochs = pd.DataFrame({
-    'frame_times_ms': [np.array([...]), ...],
-    'epoch_parameters': [
-        {'contrast': 0.5, 'size': 200, ...},  # dict per epoch
-        ...
-    ]
-})
-
-parameter_names = ['contrast', 'size', 'temporal_freq', ...]
-```
-
-**From AnalysisChunk:**
-```python
-rf_params = {
-    cell_id: {
-        'center_x': float,
-        'center_y': float,
-        'std_x': float,
-        'std_y': float,
-        'rotation': float
-    }
-}
-
-cell_types = ['OnP', 'OffP', 'OnM', ...]
-```
-
----
-
-## 2. PYTHON EXPORT DESIGN
-
-### 2.1 Export Functions (JSON and MATLAB)
-
-**Inspiration from datajoint/next-app/api:**
-The datajoint code provides a proven pattern for exporting hierarchical neurophysiology data to JSON. We'll adapt these patterns for both JSON and MATLAB export.
-
-**Add to MEAPipeline class:**
-
-#### 2.1.1 Flat Export (Current Plan - MATLAB-optimized)
-
-```python
-def export_to_matlab(self, file_path: str, format='mat'):
-    """
-    Export pipeline data to MATLAB-readable format (flat structure).
-
-    This is the primary export method for the epochtree GUI. It creates
-    a flat structure optimized for MATLAB indexing and analysis.
-
-    Parameters:
-        file_path: Output file path
-        format: 'mat' (scipy.io.savemat) or 'json' (json.dump)
-    """
-    # Structure data for MATLAB
-    export_data = {
-        # Metadata
-        'exp_name': self.response_block.exp_name,
-        'block_id': int(self.response_block.block_id),
-        'datafile_name': self.response_block.datafile_name,
-
-        # Cell info (flat arrays, easy for MATLAB)
-        'cell_ids': self.response_block.cell_ids.tolist(),
-        'cell_types': self.response_block.df_spike_times['cell_type'].tolist(),
-        'noise_ids': self.response_block.df_spike_times['noise_id'].tolist(),
-
-        # RF parameters (convert dict to struct-compatible format)
-        'rf_params': self._format_rf_params_for_matlab(),
-
-        # Spike data (per cell, per epoch)
-        'spike_times': self._format_spike_times_for_matlab(),
-
-        # Timing
-        'epoch_starts': self.response_block.d_timing['epochStarts'].tolist(),
-        'epoch_ends': self.response_block.d_timing['epochEnds'].tolist(),
-        'frame_times': [ft.tolist() for ft in self.response_block.d_timing['frameTimesMs']],
-
-        # Stimulus parameters (per epoch)
-        'epoch_params': self._format_epoch_params_for_matlab(),
-        'param_names': self.stim_block.parameter_names,
-
-        # Summary
-        'num_epochs': len(self.stim_block.df_epochs),
-        'num_cells': len(self.response_block.cell_ids),
-    }
-
-    if format == 'mat':
-        import scipy.io
-        scipy.io.savemat(file_path, export_data, do_compression=True)
-    elif format == 'json':
-        import json
-        with open(file_path, 'w') as f:
-            json.dump(export_data, f, indent=2, default=str)
-
-    print(f"Pipeline exported to {file_path}")
-```
-
-#### 2.1.2 Hierarchical JSON Export (Optional - datajoint pattern)
-
-```python
-def export_to_json_hierarchical(self, file_path: str, include_metadata: bool = False):
-    """
-    Export pipeline data as hierarchical JSON tree (datajoint-style).
-
-    Inspired by datajoint's generate_tree() function. This format is useful for:
-    - Web applications
-    - Debugging/inspection
-    - Alternative GUI implementations
-    - Integration with other tools
-
-    Structure:
-    {
-        "level": "experiment",
-        "id": "20250115A_data000",
-        "label": "20250115A Block: data000",
-        "experiment_id": "20250115A",
-        "children": [
-            {
-                "level": "cell",
-                "id": 42,
-                "label": "Cell 42 (OnP)",
-                "cell_type": "OnP",
-                "noise_id": 37,
-                "children": [
-                    {
-                        "level": "epoch",
-                        "id": 0,
-                        "label": "Epoch 0",
-                        "parameters": {"contrast": 0.5, ...},
-                        "responses": {...}  # if include_metadata
-                    },
-                    ...
-                ]
-            },
-            ...
-        ]
-    }
-
-    Parameters:
-        file_path: Output JSON file path
-        include_metadata: Include full spike times and RF params (large files)
-    """
-    tree = self._generate_tree_hierarchical(include_metadata=include_metadata)
-
-    import json
-    with open(file_path, 'w') as f:
-        json.dump(tree, f, indent=2, default=str)
-
-    print(f"Hierarchical tree exported to {file_path}")
-
-def _generate_tree_hierarchical(self, include_metadata: bool = False):
-    """Generate hierarchical tree structure (datajoint pattern)"""
-    # Root level: experiment
-    tree = {
-        'level': 'experiment',
-        'id': f"{self.response_block.exp_name}_{self.response_block.datafile_name}",
-        'label': f"{self.response_block.exp_name} Block: {self.response_block.datafile_name}",
-        'exp_name': self.response_block.exp_name,
-        'block_id': int(self.response_block.block_id),
-        'num_epochs': len(self.stim_block.df_epochs),
-        'num_cells': len(self.response_block.cell_ids),
-        'children': []
-    }
-
-    # Level 1: cells
-    for idx, row in self.response_block.df_spike_times.iterrows():
-        cell_id = int(row['cell_id'])
-        cell_node = {
-            'level': 'cell',
-            'id': cell_id,
-            'label': f"Cell {cell_id} ({row['cell_type']})",
-            'cell_type': row['cell_type'],
-            'noise_id': int(row['noise_id']),
-            'children': []
-        }
-
-        # Include RF params if requested
-        if include_metadata:
-            cell_node['rf_params'] = self._get_rf_params_for_cell(cell_id)
-
-        # Level 2: epochs
-        spike_times_list = row['spike_times']
-        for epoch_idx in range(len(spike_times_list)):
-            epoch_node = {
-                'level': 'epoch',
-                'id': epoch_idx,
-                'label': f"Epoch {epoch_idx}",
-                'parameters': self._get_epoch_params_dict(epoch_idx)
-            }
-
-            # Include spike times if requested
-            if include_metadata:
-                epoch_node['spike_times'] = spike_times_list[epoch_idx].tolist() if hasattr(spike_times_list[epoch_idx], 'tolist') else list(spike_times_list[epoch_idx])
-                epoch_node['epoch_start_ms'] = float(self.response_block.d_timing['epochStarts'][epoch_idx])
-                epoch_node['epoch_end_ms'] = float(self.response_block.d_timing['epochEnds'][epoch_idx])
-
-            cell_node['children'].append(epoch_node)
-
-        tree['children'].append(cell_node)
-
-    return tree
-
-def _get_epoch_params_dict(self, epoch_idx: int) -> dict:
-    """Extract epoch parameters as dict"""
-    params = self.stim_block.df_epochs.iloc[epoch_idx]['epoch_parameters']
-    # Convert numpy types to native Python
-    return {k: (v.item() if hasattr(v, 'item') else v)
-            for k, v in params.items()}
-
-def _get_rf_params_for_cell(self, cell_id: int) -> dict:
-    """Get RF params for a specific cell"""
-    if hasattr(self.analysis_chunk, 'rf_params') and cell_id in self.analysis_chunk.rf_params:
-        return {k: float(v) if hasattr(v, 'item') else v
-                for k, v in self.analysis_chunk.rf_params[cell_id].items()}
-    return {}
-```
-
-**Helper methods (complete implementation):**
-
-```python
-def _format_spike_times_for_matlab(self):
-    """
-    Convert nested spike times lists to MATLAB-friendly structure.
-
-    Returns:
-        dict: {
-            'cell_42': {
-                'spike_times': [[epoch0_spikes], [epoch1_spikes], ...],
-                'num_epochs': 100
-            },
-            ...
-        }
-    """
-    spike_dict = {}
-    for idx, row in self.response_block.df_spike_times.iterrows():
-        cell_id = int(row['cell_id'])
-        # Convert each epoch's spike times to list
-        spike_times_list = []
-        for epoch_spikes in row['spike_times']:
-            if hasattr(epoch_spikes, 'tolist'):
-                spike_times_list.append(epoch_spikes.tolist())
-            else:
-                spike_times_list.append(list(epoch_spikes))
-
-        spike_dict[f'cell_{cell_id}'] = {
-            'spike_times': spike_times_list,
-            'num_epochs': len(spike_times_list)
-        }
-    return spike_dict
-
-def _format_rf_params_for_matlab(self):
-    """
-    Convert RF params dict to MATLAB struct-compatible format.
-
-    Returns:
-        dict: {
-            'cell_42': {
-                'center_x': -120.5,
-                'center_y': 80.2,
-                'std_x': 45.3,
-                'std_y': 52.1,
-                'rotation': 0.34,
-                'has_rf': True
-            },
-            ...
-        }
-    """
-    rf_dict = {}
-    for cell_id in self.response_block.cell_ids:
-        if hasattr(self.analysis_chunk, 'rf_params') and cell_id in self.analysis_chunk.rf_params:
-            params = self.analysis_chunk.rf_params[cell_id]
-            rf_dict[f'cell_{cell_id}'] = {
-                'center_x': float(params.get('center_x', 0)),
-                'center_y': float(params.get('center_y', 0)),
-                'std_x': float(params.get('std_x', 0)),
-                'std_y': float(params.get('std_y', 0)),
-                'rotation': float(params.get('rotation', 0)),
-                'has_rf': True
-            }
-        else:
-            # Cell has no RF params (e.g., no noise recording)
-            rf_dict[f'cell_{cell_id}'] = {
-                'center_x': 0.0,
-                'center_y': 0.0,
-                'std_x': 0.0,
-                'std_y': 0.0,
-                'rotation': 0.0,
-                'has_rf': False
-            }
-    return rf_dict
-
-def _format_epoch_params_for_matlab(self):
-    """
-    Convert epoch parameters to list of dicts.
-
-    Returns:
-        list: [
-            {'contrast': 0.5, 'size': 200, 'temporal_freq': 4.0},
-            {'contrast': 0.8, 'size': 200, 'temporal_freq': 4.0},
-            ...
-        ]
-    """
-    params_list = []
-    for idx, row in self.stim_block.df_epochs.iterrows():
-        epoch_dict = dict(row['epoch_parameters'])
-        # Convert numpy types to native Python types for JSON/MATLAB compatibility
-        epoch_dict = {k: (v.item() if hasattr(v, 'item') else v)
-                     for k, v in epoch_dict.items()}
-        params_list.append(epoch_dict)
-    return params_list
-```
-
-**Note on implementation location:**
-- Add these methods to `MEAPipeline` class in `mea_pipeline.py`
-- Place after existing `export_to_pkl()` method (around line 497)
-- Total addition: ~200-250 lines of code including docstrings
-
-### 2.2 Export Format Comparison
-
-**Flat vs. Hierarchical Exports:**
-
-| Aspect | Flat (MATLAB-optimized) | Hierarchical (Tree JSON) |
-|--------|------------------------|--------------------------|
-| **Primary use case** | epochtree GUI, MATLAB analysis | Web apps, debugging, inspection |
-| **Structure** | Top-level dict with arrays | Nested tree: exp → cells → epochs |
-| **MATLAB indexing** | ✅ Easy (direct struct access) | ❌ Requires traversal |
-| **File size** | ~10-50 MB (typical dataset) | ~5-20 MB (no metadata), ~50-500 MB (with metadata) |
-| **Readability** | ❌ Hard to inspect manually | ✅ Easy to browse in text editor |
-| **Inspiration** | Custom design | datajoint `generate_tree()` pattern |
-| **When to use** | Default for all GUI exports | Advanced users, web apps, debugging |
-
-**Recommendation:** Use flat export (`export_to_matlab()`) for epochtree GUI. Use hierarchical export only for specialized applications or debugging.
-
-### 2.3 Datajoint Integration Notes
-
-**Code borrowed from datajoint/next-app/api/helpers/query.py:**
-
-The hierarchical export pattern is inspired by datajoint's `generate_tree()` function (lines 160-206), which creates nested JSON structures for neurophysiology data with this hierarchy:
-
-```
-experiment → animal → preparation → cell → epoch_group → epoch_block → epoch → response/stimulus
-```
-
-For MEA data, our simplified hierarchy is:
-```
-experiment (block) → cells → epochs
-```
-
-**Key differences:**
-1. **Levels**: datajoint has 7 levels (experiment down to response/stimulus); we have 3 (exp/block → cells → epochs)
-2. **Database**: datajoint queries from MySQL; we export from in-memory Python objects
-3. **Filtering**: datajoint supports exclude_levels parameter; we support cell_type/epoch filtering
-4. **Metadata**: Both support optional full metadata inclusion (increases file size significantly)
-
-**Adapted patterns:**
-- Recursive tree building with `children` lists
-- Optional metadata inclusion flag
-- JSON serialization with `default=str` for datetime objects
-- Progress tracking with tqdm (for large exports)
-
-### 2.4 Optional: Selective Export
-
-**Add filtering parameters:**
-
-```python
-def export_to_matlab(self, file_path: str, format='mat',
-                    cell_types=None, cell_ids=None,
-                    epoch_indices=None):
-    """
-    Export with optional filtering.
-
-    Parameters:
-        cell_types: List of cell types to include (e.g., ['OnP', 'OffP'])
-        cell_ids: List of specific cell IDs to include
-        epoch_indices: List of epoch indices to include
-    """
-    # Filter df_spike_times
-    df = self.response_block.df_spike_times.copy()
-
-    if cell_types:
-        df = df[df['cell_type'].isin(cell_types)]
-    if cell_ids:
-        df = df[df['cell_id'].isin(cell_ids)]
-
-    # Filter epochs in spike data
-    if epoch_indices:
-        df['spike_times'] = df['spike_times'].apply(
-            lambda x: [x[i] for i in epoch_indices if i < len(x)]
-        )
-
-    # Continue with export using filtered df...
-    # Build export_data dict using df instead of self.response_block.df_spike_times
-```
-
-**Example usage:**
-```python
-# Export only OnP and OffP cells from first 20 epochs
-pipeline.export_to_matlab('onp_offp_subset.mat',
-                         cell_types=['OnP', 'OffP'],
-                         epoch_indices=range(20))
-```
-
-### 2.5 Implementation Summary
-
-**What to implement:**
-1. **Primary: Flat export** (`export_to_matlab()`)
-   - Required for epochtree GUI
-   - Both .mat and .json formats
-   - ~150 lines of code + helpers
-
-2. **Optional: Hierarchical export** (`export_to_json_hierarchical()`)
-   - Advanced use cases, debugging
-   - JSON only
-   - ~100 lines of code + helpers
-
-3. **Optional: Selective filtering**
-   - Filter by cell type, cell IDs, epochs
-   - ~50 lines of code (parameter handling)
-
-**Total code addition:** ~200-300 lines to `mea_pipeline.py`
-
-**Reference code locations:**
-- Datajoint hierarchical export pattern: `datajoint/next-app/api/helpers/query.py` lines 160-253
-  - `generate_tree()` function
-  - `generate_object_tree()` function
-- Datajoint download endpoint: `datajoint/next-app/api/app.py` lines 355-384
-  - Shows how to handle large exports in background thread
-  - Demonstrates JSON serialization with `default=str`
-
-**Key decisions made:**
-1. ✅ Flat export is primary (MATLAB-optimized for GUI)
-2. ✅ Hierarchical export is optional (datajoint pattern for advanced users)
-3. ✅ Support both .mat and .json in flat export
-4. ✅ RF params included with fallback for cells without noise data
-5. ✅ Epoch parameters preserved as list of dicts (MATLAB struct array compatible)
-6. ✅ Spike times stored per cell per epoch (nested structure)
-
----
-
-## 3. MATLAB GUI DESIGN
-
-### 3.1 Simplified Data Structure
-
-**MATLAB Classes (much simpler than original plan):**
+### 4.1 EpochTree Class
 
 ```matlab
-classdef EpochData < handle
-    % Simple container for loaded epoch data
+classdef EpochTree < handle
+    % Hierarchical tree node for organizing epochs
+    %
+    % Equivalent to: edu.washington.rieke.jauimodel.AuiEpochTree
+
     properties
-        % Metadata
-        exp_name
-        block_id
-        datafile_name
-        num_epochs
-        num_cells
+        % Tree structure
+        splitKey            % Key used to split at this node
+        splitValue          % Value at this split
+        parent              % Parent EpochTree (empty for root)
+        children            % Cell array of child EpochTree nodes
 
-        % Cell information
-        cell_ids        % [n_cells x 1] array
-        cell_types      % {n_cells x 1} cell array
-        noise_ids       % [n_cells x 1] array
-        rf_params       % struct with fields cell_1, cell_2, etc.
+        % Leaf data
+        isLeaf = false      % True if this node contains epochs
+        epochList           % Cell array of epochs (only for leaves)
 
-        % Spike data
-        spike_times     % struct with fields cell_1, cell_2, etc.
+        % Custom properties (replaces Java HashMap)
+        custom = struct()   % User-defined properties
+            % custom.isSelected - Selection state
+            % custom.isExample - Example flag
+            % custom.display - Appearance settings
+            % custom.results - Analysis results
 
-        % Timing
-        epoch_starts    % [n_epochs x 1] array (ms)
-        epoch_ends      % [n_epochs x 1] array (ms)
-        frame_times     % {n_epochs x 1} cell array
-
-        % Stimulus
-        epoch_params    % [n_epochs x 1] struct array
-        param_names     % {1 x n_params} cell array
+        % Tree metadata
+        splitKeyPaths       % Array of all split keys (root only)
     end
 
     methods
-        function obj = EpochData(matFilePath)
-            % Load from exported MAT file
-            data = load(matFilePath);
-
-            % Copy fields
-            fields = fieldnames(data);
-            for i = 1:length(fields)
-                obj.(fields{i}) = data.(fields{i});
-            end
+        %% Constructor
+        function obj = EpochTree()
+            obj.children = {};
+            obj.custom.isSelected = false;
+            obj.custom.isExample = false;
+            obj.custom.display = struct('name', '', 'color', [0 0 0], 'backgroundColor', 'none');
         end
 
-        function times = getSpikeTimesForCell(obj, cell_id, epoch_idx)
-            % Get spike times for specific cell and epoch
-            field_name = sprintf('cell_%d', cell_id);
-            if isfield(obj.spike_times, field_name)
-                times = obj.spike_times.(field_name).spike_times{epoch_idx};
+        %% Tree Navigation
+        function leaves = leafNodes(obj)
+            % Get all leaf nodes under this node
+            if obj.isLeaf
+                leaves = {obj};
             else
-                times = [];
-            end
-        end
-
-        function params = getEpochParams(obj, epoch_idx)
-            % Get stimulus parameters for epoch
-            params = obj.epoch_params(epoch_idx);
-        end
-
-        function unique_vals = getUniqueParamValues(obj, param_name)
-            % Get unique values for a stimulus parameter
-            values = arrayfun(@(x) x.(param_name), obj.epoch_params, ...
-                'UniformOutput', false);
-            unique_vals = unique(cell2mat(values));
-        end
-    end
-end
-```
-
-### 3.2 Tree Structure
-
-**Organize data hierarchically for browsing:**
-
-```
-Root (Experiment)
-  └─ Cell Type 1 (OnP)
-      └─ Parameter 1 (contrast = 0.5)
-          └─ Epoch 1
-          └─ Epoch 2
-      └─ Parameter 2 (contrast = 0.8)
-          └─ Epoch 3
-  └─ Cell Type 2 (OffP)
-      └─ ...
-```
-
-**Tree Node Class:**
-
-```matlab
-classdef TreeNode < handle
-    properties
-        name            % Display name
-        level           % Level in hierarchy (1=root, 2=cell type, 3=param, 4=epoch)
-        parent          % Parent node
-        children        % Cell array of child nodes
-
-        % Data references
-        cell_ids        % Cells at this node
-        epoch_indices   % Epochs at this node
-
-        % Display
-        is_selected
-        is_expanded
-    end
-
-    methods
-        function addChild(obj, child_node)
-            obj.children{end+1} = child_node;
-            child_node.parent = obj;
-        end
-
-        function epochs = getEpochs(obj)
-            % Get all epochs under this node (recursive)
-            if ~isempty(obj.epoch_indices)
-                epochs = obj.epoch_indices;
-            else
-                epochs = [];
+                leaves = {};
                 for i = 1:length(obj.children)
-                    epochs = [epochs; obj.children{i}.getEpochs()];
+                    leaves = [leaves, obj.children{i}.leafNodes()];
                 end
             end
         end
+
+        function all = descendentsDepthFirst(obj)
+            % Get all descendants in depth-first order
+            all = {obj};
+            for i = 1:length(obj.children)
+                all = [all, obj.children{i}.descendentsDepthFirst()];
+            end
+        end
+
+        function child = childBySplitValue(obj, value)
+            % Find child by its split value
+            for i = 1:length(obj.children)
+                if isequal(obj.children{i}.splitValue, value)
+                    child = obj.children{i};
+                    return;
+                end
+            end
+            child = [];
+        end
+
+        function values = splitValues(obj)
+            % Get all split key-value pairs from root to this node
+            values = struct();
+            node = obj;
+            while ~isempty(node.parent)
+                if ~isempty(node.splitKey)
+                    keyName = getSplitKeyName(node.splitKey);
+                    values.(keyName) = node.splitValue;
+                end
+                node = node.parent;
+            end
+        end
+
+        %% Epoch Access
+        function epochs = getAllEpochs(obj)
+            % Get all epochs under this node (recursive)
+            if obj.isLeaf
+                epochs = obj.epochList;
+            else
+                epochs = {};
+                for i = 1:length(obj.children)
+                    epochs = [epochs, obj.children{i}.getAllEpochs()];
+                end
+            end
+        end
+
+        function n = epochCount(obj)
+            % Count total epochs under this node
+            n = length(obj.getAllEpochs());
+        end
     end
 end
 ```
 
-### 3.3 Main GUI
+### 4.2 Epoch Struct (Maps to DATA_FORMAT_SPECIFICATION)
 
-**Simple layout:**
+```matlab
+% Epoch struct fields (from DATA_FORMAT_SPECIFICATION.md)
+epoch = struct(...
+    % Identification
+    'id', 123, ...
+    'label', 'Epoch 1', ...
 
+    % Timing
+    'start_time', datetime(...), ...
+    'end_time', datetime(...), ...
+    'frame_times_ms', [0, 16.7, 33.3, ...], ...
+
+    % Parameters (protocol settings)
+    'parameters', struct(...
+        'preTime', 500, ...           % ms
+        'stimTime', 1000, ...         % ms
+        'tailTime', 500, ...          % ms
+        'contrast', 0.5, ...
+        'size', 200, ...              % microns
+        ... % Protocol-specific parameters
+    ), ...
+
+    % Response data
+    'responses', [...  % Array of response structs
+        struct('device_name', 'Amp1', 'data', [...], 'sample_rate', 10000), ...
+    ], ...
+
+    % Stimulus data
+    'stimuli', [...  % Array of stimulus structs
+        struct('device_name', 'Stage', 'data', [...], 'sample_rate', 10000), ...
+    ], ...
+
+    % State (added by GUI)
+    'isSelected', true, ...           % Selection state
+    'includeInAnalysis', true, ...    % Analysis inclusion flag
+
+    % Parent references (populated during load)
+    'cell', cell_struct, ...          % Parent cell
+    'experiment', experiment_struct   % Parent experiment
+);
 ```
-┌─────────────────────────────────────┐
-│        Epic Tree Browser            │
-├──────────────┬──────────────────────┤
-│ Tree (40%)   │ Viewer (60%)         │
-│              │                      │
-│ □ OnP        │ ┌──────────────────┐ │
-│   □ 0.5      │ │ Cell: 42 (OnP)   │ │
-│     Epoch 1  │ │ Epoch: 1         │ │
-│     Epoch 2  │ │ Contrast: 0.5    │ │
-│   □ 0.8      │ ├──────────────────┤ │
-│     Epoch 3  │ │                  │ │
-│ □ OffP       │ │   [PSTH Plot]    │ │
-│   ...        │ │                  │ │
-│              │ └──────────────────┘ │
-│ [Organize By▼]                     │
-│  • Cell Type                       │
-│  • Parameter                       │
-└──────────────┴──────────────────────┘
-```
 
-**Main GUI Class:**
+---
+
+## 5. GUI SYSTEM
+
+### 5.1 Main GUI: epicTreeGUI
 
 ```matlab
 classdef epicTreeGUI < handle
+    % Main Epoch Tree GUI
+    %
+    % Equivalent to: old_epochtree/.../epochTreeGUI.m
+
     properties
-        data            % EpochData object
-        root_node       % Root TreeNode
+        % Data
+        epochTree           % Root EpochTree node
+        allEpochs           % Flat cell array of all epochs
+
+        % UI Components
         figure
-        tree_panel
-        viewer_panel
-        tree_axes
-        organize_menu
+        treeBrowser         % struct with tree panel components
+        plottingCanvas      % struct with viewer panel components
+
+        % State
+        showEpochs = true   % Show individual epochs in tree
+        isBusy = false
+    end
+
+    properties(Hidden)
+        title = 'Epic Tree GUI'
+        fontSize = 14
+        xDivLeft = 0.4      % Tree panel width
     end
 
     methods
-        function obj = epicTreeGUI(matFilePath)
+        function obj = epicTreeGUI(dataPath, varargin)
+            % Constructor
+            %
+            % Usage:
+            %   gui = epicTreeGUI('data.mat')
+            %   gui = epicTreeGUI('data.mat', 'noEpochs')
+
             % Load data
-            obj.data = EpochData(matFilePath);
+            obj.loadData(dataPath);
+
+            % Parse options
+            if any(strcmp(varargin, 'noEpochs'))
+                obj.showEpochs = false;
+            end
 
             % Build UI
-            obj.buildUI();
+            obj.buildUIComponents();
+            obj.initTreeBrowser();
+            obj.plotEpochData();
+        end
+
+        function loadData(obj, dataPath)
+            % Load data from standard format .mat file
+            data = load(dataPath);
+
+            % Validate format
+            if ~isfield(data, 'format_version')
+                error('Invalid data format: missing format_version');
+            end
+
+            % Extract all epochs with parent references
+            obj.allEpochs = extractAllEpochs(data);
 
             % Build default tree (by cell type)
-            obj.organizeBy('celltype');
+            obj.epochTree = buildTree(obj.allEpochs, {'cell.type'});
         end
 
-        function buildUI(obj)
-            % Create figure
-            obj.figure = figure('Name', 'Epic Tree Browser', ...
-                'Position', [100 100 1200 600]);
-
-            % Tree panel (left)
-            obj.tree_panel = uipanel(obj.figure, ...
-                'Position', [0 0 0.4 1]);
-            obj.tree_axes = axes('Parent', obj.tree_panel, ...
-                'Position', [0.05 0.15 0.9 0.8]);
-
-            % Organize menu
-            obj.organize_menu = uicontrol(obj.tree_panel, ...
-                'Style', 'popupmenu', ...
-                'String', {'Cell Type', 'Contrast', 'Size', 'Temporal Freq'}, ...
-                'Position', [10 10 150 30], ...
-                'Callback', @(src,evt) obj.organizeCallback(src));
-
-            % Viewer panel (right)
-            obj.viewer_panel = uipanel(obj.figure, ...
-                'Position', [0.4 0 0.6 1]);
+        function rebuildTree(obj, splitKeyPaths)
+            % Rebuild tree with new split keys
+            obj.isBusy = true;
+            obj.epochTree = buildTree(obj.allEpochs, splitKeyPaths);
+            obj.initTreeBrowser();
+            obj.isBusy = false;
         end
 
-        function organizeBy(obj, split_type)
-            % Build tree based on organization type
-            switch split_type
-                case 'celltype'
-                    obj.root_node = obj.buildTreeByCellType();
-                case 'contrast'
-                    obj.root_node = obj.buildTreeByParameter('contrast');
-                case 'size'
-                    obj.root_node = obj.buildTreeByParameter('size');
+        function nodes = getSelectedEpochTreeNodes(obj)
+            % Get currently selected tree nodes
+            % Used by analysis functions
+            [nodes, ~] = obj.treeBrowser.graphTree.getSelectedNodes();
+
+            % Convert to EpochTree nodes
+            epochTreeNodes = cell(size(nodes));
+            for i = 1:length(nodes)
+                epochTreeNodes{i} = nodes{i}.userData;
             end
-
-            % Draw tree
-            obj.drawTree();
+            nodes = epochTreeNodes;
         end
 
-        function root = buildTreeByCellType(obj)
-            % Create root
-            root = TreeNode();
-            root.name = obj.data.exp_name;
-            root.level = 1;
+        % ... additional methods from comprehensive guide
+    end
+end
+```
 
-            % Get unique cell types
-            unique_types = unique(obj.data.cell_types);
+### 5.2 Tree Browser: graphicalTree
 
-            % Create node for each cell type
-            for i = 1:length(unique_types)
-                type = unique_types{i};
-                type_node = TreeNode();
-                type_node.name = type;
-                type_node.level = 2;
-                type_node.cell_ids = obj.data.cell_ids(...
-                    strcmp(obj.data.cell_types, type));
+```matlab
+classdef graphicalTree < handle
+    % Interactive tree visualization component
+    %
+    % Equivalent to: old_epochtree/.../graphicalTree/graphicalTree.m
 
-                % Add all epochs for these cells
-                type_node.epoch_indices = 1:obj.data.num_epochs;
+    properties
+        name
+        axes
+        figure
 
-                root.addChild(type_node);
-            end
+        % Selection
+        selectionSize
+        selectedWidgetKeys
+
+        % Callbacks (function handles)
+        nodesExpandedFcn
+        nodesCheckedFcn
+        nodesSelectedFcn
+        nodeBecameCheckedFcn
+    end
+
+    properties(Hidden)
+        trunk           % Root graphicalTreeNode
+        nodeList        % All nodes
+        widgetList      % Visual widgets
+        drawCount = 0
+    end
+
+    methods
+        function obj = graphicalTree(ax, name)
+            obj.axes = ax;
+            obj.name = name;
+            obj.nodeList = {};
+            obj.widgetList = {};
+
+            % Create root node
+            obj.trunk = obj.newNode([], name);
+            obj.trunk.isExpanded = true;
         end
 
-        function root = buildTreeByParameter(obj, param_name)
-            % Similar to buildTreeByCellType but split by parameter
-            root = TreeNode();
-            root.name = obj.data.exp_name;
-            root.level = 1;
+        function node = newNode(obj, parent, name)
+            % Create new graphicalTreeNode
+            node = graphicalTreeNode(name);
+            node.tree = obj;
+            node.selfKey = length(obj.nodeList) + 1;
+            obj.nodeList{end+1} = node;
 
-            % Get unique parameter values
-            unique_vals = obj.data.getUniqueParamValues(param_name);
-
-            % Create node for each value
-            for i = 1:length(unique_vals)
-                val = unique_vals(i);
-                val_node = TreeNode();
-                val_node.name = sprintf('%s = %.2f', param_name, val);
-                val_node.level = 2;
-
-                % Find epochs with this value
-                val_node.epoch_indices = find(arrayfun(...
-                    @(x) x.(param_name) == val, obj.data.epoch_params));
-                val_node.cell_ids = obj.data.cell_ids;
-
-                root.addChild(val_node);
+            if ~isempty(parent)
+                node.parentKey = parent.selfKey;
+                node.depth = parent.depth + 1;
+                parent.addChild(node);
             end
         end
 
-        function drawTree(obj)
-            % Simple text-based tree visualization
-            cla(obj.tree_axes);
-            axis(obj.tree_axes, 'off');
+        function draw(obj)
+            % Render tree to axes
+            obj.drawCount = 0;
+            obj.trunk.includeUnburied();
 
-            y_pos = 1;
-            obj.drawNode(obj.root_node, 0, y_pos);
+            % Position and style widgets
+            for i = 1:obj.drawCount
+                obj.widgetList{i}.bindNode(i);
+            end
         end
 
-        function y_pos = drawNode(obj, node, indent, y_pos)
-            % Recursively draw tree nodes
-            x_pos = 0.1 + indent * 0.1;
-            text(obj.tree_axes, x_pos, y_pos, node.name, ...
-                'FontSize', 10, 'Interpreter', 'none');
-            y_pos = y_pos - 0.05;
+        function [nodes, nodeKeys] = getSelectedNodes(obj)
+            % Get selected nodes
+            n = length(obj.selectedWidgetKeys);
+            nodes = cell(1, n);
+            nodeKeys = zeros(1, n);
+            for i = 1:n
+                widget = obj.widgetList{obj.selectedWidgetKeys(i)};
+                nodes{i} = obj.nodeList{widget.boundNodeKey};
+                nodeKeys(i) = widget.boundNodeKey;
+            end
+        end
 
-            % Draw children
-            if node.is_expanded
-                for i = 1:length(node.children)
-                    y_pos = obj.drawNode(node.children{i}, indent+1, y_pos);
+        % Keyboard navigation (from comprehensive guide)
+        % - Up/Down arrows: navigate selection
+        % - Left/Right arrows: collapse/expand
+        % - 'f' key: toggle checkbox
+    end
+end
+```
+
+### 5.3 Single Epoch Viewer
+
+```matlab
+function singleEpoch(epochTree, panel, doInit)
+    % Display single epoch data in viewer panel
+    %
+    % Equivalent to: old_epochtree/.../singleEpoch.m
+
+    % Get all epochs under selected tree node
+    epochs = getTreeEpochs(epochTree);
+    n = length(epochs);
+
+    if n == 0
+        return;
+    end
+
+    % Create slider for epoch navigation
+    figData.slider = uicontrol('Parent', panel, ...
+        'Style', 'slider', ...
+        'Min', 1, 'Max', n+eps, ...
+        'SliderStep', [1/n, 1/n], ...
+        'Value', 1, ...
+        'Callback', @plotNextEpoch);
+
+    % Create info table
+    figData.infoTable = uitable('Parent', panel, ...
+        'Data', {'number', []; 'date', []; 'isSelected', []; ...
+                 'includeInAnalysis', []; 'parameters', []});
+
+    % Create plot axes
+    figData.plotAxes = axes('Parent', panel);
+
+    % Initial plot
+    plotNextEpoch(figData.slider, [], figData);
+end
+
+function plotNextEpoch(slider, ~, figData)
+    % Plot epoch at current slider position
+    epochIdx = round(get(slider, 'Value'));
+    epoch = figData.epochs{epochIdx};
+
+    % Update info table
+    infoData = figData.infoTable.Data;
+    infoData{1,2} = sprintf('%d of %d', epochIdx, length(figData.epochs));
+    infoData{2,2} = datestr(epoch.start_time);
+    infoData{3,2} = epoch.isSelected;
+    infoData{4,2} = epoch.includeInAnalysis;
+    set(figData.infoTable, 'Data', infoData);
+
+    % Plot responses
+    cla(figData.plotAxes);
+    for i = 1:length(epoch.responses)
+        resp = epoch.responses(i);
+        plot(figData.plotAxes, resp.data);
+        hold(figData.plotAxes, 'on');
+    end
+    ylabel(figData.plotAxes, 'Response');
+    xlabel(figData.plotAxes, 'Sample');
+end
+```
+
+---
+
+## 6. TREE UTILITY FUNCTIONS
+
+### 6.1 getTreeEpochs (Critical Utility)
+
+```matlab
+function epochList = getTreeEpochs(epochTree, onlySelected)
+    % Get all epochs under tree node (optionally only selected)
+    %
+    % Equivalent to: old_epochtree/.../getTreeEpochs.m
+    %
+    % Usage:
+    %   epochs = getTreeEpochs(tree)           % All epochs
+    %   epochs = getTreeEpochs(tree, true)     % Only selected epochs
+
+    if nargin < 2
+        onlySelected = false;
+    end
+
+    epochList = {};
+
+    if epochTree.isLeaf
+        % Leaf node - get epochs directly
+        if onlySelected
+            for i = 1:length(epochTree.epochList)
+                epoch = epochTree.epochList{i};
+                if epoch.isSelected
+                    epochList{end+1} = epoch;
+                end
+            end
+        else
+            epochList = epochTree.epochList;
+        end
+    else
+        % Internal node - recurse to leaves
+        leaves = epochTree.leafNodes();
+        for i = 1:length(leaves)
+            leaf = leaves{i};
+            for j = 1:length(leaf.epochList)
+                epoch = leaf.epochList{j};
+                if ~onlySelected || epoch.isSelected
+                    epochList{end+1} = epoch;
                 end
             end
         end
+    end
+end
+```
 
-        function onNodeSelected(obj, node)
-            % Display selected node data in viewer panel
-            clf(obj.viewer_panel);
+### 6.2 getTreeLeaves
 
-            % Get data for this node
-            cell_ids = node.cell_ids;
-            epoch_indices = node.getEpochs();
+```matlab
+function leaves = getTreeLeaves(epochTree, onlySelected)
+    % Get all leaf nodes (optionally only selected)
+    %
+    % Equivalent to: old_epochtree/.../getTreeLeaves.m
 
-            if isempty(cell_ids) || isempty(epoch_indices)
-                return;
+    if nargin < 2
+        onlySelected = false;
+    end
+
+    allLeaves = epochTree.leafNodes();
+
+    if ~onlySelected
+        leaves = allLeaves;
+    else
+        leaves = {};
+        for i = 1:length(allLeaves)
+            leaf = allLeaves{i};
+            if leaf.custom.isSelected
+                leaves{end+1} = leaf;
             end
-
-            % Plot PSTH for first cell, first epoch
-            cell_id = cell_ids(1);
-            epoch_idx = epoch_indices(1);
-
-            spike_times = obj.data.getSpikeTimesForCell(cell_id, epoch_idx);
-
-            % Simple PSTH
-            ax = axes('Parent', obj.viewer_panel, ...
-                'Position', [0.1 0.1 0.8 0.8]);
-            bin_edges = 0:10:max(spike_times)+10;
-            histogram(ax, spike_times, bin_edges);
-            xlabel(ax, 'Time (ms)');
-            ylabel(ax, 'Spike Count');
-            title(ax, sprintf('Cell %d, Epoch %d', cell_id, epoch_idx));
         end
     end
 end
 ```
 
----
+### 6.3 getEpochTreeSplitString
 
-## 4. ANALYSIS FUNCTIONS (FROM OLD EPOCHTREE)
-
-All analysis functions from the old system must be reimplemented to work with the new data structure.
-
-### 4.1 Core Analysis Functions
-
-**RFAnalysis.m & RFAnalysis2.m**
-- Receptive field center/surround characterization
-- Gaussian and Difference of Gaussians (DOG) fitting
-- Size tuning curves
-- RF mosaic plotting by cell type
-- Context-dependent RF measurements
-
-**LSTA.m (Linear Spatio-Temporal Analysis)**
-- Spike-triggered averaging
-- Spatiotemporal STA computation
-- Spatial RF map extraction
-- RF property analysis from STAs
-
-**SpatioTemporalModel.m**
-- Linear-nonlinear (LN) cascade modeling
-- Linear filter computation (temporal/spatiotemporal)
-- Nonlinearity fitting (sigmoid, Hill function)
-- Prediction vs measured comparison
-- Variance explained metrics
-
-**CenterSurround.m**
-- Expanding spot analysis
-- Size vs response curves
-- DOG model fitting
-- Surround suppression quantification
-- Center/surround ratio computation
-
-**Interneurons.m**
-- Horizontal cell and amacrine cell analysis
-- Specific analysis for interneuron types
-
-**Occlusion.m**
-- Occlusion tuning analysis
-- Context effects on responses
-
-**MeanSelectedNodes.m**
-- Overlay responses from multiple tree branches
-- Compute mean ± SEM across conditions
-- Statistical comparisons
-- Tuning curve generation
-
-### 4.2 Data Extraction Utilities
-
-**getMeanResponseTrace.m**
-- Compute PSTH from spike times
-- Gaussian smoothing
-- Baseline correction
-- Mean ± SEM across trials/epochs
-- Support for voltage, current, spike rate
-
-**getResponseAmplitudeStats.m**
-- Peak response amplitude
-- Integrated response
-- Statistics across epochs/cells
-- Response window specification
-
-**getCycleAverageResponse.m**
-- Average responses aligned to stimulus cycles
-- For drifting gratings, flickering stimuli
-- Phase analysis
-
-**getF1F2statistics.m**
-- Fundamental (F1) frequency component
-- Second harmonic (F2) component
-- F1/F2 ratio
-- Phase extraction
-- FFT-based analysis
-
-**getLinearFilterAndPrediction.m**
-- Compute linear filters
-- Generate predictions
-- Stimulus-response convolution
-
-**getNoiseStimulusAndResponse.m**
-- Reconstruct noise stimuli
-- Align with responses
-- For white noise protocols
-
-**getTreeEpochs.m**
-- Extract all epochs from tree
-- Filter by selection status
-- Recursive tree traversal
-
-**filterEpochListByEpochGroups.m**
-- Filter epochs by group labels
-- Include/exclude modes
-
-**makeUniformEpochList.m**
-- Filter to uniform parameter values
-- Majority rules for parameter selection
-
-### 4.3 Tree Splitting Functions (14+)
-
-All split functions must be implemented:
-
-1. **splitOnCellType.m** - Group by retinal cell type
-2. **splitOnExperimentDate.m** - Group by date
-3. **splitOnF1F2Contrast.m** - Group by contrast
-4. **splitOnF1F2CenterSize.m** - Group by RF center size
-5. **splitOnF1F2Phase.m** - Group by phase
-6. **splitOnRadiusOrDiameter.m** - Group by stimulus size
-7. **splitOnHoldingSignal.m** - Group by voltage clamp holding potential
-8. **splitOnOLEDLevel.m** - Group by light intensity
-9. **splitOnKeywords.m** - Group by epoch keywords
-10. **splitOnRecKeyword.m** - Group by recording type
-11. **splitOnLogIRtag.m** - Group by IR tag
-12. **splitOnJavaArrayList.m** - Group by array list values
-13. **splitOnPatchContrast_NatImage.m** - Group by patch contrast (natural images)
-14. **splitOnPatchSampling_NatImage.m** - Group by patch sampling
-
-Each splitter must:
-- Handle missing parameters gracefully
-- Extract parameter from epoch_params struct
-- Create child nodes for each unique value
-- Support dynamic parameter discovery
-
-### 4.4 Implementation Strategy for Analysis Functions
-
-**Phase 1: Basic Data Access**
 ```matlab
-% Extract spike times for selected epochs/cells
-function [time, trace, sem] = getMeanResponseTrace(epochData, cellIds, epochIndices)
-    % 1. Get spike times from epochData
-    % 2. Bin spikes into PSTH
-    % 3. Apply Gaussian smoothing
-    % 4. Compute mean and SEM
-    % 5. Optional baseline correction
-end
-```
+function [splitString, shortKeys] = getEpochTreeSplitString(epochTree)
+    % Get summary string of split keys
+    %
+    % Equivalent to: old_epochtree/.../getEpochTreeSplitString.m
 
-**Phase 2: RF Analysis**
-```matlab
-% Access pre-computed RF parameters
-function RFAnalysis(gui)
-    % 1. Get selected cells from tree
-    % 2. Extract RF params from epochData.rf_params
-    % 3. Plot RF mosaics by cell type
-    % 4. If size tuning protocol, compute tuning curves
-end
-```
-
-**Phase 3: LN Modeling**
-```matlab
-% Requires stimulus reconstruction
-function SpatioTemporalModel(gui)
-    % 1. Get selected epochs and cells
-    % 2. Reconstruct stimulus (may need Python helper)
-    % 3. Compute linear filter (reverse correlation)
-    % 4. Fit nonlinearity (scatter plot + sigmoid)
-    % 5. Generate predictions
-    % 6. Plot: filter, nonlinearity, prediction vs measured
-end
-```
-
-**Phase 4: Comparison Across Conditions**
-```matlab
-% Overlay responses from different tree branches
-function MeanSelectedNodes(gui)
-    % 1. Get selected nodes
-    % 2. For each node, compute mean response
-    % 3. Plot all traces overlaid with different colors
-    % 4. Add legend with node names
-end
-```
-
-### 4.5 Data Format Adaptation
-
-**Challenge**: Old system used Java objects, new uses structs.
-
-**Solution**: Create adapter methods in EpochData class:
-```matlab
-% In EpochData.m
-methods
-    function response = getResponse(obj, cellId, epochIdx, streamName)
-        % Adapter to mimic old epoch.responses.get(streamName)
-        % streamName: 'Cell', 'Current', 'Voltage', etc.
-
-        % For spikes:
-        if strcmp(streamName, 'Cell')
-            response = obj.getSpikeTimesForCell(cellId, epochIdx);
-        end
-        % Add other response types as needed
+    % Get a leaf node to access splitValues
+    leaves = epochTree.leafNodes();
+    if isempty(leaves)
+        splitString = 'no leaf nodes';
+        shortKeys = {''};
+        return;
     end
 
-    function val = getProtocolSetting(obj, epochIdx, paramName)
-        % Adapter to mimic old epoch.protocolSettings.get(paramName)
-        params = obj.epoch_params(epochIdx);
-        if isfield(params, paramName)
-            val = params.(paramName);
-        else
-            val = [];
-        end
+    leaf = leaves{1};
+    values = leaf.splitValues();
+    keys = fieldnames(values);
+
+    % Extract short key names (last part after dot)
+    shortKeys = cell(size(keys));
+    for i = 1:length(keys)
+        parts = strsplit(keys{i}, '.');
+        shortKeys{i} = parts{end};
+    end
+
+    splitString = strjoin(shortKeys, '-');
+end
+```
+
+---
+
+## 7. SPLITTER FUNCTIONS (14+)
+
+### 7.1 Built-in Splitters
+
+```matlab
+%% splitOnExperimentDate.m
+function value = splitOnExperimentDate(epoch)
+    value = datestr(epoch.experiment.start_time, 'yyyy-mm-dd');
+end
+
+%% splitOnKeywords.m
+function value = splitOnKeywords(epoch)
+    if isfield(epoch, 'keywords') && ~isempty(epoch.keywords)
+        value = strjoin(sort(epoch.keywords), ', ');
+    else
+        value = 'no keywords';
+    end
+end
+
+%% splitOnCellType.m
+function value = splitOnCellType(epoch)
+    value = epoch.cell.type;
+end
+
+%% splitOnCellLabel.m
+function value = splitOnCellLabel(epoch)
+    value = epoch.cell.label;
+end
+
+%% splitOnProtocolName.m
+function value = splitOnProtocolName(epoch)
+    if isfield(epoch.parameters, 'protocol_name')
+        value = epoch.parameters.protocol_name;
+    else
+        value = 'unknown';
     end
 end
 ```
 
----
-
-## 5. IMPLEMENTATION PLAN
-
-**Timeline: 10 weeks**
-- Week 1: Python export
-- Week 2: MATLAB data layer
-- Weeks 3-4: MATLAB GUI core
-- Weeks 5-6: Basic analysis functions
-- Weeks 7-8: Advanced analysis functions
-- Week 9: Tree splitters
-- Week 10: Polish & documentation
-
-### Phase 1: Python Export (Week 1)
-
-**Overview:**
-Implement both flat (MATLAB-optimized) and hierarchical (JSON tree) export functions in MEAPipeline class. The flat format is primary for the epochtree GUI; hierarchical format is optional for advanced use cases.
-
-**Tasks:**
-
-**Day 1-2: Flat Export Implementation**
-1. Add `export_to_matlab()` method to MEAPipeline class
-   - File: `retinanalysis/src/retinanalysis/classes/mea_pipeline.py`
-   - Add after existing `export_to_pkl()` method (around line 497)
-   - Implement helper methods:
-     ```python
-     _format_spike_times_for_matlab()
-     _format_rf_params_for_matlab()
-     _format_epoch_params_for_matlab()
-     ```
-
-2. Support both .mat and .json formats
-   - Use `scipy.io.savemat()` for MATLAB format
-   - Use `json.dump()` with `default=str` for datetime handling
-   - Compression enabled for .mat files
-
-3. Test flat export
-   - Export example pipeline to both formats
-   - Verify data loads in MATLAB
-   - Check all arrays are correct shape
-   - Validate spike times match source data
-
-**Day 3-4: Hierarchical JSON Export (Optional)**
-4. Add `export_to_json_hierarchical()` method
-   - Implement `_generate_tree_hierarchical()` helper
-   - Pattern inspired by datajoint's `generate_tree()` function
-   - Three-level hierarchy: experiment → cells → epochs
-   - Optional metadata inclusion (spike times, RF params)
-
-5. Implement helper methods:
-   ```python
-   _get_epoch_params_dict(epoch_idx)
-   _get_rf_params_for_cell(cell_id)
-   ```
-
-6. Test hierarchical export
-   - Export with and without metadata
-   - Verify tree structure is well-formed
-   - Compare file sizes (metadata adds ~10-100x size)
-   - Test JSON parsing in Python and JavaScript
-
-**Day 5: Selective Export & Polish**
-7. Add selective export parameters (optional enhancement)
-   - `cell_types`: List of cell types to include
-   - `cell_ids`: List of specific cell IDs
-   - `epoch_indices`: List of epochs to include
-   - Filter df_spike_times and epochs before export
-
-8. Documentation and examples
-   - Add docstrings with examples
-   - Create example notebook: `examples/export_to_matlab.ipynb`
-   - Document export formats in README
-
-**Files to create/modify:**
-- `retinanalysis/src/retinanalysis/classes/mea_pipeline.py` (primary changes)
-- `examples/export_to_matlab.ipynb` (new)
-- `docs/export_formats.md` (new, optional)
-
-**Testing checklist:**
-```python
-# In Python - Basic flat export
-import retinanalysis as ra
-pipeline = ra.create_mea_pipeline('20250115A', 'data000')
-
-# Test 1: MATLAB format
-pipeline.export_to_matlab('test_export.mat', format='mat')
-
-# Test 2: Flat JSON format
-pipeline.export_to_matlab('test_export_flat.json', format='json')
-
-# Test 3: Hierarchical JSON (optional)
-pipeline.export_to_json_hierarchical('test_export_tree.json', include_metadata=False)
-
-# Test 4: Hierarchical with metadata (optional)
-pipeline.export_to_json_hierarchical('test_export_tree_full.json', include_metadata=True)
-
-# Test 5: Selective export (optional)
-pipeline.export_to_matlab('onp_only.mat', format='mat',
-                         cell_types=['OnP'], epoch_indices=range(10))
-```
+### 7.2 Parameter-Based Splitter (Generic)
 
 ```matlab
-% In MATLAB - Verify export
-data = load('test_export.mat');
-disp(data)
+function splitFunc = splitOnParameter(paramName)
+    % Create split function for any parameter
+    %
+    % Usage:
+    %   splitFunc = splitOnParameter('contrast');
+    %   tree = buildTree(epochs, {splitFunc, 'cell.label'});
 
-% Check structure
-assert(isfield(data, 'spike_times'))
-assert(isfield(data, 'cell_ids'))
-assert(isfield(data, 'epoch_params'))
+    splitFunc = @(epoch) getParameterValue(epoch, paramName);
+end
 
-% Access spike times for cell 42, epoch 0
-cell_42 = data.spike_times.cell_42;
-spikes = cell_42.spike_times{1};  % epoch 0
-disp(spikes);
+function value = getParameterValue(epoch, paramName)
+    if isfield(epoch.parameters, paramName)
+        value = epoch.parameters.(paramName);
+    else
+        value = 'missing';
+    end
+end
 ```
 
-**Validation & Compatibility Testing:**
+### 7.3 Complete Splitter List
 
-1. **Compare with datajoint format** (if available):
-   ```python
-   # Export from datajoint system (if you have access)
-   # Compare structure with hierarchical export
-   import json
-
-   # Load both exports
-   with open('datajoint_export.json', 'r') as f:
-       dj_tree = json.load(f)
-   with open('test_export_tree.json', 'r') as f:
-       our_tree = json.load(f)
-
-   # Compare structure
-   print("Datajoint levels:", [node['level'] for node in dj_tree])
-   print("Our levels:", [node['level'] for node in our_tree['children']])
-   ```
-
-2. **Cross-validate exports**:
-   ```python
-   # Ensure flat and hierarchical exports contain same data
-   import scipy.io
-
-   flat_data = scipy.io.loadmat('test_export.mat')
-   with open('test_export_tree_full.json', 'r') as f:
-       tree_data = json.load(f)
-
-   # Verify cell count matches
-   assert len(flat_data['cell_ids']) == len(tree_data['children'])
-
-   # Verify spike times for cell 42, epoch 0 match
-   flat_spikes = flat_data['spike_times']['cell_42']['spike_times'][0]
-   tree_spikes = [c for c in tree_data['children'] if c['id'] == 42][0]['children'][0]['spike_times']
-   assert np.allclose(flat_spikes, tree_spikes)
-   ```
-
-3. **Test round-trip**:
-   ```matlab
-   % MATLAB: Load, modify, verify
-   data = load('test_export.mat');
-   data.spike_times.cell_42.spike_times{1}  % Access spikes
-   % Verify against original Python data
-   ```
-
-**Success criteria:**
-- ✅ Both .mat and .json export working
-- ✅ Data loads correctly in MATLAB (scipy.io.loadmat)
-- ✅ Spike times accessible per cell per epoch
-- ✅ RF parameters included and formatted correctly
-- ✅ Epoch parameters preserved with all fields
-- ✅ File sizes reasonable (<50MB for typical dataset)
-- ✅ (Optional) Hierarchical JSON validated with tree structure
-- ✅ (Optional) Selective export filters data correctly
-- ✅ Cross-validation: flat and hierarchical exports contain identical data
-- ✅ Format compatible with datajoint patterns (for hierarchical export)
-
-### Phase 2: MATLAB Data Layer (Week 2)
-
-**Tasks:**
-1. Create `EpochData.m` class
-   - Load MAT file
-   - Accessor methods for spike times, parameters
-   - Helper methods (getUniqueParamValues, etc.)
-
-2. Create `TreeNode.m` class
-   - Simple hierarchical node structure
-   - Methods: addChild, getEpochs
-
-3. Test data loading and access
-   - Load exported MAT file
-   - Access spike times for cells/epochs
-   - Verify data integrity
-
-**Files to create:**
-- `src/core/EpochData.m`
-- `src/core/TreeNode.m`
-- `examples/test_data_loading.m`
-
-**Testing:**
-```matlab
-% Load data
-data = EpochData('test_export.mat');
-
-% Access spike times
-spike_times = data.getSpikeTimesForCell(42, 1);
-disp(spike_times);
-
-% Get parameter values
-contrasts = data.getUniqueParamValues('contrast');
-disp(contrasts);
-```
-
-### Phase 3: MATLAB GUI (Weeks 3-4)
-
-**Tasks:**
-1. Create `epicTreeGUI.m` main class
-   - Build UI layout (panels, axes, menus)
-   - Implement tree building (by cell type, parameter)
-   - Basic tree visualization (text-based initially)
-
-2. Add interactive features
-   - Click nodes to select
-   - Expand/collapse nodes
-   - Organize by dropdown menu
-
-3. Add data viewer
-   - Display selected cell/epoch info
-   - Plot PSTH (simple histogram)
-   - Show stimulus parameters
-
-**Files to create:**
-- `src/gui/epicTreeGUI.m`
-- `examples/example_launch_gui.m`
-
-**Testing:**
-```matlab
-% Launch GUI
-gui = epicTreeGUI('test_export.mat');
-
-% Verify:
-% - Tree displays correctly
-% - Can organize by different parameters
-% - Clicking node shows data in viewer
-% - PSTH plots correctly
-```
-
-### Phase 4: Analysis Functions - Part 1 (Weeks 5-6)
-
-**Tasks:**
-1. Data extraction utilities
-   - `getMeanResponseTrace.m`
-   - `getResponseAmplitudeStats.m`
-   - `getCycleAverageResponse.m`
-   - `getF1F2statistics.m`
-
-2. Basic RF analysis
-   - `RFAnalysis.m` - Plot RF mosaics, access RF parameters
-   - Adapter methods in EpochData for RF param access
-
-3. MeanSelectedNodes
-   - Overlay responses from multiple tree branches
-   - Statistical comparisons
-
-**Files to create:**
-- `src/analysis/getMeanResponseTrace.m`
-- `src/analysis/getResponseAmplitudeStats.m`
-- `src/analysis/getCycleAverageResponse.m`
-- `src/analysis/getF1F2statistics.m`
-- `src/analysis/RFAnalysis.m`
-- `src/analysis/MeanSelectedNodes.m`
-
-**Testing:**
-- Test with drifting grating data
-- Test with expanding spot data
-- Verify mean traces match expectations
-- Verify RF plots show correct spatial organization
-
-### Phase 5: Analysis Functions - Part 2 (Weeks 7-8)
-
-**Tasks:**
-1. Advanced analysis functions
-   - `LSTA.m` - Spike-triggered averaging
-   - `SpatioTemporalModel.m` - LN cascade modeling
-   - `CenterSurround.m` - Size tuning analysis
-   - `Interneurons.m` - Interneuron-specific analysis
-   - `Occlusion.m` - Occlusion tuning
-
-2. Stimulus reconstruction support
-   - May need Python helper or port regen code
-   - Focus on white noise first (for LN models)
-
-**Files to create:**
-- `src/analysis/LSTA.m`
-- `src/analysis/SpatioTemporalModel.m`
-- `src/analysis/CenterSurround.m`
-- `src/analysis/Interneurons.m`
-- `src/analysis/Occlusion.m`
-- (Optional) `src/utilities/reconstructStimulus.m`
-
-**Testing:**
-- Test LSTA with noise recordings
-- Test LN model with white noise protocol
-- Test center-surround with expanding spots
-- Compare results to old system outputs
-
-### Phase 6: Tree Splitters (Week 9)
-
-**Tasks:**
-1. Implement all 14+ split functions
-   - Cell type, date, contrast, size, phase, etc.
-   - Generic splitOnParameter function
-
-2. Dynamic parameter discovery
-   - Inspect epoch_params fields
-   - Handle missing parameters gracefully
-
-3. Integration with tree browser GUI
-   - Populate split keys dropdown
-   - Rebuild tree on split change
-
-**Files to create:**
-- `src/splitters/splitOnCellType.m`
-- `src/splitters/splitOnExperimentDate.m`
-- `src/splitters/splitOnParameter.m` (generic)
-- ...all other splitters
-
-**Testing:**
-- Test each splitter with diverse datasets
-- Verify correct grouping
-- Test with missing parameters
-
-### Phase 7: Polish & Documentation (Week 10)
-
-**Tasks:**
-1. Improve tree visualization
-   - Better layout algorithm
-   - Checkbox indicators
-   - Color coding
-
-2. Add more viewer options
-   - Multiple cells overlaid
-   - Raster plots
-   - Parameter display table
-
-3. Documentation
-   - User guide (markdown)
-   - Code comments
-   - Example workflows
-   - Analysis function documentation
-
-4. Performance optimization
-   - Lazy loading
-   - Caching
-   - Progress indicators
-
-**Files:**
-- Update all code with comments
-- Create `docs/UserGuide.md`
-- Create `docs/AnalysisFunctions.md`
-- Create `examples/` with sample workflows
+| Splitter Function | Purpose |
+|-------------------|---------|
+| `splitOnExperimentDate` | Group by experiment date |
+| `splitOnCellType` | Group by cell type (OnP, OffP, etc.) |
+| `splitOnCellLabel` | Group by cell ID |
+| `splitOnKeywords` | Group by epoch keywords |
+| `splitOnProtocolName` | Group by protocol |
+| `splitOnParameter('contrast')` | Group by contrast |
+| `splitOnParameter('size')` | Group by stimulus size |
+| `splitOnParameter('temporal_frequency')` | Group by temporal frequency |
+| `splitOnF1F2Contrast` | Group by F1/F2 contrast |
+| `splitOnF1F2Phase` | Group by F1/F2 phase |
+| `splitOnRadiusOrDiameter` | Group by RF size |
+| `splitOnHoldingSignal` | Group by holding potential |
+| `splitOnRecKeyword` | Group by recording type |
+| `splitOnPatchContrast_NatImage` | Group by natural image patch contrast |
 
 ---
 
-## 6. FILE ORGANIZATION
+## 8. ANALYSIS FUNCTIONS
+
+### 8.1 Data Extraction Utilities
+
+| Function | Input | Output | Purpose |
+|----------|-------|--------|---------|
+| `getResponseMatrix(epochList, stream)` | epochs, string | [N×M] | Get response data matrix |
+| `getSelectedData(epochList, stream)` | epochs, string | [n×M] | Get data for selected epochs only |
+| `getMeanResponseTrace(epochList, recordingType)` | epochs, string | struct | Compute mean±SEM trace |
+| `getResponseAmplitudeStats(epochList, recordingType)` | epochs, string | struct | Peak and integrated response stats |
+| `getCycleAverageResponse(epochList, cyclePeriod)` | epochs, double | struct | Cycle-averaged response |
+| `getF1F2statistics(epochList, frequency)` | epochs, double | struct | Fourier component analysis |
+
+### 8.2 getMeanResponseTrace Implementation
+
+```matlab
+function response = getMeanResponseTrace(epochList, recordingType, varargin)
+    % Compute mean response trace with statistics
+    %
+    % Equivalent to: old_epochtree/.../getMeanResponseTrace.m
+    %
+    % recordingType options:
+    %   'extracellular' - PSTH from spike times
+    %   'exc' or 'inh' - Current traces
+    %   'iClamp' - Voltage traces
+
+    ip = inputParser;
+    ip.addRequired('epochList');
+    ip.addRequired('recordingType');
+    ip.addParameter('PSTHsigma', 5);  % ms
+    ip.parse(epochList, recordingType, varargin{:});
+
+    % Get sample rate and timing
+    epoch1 = epochList{1};
+    sampleRate = epoch1.responses(1).sample_rate;
+    preTime = epoch1.parameters.preTime;  % ms
+    baselinePoints = (preTime / 1e3) * sampleRate;
+
+    % Get response matrix
+    streamName = getStreamForRecordingType(recordingType);
+    dataMatrix = getResponseMatrix(epochList, streamName);
+
+    response.n = size(dataMatrix, 1);
+    response.timeVector = (1:size(dataMatrix,2)) / sampleRate;
+
+    switch recordingType
+        case 'extracellular'
+            % Convert to PSTH
+            PSTH = computePSTH(dataMatrix, sampleRate, ip.Results.PSTHsigma);
+            response.mean = mean(PSTH, 1);
+            response.stdev = std(PSTH, [], 1);
+            response.SEM = response.stdev / sqrt(response.n);
+            response.units = 'Spikes/sec';
+
+        case {'exc', 'inh'}
+            % Baseline subtract
+            baselines = mean(dataMatrix(:, 1:baselinePoints), 2);
+            baselineSubtracted = dataMatrix - baselines;
+            response.mean = mean(baselineSubtracted, 1);
+            response.stdev = std(baselineSubtracted, [], 1);
+            response.SEM = response.stdev / sqrt(response.n);
+            response.units = 'pA';
+
+        otherwise
+            response.mean = mean(dataMatrix, 1);
+            response.stdev = std(dataMatrix, [], 1);
+            response.SEM = response.stdev / sqrt(response.n);
+            response.units = '?';
+    end
+end
+```
+
+### 8.3 Major Analysis Functions
+
+| Function | Purpose | Key Features |
+|----------|---------|--------------|
+| `RFAnalysis.m` | Receptive field analysis | DOG fitting, size tuning, RF mosaic |
+| `LSTA.m` | Spike-triggered averaging | Spatiotemporal STA, RF map |
+| `SpatioTemporalModel.m` | LN cascade modeling | Linear filter, nonlinearity, prediction |
+| `CenterSurround.m` | Size tuning analysis | Expanding spots, surround suppression |
+| `MeanSelectedNodes.m` | Multi-condition comparison | Overlay traces, statistics |
+| `Interneurons.m` | Interneuron analysis | Horizontal/amacrine cells |
+| `Occlusion.m` | Occlusion tuning | Context effects |
+
+---
+
+## 9. FILE ORGANIZATION
 
 ```
 epicTreeGUI/
 ├── README.md
+├── trd                                    # This file
+├── EPOCH_TREE_SYSTEM_COMPREHENSIVE_GUIDE.md
+├── DATA_FORMAT_SPECIFICATION.md
+├── JAUIMODEL_FUNCTION_INVENTORY.md
+│
 ├── src/
 │   ├── core/
-│   │   ├── EpochData.m
-│   │   └── TreeNode.m
+│   │   ├── EpochTree.m                   # Tree node class
+│   │   ├── buildTree.m                   # Tree building algorithm
+│   │   ├── loadEpicTreeData.m            # Load standard format .mat
+│   │   └── extractAllEpochs.m            # Extract epochs with parent refs
+│   │
 │   ├── gui/
-│   │   ├── epicTreeGUI.m
-│   │   └── singleEpoch.m (adapted from old)
+│   │   ├── epicTreeGUI.m                 # Main GUI class
+│   │   ├── graphicalTree.m               # Tree visualization
+│   │   ├── graphicalTreeNode.m           # Tree node widget
+│   │   ├── graphicalTreeNodeWidget.m     # Node visual representation
+│   │   └── singleEpoch.m                 # Epoch viewer
+│   │
+│   ├── splitters/
+│   │   ├── splitOnExperimentDate.m
+│   │   ├── splitOnCellType.m
+│   │   ├── splitOnCellLabel.m
+│   │   ├── splitOnKeywords.m
+│   │   ├── splitOnParameter.m            # Generic parameter splitter
+│   │   ├── splitOnF1F2Contrast.m
+│   │   ├── splitOnF1F2Phase.m
+│   │   ├── splitOnRadiusOrDiameter.m
+│   │   ├── splitOnHoldingSignal.m
+│   │   ├── splitOnRecKeyword.m
+│   │   ├── splitOnPatchContrast_NatImage.m
+│   │   └── ... (all 14+ splitters)
+│   │
 │   ├── analysis/
 │   │   ├── RFAnalysis.m
-│   │   ├── RFAnalysis2.m
 │   │   ├── LSTA.m
 │   │   ├── SpatioTemporalModel.m
 │   │   ├── CenterSurround.m
 │   │   ├── Interneurons.m
 │   │   ├── Occlusion.m
 │   │   ├── MeanSelectedNodes.m
-│   │   ├── getMeanResponseTrace.m
-│   │   ├── getResponseAmplitudeStats.m
-│   │   ├── getCycleAverageResponse.m
-│   │   ├── getF1F2statistics.m
-│   │   ├── getLinearFilterAndPrediction.m
-│   │   └── getNoiseStimulusAndResponse.m
-│   ├── splitters/
-│   │   ├── splitOnCellType.m
-│   │   ├── splitOnExperimentDate.m
-│   │   ├── splitOnParameter.m (generic)
-│   │   ├── splitOnF1F2Contrast.m
-│   │   ├── splitOnF1F2CenterSize.m
-│   │   └── ...all other splitters
+│   │   └── RFAnalysis2.m
+│   │
 │   └── utilities/
-│       ├── getTreeEpochs.m
+│       ├── getResponseMatrix.m           # CRITICAL - response data extraction
+│       ├── getSelectedData.m             # CRITICAL - filtered response data
+│       ├── getTreeEpochs.m               # Get epochs under tree node
+│       ├── getTreeLeaves.m               # Get leaf nodes
+│       ├── getMeanResponseTrace.m
+│       ├── getResponseAmplitudeStats.m
+│       ├── getCycleAverageResponse.m
+│       ├── getF1F2statistics.m
+│       ├── getLinearFilterAndPrediction.m
+│       ├── getNoiseStimulusAndResponse.m
 │       ├── filterEpochListByEpochGroups.m
-│       └── makeUniformEpochList.m
-├── python_export/
-│   ├── add_to_mea_pipeline.py  (code to add to retinanalysis)
-│   └── example_export.py        (example usage)
+│       ├── makeUniformEpochList.m
+│       └── getEpochTreeSplitString.m
+│
 ├── examples/
 │   ├── example_launch_gui.m
-│   ├── example_rf_analysis.m
-│   ├── example_ln_model.m
-│   ├── test_data_loading.m
+│   ├── example_build_tree.m
+│   ├── example_analysis.m
 │   └── sample_data/
-│       └── test_export.mat
+│       └── test_data.mat
+│
 └── docs/
     ├── UserGuide.md
     └── AnalysisFunctions.md
@@ -1744,414 +1118,89 @@ epicTreeGUI/
 
 ---
 
-## 7. SUCCESS CRITERIA
+## 10. IMPLEMENTATION PHASES
 
-**Minimum Viable Product (MVP):**
-1. ✅ Python exports pipeline to .mat file
-2. ✅ MATLAB loads data successfully
-3. ✅ GUI displays hierarchical tree
-4. ✅ Can organize by cell type and one parameter
-5. ✅ Clicking node shows basic PSTH plot
-6. ✅ Basic data extraction (getMeanResponseTrace)
+### Phase 1: Core Data Layer (Week 1-2)
+- [ ] `EpochTree.m` class
+- [ ] `buildTree.m` algorithm
+- [ ] `loadEpicTreeData.m` data loader
+- [ ] Key path resolver
+- [ ] Basic splitter functions
 
-**Full Feature Parity with Old System:**
-1. ✅ Export to both .mat and JSON
-2. ✅ All 14+ tree splitters implemented
-3. ✅ Interactive tree (expand/collapse, select, flag examples)
-4. ✅ Single epoch viewer with navigation
-5. ✅ All analysis functions:
-   - RFAnalysis & RFAnalysis2
-   - LSTA
-   - SpatioTemporalModel
-   - CenterSurround
-   - Interneurons
-   - Occlusion
-   - MeanSelectedNodes
-6. ✅ All data extraction utilities
-7. ✅ Viewer shows: PSTH, raster, parameters, cell info, RF plots
-8. ✅ Documentation complete
+### Phase 2: GUI Framework (Week 3-4)
+- [ ] `epicTreeGUI.m` main class
+- [ ] `graphicalTree.m` tree visualization
+- [ ] `graphicalTreeNode.m` node widget
+- [ ] Split key dropdown
+- [ ] Node selection/expansion
 
-**Stretch Goals:**
-1. ⭐ Selective export (filter by cell type, epochs)
-2. ⭐ Real-time stimulus reconstruction (port from Python)
-3. ⭐ Save/load GUI state
-4. ⭐ Export plots to PDF
-5. ⭐ Statistical testing (ANOVA, t-tests)
-6. ⭐ Batch analysis across multiple experiments
+### Phase 3: Data Viewer (Week 5)
+- [ ] `singleEpoch.m` epoch viewer
+- [ ] Response plotting
+- [ ] Epoch navigation (slider)
+- [ ] Info table display
 
----
+### Phase 4: Data Extraction Utilities (Week 6)
+- [ ] `getResponseMatrix.m` (CRITICAL)
+- [ ] `getSelectedData.m` (CRITICAL)
+- [ ] `getTreeEpochs.m`
+- [ ] `getTreeLeaves.m`
+- [ ] `getMeanResponseTrace.m`
+- [ ] `getResponseAmplitudeStats.m`
 
-## 8. CRITICAL FILES
+### Phase 5: All Splitters (Week 7)
+- [ ] All 14+ splitter functions
+- [ ] Generic `splitOnParameter.m`
+- [ ] Integration with dropdown
 
-### Python (to modify):
-- `new_retinanalysis/src/retinanalysis/classes/mea_pipeline.py` (add export_to_matlab method)
+### Phase 6: Analysis Functions (Week 8-9)
+- [ ] `RFAnalysis.m`
+- [ ] `LSTA.m`
+- [ ] `SpatioTemporalModel.m`
+- [ ] `CenterSurround.m`
+- [ ] `MeanSelectedNodes.m`
+- [ ] Remaining analysis functions
 
-### MATLAB (to create):
-
-**Core:**
-- `src/core/EpochData.m` (data container with adapter methods)
-- `src/core/TreeNode.m` (tree structure)
-
-**GUI:**
-- `src/gui/epicTreeGUI.m` (main GUI)
-- `src/gui/singleEpoch.m` (epoch viewer)
-
-**Analysis (8 major functions):**
-- `src/analysis/RFAnalysis.m`
-- `src/analysis/LSTA.m`
-- `src/analysis/SpatioTemporalModel.m`
-- `src/analysis/CenterSurround.m`
-- `src/analysis/Interneurons.m`
-- `src/analysis/Occlusion.m`
-- `src/analysis/MeanSelectedNodes.m`
-- `src/analysis/RFAnalysis2.m`
-
-**Data Extraction (6 utilities):**
-- `src/analysis/getMeanResponseTrace.m`
-- `src/analysis/getResponseAmplitudeStats.m`
-- `src/analysis/getCycleAverageResponse.m`
-- `src/analysis/getF1F2statistics.m`
-- `src/analysis/getLinearFilterAndPrediction.m`
-- `src/analysis/getNoiseStimulusAndResponse.m`
-
-**Tree Splitters (14+):**
-- `src/splitters/splitOnCellType.m`
-- `src/splitters/splitOnParameter.m` (generic)
-- ...12 more specific splitters
-
-### Old epochtree files to reference:
-- `old_epochtree/MHT-analysis-package-master/JauiModel&TreeTools/epoch-tree-gui/epochTreeGUI.m`
-- `old_epochtree/RFAnalysis.m`, `LSTA.m`, `SpatioTemporalModel.m`, etc.
-- `old_epochtree/tree_splitters/*.m`
+### Phase 7: Polish & Documentation (Week 10)
+- [ ] Enhanced tree visualization
+- [ ] Keyboard shortcuts
+- [ ] Example flagging
+- [ ] Documentation
+- [ ] Example workflows
 
 ---
 
-## 9. TESTING STRATEGY
+## 11. SUCCESS CRITERIA
 
-### Python Export Test:
-```python
-# Test with real data
-pipeline = ra.create_mea_pipeline(exp_name, datafile_name)
-pipeline.export_to_matlab('test.mat')
+### Minimum Viable Product (MVP)
+- [ ] Loads standard format .mat file
+- [ ] Builds tree with at least 3 split types
+- [ ] Interactive tree browser (expand/collapse/select)
+- [ ] Single epoch viewer with response plot
+- [ ] `getSelectedData()` works correctly
 
-# Verify file size reasonable
-# Verify can be loaded in MATLAB
-```
-
-### MATLAB Load Test:
-```matlab
-data = EpochData('test.mat');
-assert(~isempty(data.cell_ids));
-assert(~isempty(fieldnames(data.spike_times)));
-assert(~isempty(data.epoch_params));
-```
-
-### GUI Test:
-```matlab
-gui = epicTreeGUI('test.mat');
-% Manual verification:
-% - Tree displays correctly
-% - Can organize by different splits
-% - Can click and select nodes
-% - Plots show data
-```
-
-### Analysis Function Tests:
-
-**Data Extraction:**
-```matlab
-% Test mean response trace
-[time, trace, sem] = getMeanResponseTrace(data, [42], [1:10]);
-assert(length(time) == length(trace));
-assert(all(~isnan(trace)));
-```
-
-**RF Analysis:**
-```matlab
-% Test RF analysis
-gui = epicTreeGUI('test.mat');
-RFAnalysis(gui);
-% Verify RF mosaics display
-% Verify RF parameters accessed correctly
-```
-
-**LN Model:**
-```matlab
-% Test spatiotemporal model (if stimulus available)
-SpatioTemporalModel(gui);
-% Verify linear filter computed
-% Verify nonlinearity fitted
-% Verify prediction generated
-```
-
-**Mean Selected Nodes:**
-```matlab
-% Select multiple tree branches
-% Run MeanSelectedNodes
-% Verify overlaid traces display correctly
-% Verify legend shows node names
-```
+### Full Feature Parity
+- [ ] All 14+ splitters implemented
+- [ ] All 8 analysis functions working
+- [ ] All data extraction utilities
+- [ ] Keyboard navigation (arrows, 'f' key)
+- [ ] Example flagging
+- [ ] Results storage on nodes
 
 ---
 
-## 10. DEPENDENCIES
+## 12. KEY DIFFERENCES FROM LEGACY SYSTEM
 
-**Python:**
-- scipy (for .mat export)
-- json (built-in)
-- retinanalysis (existing)
-
-**MATLAB:**
-- Base MATLAB (R2019b+)
-- No additional toolboxes required
-
----
-
-## 11. SUMMARY: WHAT'S THE SAME, WHAT'S DIFFERENT
-
-### SAME (Replicated from old epochtree):
-- ✅ All GUI functionality (tree browser, single epoch viewer, flagging)
-- ✅ All 14+ tree split functions
-- ✅ All analysis functions (RF, LSTA, LN models, center-surround, etc.)
-- ✅ All data extraction utilities (getMeanResponseTrace, etc.)
-- ✅ User workflows and interaction patterns
-- ✅ Analysis outputs and visualizations
-- ✅ MATLAB-based implementation
-
-### DIFFERENT (New system):
-- ❌ Data source: Python pipeline exports instead of Symphony/Rieke Suite
-- ❌ Data format: MAT/JSON files instead of Java objects
-- ❌ Data structures: EpochData/TreeNode (MATLAB classes) instead of AuiEpochTree (Java)
-- ❌ No direct Symphony integration
-- ❌ Cell matching handled by Python pipeline (noise_id/protocol_id)
-- ❌ RF parameters pre-computed in Python (not computed in MATLAB)
-- ❌ Stimulus reconstruction may require Python helper (for LN models)
-
-### KEY INSIGHT:
-The GUI replicates ALL user-facing functionality, but operates on **pre-processed data exports** from the Python pipeline rather than raw Symphony data. Users interact with the same tree browser and analysis tools, but the data loading and preprocessing happens in Python first.
+| Aspect | Legacy (Java+MATLAB) | New (Pure MATLAB) |
+|--------|---------------------|-------------------|
+| **Data Source** | Symphony H5 via Java JNI | Standard .mat file |
+| **Tree Nodes** | `AuiEpochTree` Java objects | `EpochTree` MATLAB class |
+| **Custom Props** | Java `HashMap` | MATLAB struct |
+| **Data Access** | `riekesuite.getResponseMatrix` | `getResponseMatrix.m` |
+| **Split Functions** | `SplitValueFunctionAdapter` | Function handles |
+| **Key Paths** | Java property access | MATLAB dot notation |
+| **GUI** | Java Swing + MATLAB | Pure MATLAB |
 
 ---
 
-## 12. DESIGN VERIFICATION: COMPLETE COVERAGE
-
-This section verifies that the design specification covers **ALL** functionality from the original epochtree system.
-
-### 12.1 Tree Browser UI Components
-
-**Original epochtree Implementation** (from MHT-analysis-package-master):
-- Left panel (40%) with tree visualization
-- Dropdown menu for split key selection
-- Buttons: "set example", "clear example", "pan", "refresh"
-- Expandable/collapsible tree nodes
-- Checkbox selection for individual epochs
-- Visual highlighting for example nodes
-
-**TRD Specification Coverage**:
-- ✅ Section 3.3: Main GUI layout with tree panel (40%)
-- ✅ Section 3.3: `organizeBy()` dropdown with split key selection
-- ✅ Phase 3: Interactive features (expand, collapse, select)
-- ✅ Phase 7: Color coding and visual indicators for examples
-- ✅ Section 3.1: TreeNode class with `is_expanded` and `is_selected` properties
-
-### 12.2 Dynamic Tree Organization (The Core Feature)
-
-**Original System Concept**:
-The tree is NOT static—it is **dynamically reorganized** by splitter functions:
-1. Splitter function (e.g., `splitOnExperimentDate()`) extracts grouping value from each epoch
-2. Tree builder groups epochs by these values
-3. Each group becomes a node in the tree
-4. User switches split key via dropdown → **entire tree rebuilds with different organization**
-5. Same data, different perspective
-
-**Example**: 100 epochs organized by cell type vs. by contrast
-```
-Org by Cell Type:          Org by Contrast:
-├─ OnP (50 epochs)         ├─ Contrast 0.3 (40 epochs)
-│  ├─ Epoch 1              │  ├─ Epoch 1
-│  └─ ...                  │  └─ ...
-├─ OffP (50 epochs)        ├─ Contrast 0.5 (35 epochs)
-│  └─ ...                  └─ ...
-```
-
-**TRD Specification Coverage**:
-- ✅ Section 3.2-3.3: `buildTreeByCellType()` and `buildTreeByParameter()` methods
-- ✅ Section 3.3: `organizeBy()` method rebuilds entire tree
-- ✅ Section 3.3: `drawTree()` re-renders based on new structure
-- ✅ Phase 1: User switches dropdown → tree reconstructed
-
-### 12.3 Tree Splitting Functions (14+)
-
-**Original System Splitters Found**:
-1. splitOnExperimentDate.m
-2. splitOnBarSize.m / splitOnBarWidth.m
-3. splitOnKeywords.m (3 variants)
-4. splitOnStimulusCenter.m
-5. splitOnStimulusCenterY.m
-6. splitOnStimulusMean.m
-7. splitOnEpochBlockStart.m
-8. splitOnFlashTime.m
-+ Additional from MHT analysis package:
-9. splitOnF1F2Contrast.m
-10. splitOnF1F2CenterSize.m
-11. splitOnF1F2Phase.m
-12. splitOnPatchContrast_NatImage.m
-13. splitOnPatchSampling_NatImage.m
-14. splitOnLogIRtag.m
-15. splitOnRecKeyword.m
-... and more
-
-**TRD Specification Coverage**:
-- ✅ Section 4.3: Explicitly lists ALL 14+ splitter functions
-- ✅ Section 4.3: Includes all major ones from original system
-- ✅ Section 4.3: Notes handling of missing parameters gracefully
-- ✅ Phase 6 (Week 9): Full implementation plan for all splitters
-- ✅ Section 4.4: Generic `splitOnParameter()` function for any parameter-based splitting
-- ✅ Section 6: File organization includes `src/splitters/` directory for all functions
-
-### 12.4 Analysis Functions (8 Major)
-
-**Original System Files Found**:
-- RFAnalysis.m
-- RFAnalysis2.m
-- LSTA.m
-- SpatioTemporalModel.m
-- CenterSurround.m
-- Interneurons.m
-- Occlusion.m
-- MeanSelectedNodes.m
-
-**TRD Specification Coverage**:
-- ✅ Section 4.1: Describes all 8 functions in detail
-- ✅ Section 4.1: Explains RF center/surround, DOG fitting, size tuning
-- ✅ Section 4.1: Explains LSTA spike-triggered averaging
-- ✅ Section 4.1: Explains LN cascade modeling
-- ✅ Section 4.1: Explains expanding spot and surround suppression
-- ✅ Section 4.1: Explains interneuron and occlusion analysis
-- ✅ Section 4.1: Explains multi-condition comparison (MeanSelectedNodes)
-- ✅ Phases 5-6 (Weeks 5-8): Full implementation plan with phased approach
-
-### 12.5 Data Extraction Utilities (6+)
-
-**Original System Functions Found**:
-- getMeanResponseTrace.m
-- getResponseAmplitudeStats.m
-- getCycleAverageResponse.m
-- getF1F2statistics.m
-- getLinearFilterAndPrediction.m
-- getNoiseStimulusAndResponse.m
-- spikeTriggerAverage.m
-- getTreeEpochs.m
-- filterEpochListByEpochGroups.m
-- makeUniformEpochList.m
-
-**TRD Specification Coverage**:
-- ✅ Section 4.2: Explicitly lists all 6+ core utilities
-- ✅ Section 4.2: Describes functionality of each
-- ✅ Section 4.4: Implementation strategy for data access
-- ✅ Phase 4: Week 5 implementation plan includes all utilities
-
-### 12.6 Data Access & Adapter Pattern
-
-**Original System API**:
-```java
-epoch.protocolSettings('parameterName')    // Get stimulus parameter
-epoch.responses.get('Cell')                // Get spike times
-epoch.cell.experiment.startDate            // Get experiment date
-epoch.startDate                            // Get epoch timestamp
-```
-
-**TRD Specification Coverage**:
-- ✅ Section 4.5: Explains data format adaptation with adapter methods
-- ✅ Section 4.5: `getResponse()` adapter mimics old API
-- ✅ Section 4.5: `getProtocolSetting()` adapter for parameters
-- ✅ Section 3.1: EpochData accessor methods: `getSpikeTimesForCell()`, `getEpochParams()`, `getUniqueParamValues()`
-- ✅ Phase 2: Week 2 implementation plan includes adapter methods
-
-### 12.7 Python Export
-
-**Requirement**: Convert Python RetinAnalysis data to MATLAB-readable format
-
-**TRD Specification Coverage**:
-- ✅ Section 2: Complete Python export design
-- ✅ Section 2.1: `export_to_matlab()` method signature and implementation
-- ✅ Section 2.2: Optional selective export (filter by cell type, cell IDs, epochs)
-- ✅ Section 2: Helper methods for formatting RF params, spike times, epoch params
-- ✅ Phase 1 (Week 1): Complete implementation plan
-- ✅ Section 5.1: Testing strategy for Python export
-
-### 12.8 Viewer Panel Functionality
-
-**Original System Features**:
-- Display selected epoch information
-- Plot PSTH (post-stimulus time histogram)
-- Show stimulus parameters
-- Display cell type and ID
-- Support raster plots
-- Support RF mosaics
-- Support parameter tables
-
-**TRD Specification Coverage**:
-- ✅ Section 3.3: Viewer panel implementation with plots
-- ✅ Section 3.3: `onNodeSelected()` displays selected node data
-- ✅ Section 3.3: Simple PSTH example with histogram
-- ✅ Phase 3 (Weeks 3-4): Full viewer implementation
-  - Display selected cell/epoch info ✓
-  - Plot PSTH ✓
-  - Show stimulus parameters ✓
-- ✅ Phase 7 (Week 10): Enhanced viewer with:
-  - Multiple cells overlaid ✓
-  - Raster plots ✓
-  - Parameter display table ✓
-
-### 12.9 User Workflows
-
-**Original System Workflows**:
-1. Load epoch data
-2. Select split key from dropdown
-3. Browse tree, expand/collapse branches
-4. Click epoch to view in viewer panel
-5. Flag example epochs
-6. Run analysis function (e.g., RFAnalysis)
-7. Export/compare results
-
-**TRD Specification Coverage**:
-- ✅ All phases 1-10 support this workflow
-- ✅ Section 5: Implementation timeline preserves user experience
-- ✅ Examples section (planned): Example workflows documented
-- ✅ User guide (Phase 7): Step-by-step workflow documentation
-
-### 12.10 Completeness Matrix
-
-| Component | Old System | TRD Specification | Coverage |
-|-----------|-----------|------------------|----------|
-| **Tree Browser UI** | ✓ | Sections 3.3, Phase 3, Phase 7 | 100% |
-| **Dynamic Splitting** | ✓ | Sections 3.2-3.3, 4.3 | 100% |
-| **14+ Splitters** | ✓ 15+ found | Section 4.3, Phase 6 | 100% |
-| **8 Analysis Functions** | ✓ | Section 4.1, Phases 5-6 | 100% |
-| **6+ Data Utilities** | ✓ | Section 4.2, Phase 4 | 100% |
-| **Python Export** | N/A (new) | Section 2, Phase 1 | ✅ Designed |
-| **Data Loading** | ✓ | Section 3.1, Phase 2 | 100% |
-| **Adapter Methods** | ✓ | Section 4.5 | 100% |
-| **Viewer Panel** | ✓ | Section 3.3, Phases 3 & 7 | 100% |
-| **Example Flagging** | ✓ | Phase 7 | 100% |
-| **Pan/Zoom** | ✓ | Phase 3 | 100% |
-| **User Workflows** | ✓ | All phases | 100% |
-
-### 12.11 Conclusion
-
-**✅ ALL functionality from the original epochtree system is included in this specification.**
-
-The design:
-- Maintains 100% feature parity with original system
-- Adapts data source (Java objects → MATLAB structs)
-- Preserves user experience (same workflows, same tools)
-- Adds Python integration (new capability)
-- Provides clear implementation roadmap (10 weeks, phased approach)
-
-The tree is correctly understood as a **dynamic data organization system**, not just a visualization. All 14+ splitters, 8 analysis functions, and 6+ utilities are fully specified.
-
-**No major functionality is missing from this design.**
-
----
-
-**END OF PLAN**
+**END OF TRD**
