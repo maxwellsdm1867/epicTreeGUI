@@ -74,7 +74,10 @@ function epicTreeGUI()
         % Handle tree node selection
         selectedNode = event.SelectedNodes;
         if ~isempty(selectedNode)
-            handles = fig.visual display function
+            handles = fig.UserData;
+            nodeData = selectedNode.NodeData;
+            if ~isempty(nodeData)
+                % Use the visual display function
                 displayNodeData(handles.dataAxes, nodeData, handles.treeData);
             else
                 cla(handles.dataAxes);
@@ -95,14 +98,10 @@ function epicTreeGUI()
         splitMethod = event.Value;
         
         % Rebuild tree with new split
-        rebuildTreeWithSplit(handles.tree, handles.treeData, splitMethod); else
-                handles.dataDisplay.Value = sprintf('Selected: %s', selectedNode.Text);
-            end
-        end
+        rebuildTreeWithSplit(handles.tree, handles.treeData, splitMethod);
     end
- with current split method
-                splitMethod = handles.splitDropdown.Value;
-                rebuildTreeWithSplit(handles.tree, treeData, splitMethod
+
+    function loadData()
         % Load epoch tree data from file
         [file, path] = uigetfile({'*.mat', 'MATLAB Data Files (*.mat)'}, ...
                                  'Select Epoch Tree Data');
@@ -121,8 +120,9 @@ function epicTreeGUI()
                 buildTreeFromEpicData(handles.tree, treeData);
 
                 % Show success message with summary
-                msg = sprintf(['Data loaded successfully!\n\n', ...
-                              'Experiments: %d\n', ...
+                msg = sprint with current split method
+                splitMethod = handles.splitDropdown.Value;
+                rebuildTreeWithSplit(handles.tree, treeData, splitMethod
                               'Source: %s\n', ...
                               'Created: %s'], ...
                               length(treeData.experiments), ...
