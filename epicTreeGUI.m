@@ -116,13 +116,13 @@ function epicTreeGUI()
                 handles.metadata = metadata;
                 fig.UserData = handles;
 
-                % Build tree
-                buildTreeFromEpicData(handles.tree, treeData);
+                % Build tree with current split method
+                splitMethod = handles.splitDropdown.Value;
+                rebuildTreeWithSplit(handles.tree, treeData, splitMethod);
 
                 % Show success message with summary
-                msg = sprint with current split method
-                splitMethod = handles.splitDropdown.Value;
-                rebuildTreeWithSplit(handles.tree, treeData, splitMethod
+                msg = sprintf(['Data loaded successfully!\n\n', ...
+                              'Experiments: %d\n', ...
                               'Source: %s\n', ...
                               'Created: %s'], ...
                               length(treeData.experiments), ...

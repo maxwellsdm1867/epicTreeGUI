@@ -25,18 +25,25 @@ function displayNodeData(axesHandle, nodeData, treeData)
         return;
     end
     
+    % Get the actual data - could be in 'data' field or directly in nodeData
+    if isfield(nodeData, 'data')
+        actualData = nodeData.data;
+    else
+        actualData = nodeData;
+    end
+    
     % Handle different node types
     switch nodeData.type
         case 'epoch'
-            plotEpochData(axesHandle, nodeData.data, treeData);
+            plotEpochData(axesHandle, actualData, treeData);
         case 'epoch_block'
-            plotBlockSummary(axesHandle, nodeData.data);
+            plotBlockSummary(axesHandle, actualData);
         case 'epoch_group'
-            plotGroupSummary(axesHandle, nodeData.data);
+            plotGroupSummary(axesHandle, actualData);
         case 'cell'
-            plotCellSummary(axesHandle, nodeData.data);
+            plotCellSummary(axesHandle, actualData);
         case 'experiment'
-            plotExperimentSummary(axesHandle, nodeData.data);
+            plotExperimentSummary(axesHandle, actualData);
         otherwise
             text(axesHandle, 0.5, 0.5, sprintf('Node type: %s', nodeData.type), ...
                 'HorizontalAlignment', 'center', 'FontSize', 12);
@@ -46,17 +53,117 @@ end
 function plotEpochData(ax, epoch, treeData)
     % Plot detailed epoch data with PSTH and raster
     
-    % Check if spike data exists
-    if ~isfield(epoch, 'spike_data') || isempty(epoch.spike_data)
-        text(ax, 0.5, 0.5, 'No spike data available', ...
+    % Check if this is a valid epoch with data
+    if ~isstruct(epoch)
+        text(ax, 0.5, 0.5, 'Invalid epoch data', ...
             'HorizontalAlignment', 'center', 'FontSize', 11);
         return;
     end
     
-    % Get spike times (could be array or cell array)
-    spike_times = epoch.spike_data.spike_times;
+    % Try to plot raw trace first if available
+    if isfield(epoch, 'raw_trace') && ~isempty(epoch.raw_trace)
+        plotRawTrace(ax, epoch);
+        return;
+    end
+    
+    % Check if spike data exists
+    if isfield(epoch, 'spike_data') && ~isempty(epoch.spike_data)
+        plotSpikeData(ax, epoch);
+        return;
+    end
+    
+    % Show epoch info without spike/raw data
+    showEpochInfo(ax, epoch);
+end
+
+function plotRawTrace(ax, epoch)
+    % Plot raw voltage/current trace
+    raw = epoch.raw_trace;
+    
+    % Get sample rate (default to 10kHz if not specified)
+    if isfield(epoch, 'sample_rate')
+        fs = epoch.sample_rate;
+    else
+        fs = 10000spike_data.spike_times;
     if iscell(spike_times)
         spike_times = spike_times{1};
+    end
+    
+    if isempty(spike_times)
+        showEpochInfo(ax, epoch);
+        return;
+    end
+    
+    % Create 2x1 subplot layout if parent allows
+    % Top: Spike raster, Bottom: PSTH
+    parentFig = ancestor(ax, 'figure');
+    clf(parentFig);
+    
+    subplot(2, 1, 1);
+    plotSpikeRaster(spike_times);
+    title(sprintf('Epoch %d - Cell %d', epoch.id, epoch.cell_id));
+    
+    subplot(2, 1, 2);
+    plotPSTH(spike_times);
+    
+    % Add parameter info if available
+    if isfield(epoch, 'parameters') && ~isempty(epoch.parameters)
+        addParameterInfo(gca, epoch.parameters);
+    end
+end
+
+function showEpochInfo(ax, epoch)
+    % Show text-based epoch information
+    infoStr = {sprintf('Epoch %d', epoch.id), ''};
+    
+    if isfield(epoch, 'parameters') && ~isempty(epoch.parameters)
+        infoStr{end+1} = 'Parameters:';
+        params = fieldnames(epoch.parameters);
+        for i = 1:min(5, length(params))
+            pname = params{i};
+            pval = epoch.parameters.(pname);
+            if isnumeric(pval) && ~isempty(pval)
+                infoStr{end+1} = sprintf('  %s: %.2g', pname, pval);
+            elseif ischar(pval)
+                infoStr{end+1} = sprintf('  %s: %s', pname, pval);
+            end
+        end
+        if length(params) > 5
+            infoStr{end+1} = sprintf('  ... and %d more', length(params) - 5);
+        end
+    end
+    
+    infoStr{end+1} = '';
+    infoStr{end+1} = 'No spike or raw trace data available';
+    
+    text(ax, 0.1, 0.5, infoStr, ...
+        'VerticalAlignment', 'middle', ...
+        'FontSize', 10, 'FontName', 'FixedWidth');
+    axis(ax, 'off');
+end
+
+function addParameterInfo(ax, params)
+    % Add parameter info to current axes xlabel
+    param_names = fieldnames(params);
+    if length(param_names) > 5
+        param_names = param_names(1:5);
+    end
+    
+    param_str = '';
+    for i = 1:length(param_names)
+        pname = param_names{i};
+        pval = params.(pname);
+        if isnumeric(pval) && ~isempty(pval)
+            param_str = [param_str sprintf('%s=%.2g  ', pname, pval(1))];
+        end
+    end
+    
+    if ~isempty(param_str)
+        xlabel(ax, param_str);
+    end
+end
+
+function plotSpikeRaster_old(spike_times, epoch)     spike_times = spike_times{1};
     end
     
     if isempty(spike_times)
@@ -95,7 +202,9 @@ function plotSpikeRaster(spike_times)
                     'Color', 'k', 'LineWidth', 1);
             end
         end
-        ylim([0.5 n_trials+0.5]);
+    if ~isempty(spike_times)
+        xlim([0 max(spike_times)]);
+    end);
         ylabel('Trial');
     else
         % Single trial
