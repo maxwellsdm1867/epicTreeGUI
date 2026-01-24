@@ -48,3 +48,7 @@ sccprj/
 # Code generation folders
 codegen/
 matlab-mcp-core-server/
+
+# Reference-only folders (keep locally, do not track)
+new_retinanalysis/
+old_epochtree/
