@@ -1077,6 +1077,10 @@ classdef epicTreeTools < handle
                                     epoch.protocolSettings = epoch.parameters;
                                 end
 
+                                % Initialize selection state (CRITICAL for GUI)
+                                epoch.isSelected = true;
+                                epoch.includeInAnalysis = true;
+
                                 epochs{end+1} = epoch;
                             end
                         end
