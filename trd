@@ -1,5 +1,33 @@
 # EpicTreeGUI: Pure MATLAB Epoch Tree Browser
 
+---
+## 📊 CURRENT STATUS (January 2026)
+
+**MVP: ✅ COMPLETE** | **Full Feature Parity: ~70%**
+
+| Component | Status | Files |
+|-----------|--------|-------|
+| Core Tree Class | ✅ Complete | `epicTreeTools.m` (1607 lines, 20+ splitters) |
+| GUI Framework | ✅ Complete | `epicTreeGUI.m`, `graphicalTree.m`, `graphicalTreeNode.m`, `graphicalTreeNodeWidget.m`, `graphicalCheckBox.m` |
+| Data Viewer | ✅ Complete | `singleEpoch.m` |
+| Data Utilities | ✅ Complete | `getSelectedData.m`, `getResponseMatrix.m`, `getTreeEpochs.m` |
+| Analysis Functions | ⚠️ 4/8 | `getMeanResponseTrace.m`, `getResponseAmplitudeStats.m`, `getCycleAverageResponse.m`, `getLinearFilterAndPrediction.m` |
+| Documentation | 🔲 Pending | User guide, examples |
+
+**What Works Now:**
+```matlab
+gui = epicTreeGUI('data.mat');                    % Launch GUI
+[data, epochs, fs] = getSelectedData(node, 'Amp1'); % Get selected data
+result = getMeanResponseTrace(data, fs);           % Analyze
+```
+
+**Remaining Work:**
+- Port 4 analysis functions from old_epochtree/ (RFAnalysis, LSTA, CenterSurround, MeanSelectedNodes)
+- Expose all 20+ splitters in dropdown UI
+- User documentation and examples
+
+---
+
 ## Executive Summary
 
 Build a **pure MATLAB** GUI for browsing and analyzing epoch data, replicating ALL functionality from the legacy Rieke Lab epoch tree system (Java/MATLAB), but operating on the standardized data format defined in [DATA_FORMAT_SPECIFICATION.md](DATA_FORMAT_SPECIFICATION.md).
@@ -1043,149 +1071,149 @@ end
 
 ## 9. FILE ORGANIZATION
 
+### Current Implementation (January 2026)
+
 ```
 epicTreeGUI/
+├── epicTreeGUI.m                    # ✅ Main GUI (handle class, 597 lines)
+├── trd                              # This file
 ├── README.md
-├── trd                                    # This file
 ├── EPOCH_TREE_SYSTEM_COMPREHENSIVE_GUIDE.md
 ├── DATA_FORMAT_SPECIFICATION.md
 ├── JAUIMODEL_FUNCTION_INVENTORY.md
 │
 ├── src/
-│   ├── core/
-│   │   ├── EpochTree.m                   # Tree node class
-│   │   ├── buildTree.m                   # Tree building algorithm
-│   │   ├── loadEpicTreeData.m            # Load standard format .mat
-│   │   └── extractAllEpochs.m            # Extract epochs with parent refs
+│   ├── tree/
+│   │   └── epicTreeTools.m          # ✅ Core tree class (1607 lines, 20+ splitters)
 │   │
 │   ├── gui/
-│   │   ├── epicTreeGUI.m                 # Main GUI class
-│   │   ├── graphicalTree.m               # Tree visualization
-│   │   ├── graphicalTreeNode.m           # Tree node widget
-│   │   ├── graphicalTreeNodeWidget.m     # Node visual representation
-│   │   └── singleEpoch.m                 # Epoch viewer
-│   │
-│   ├── splitters/
-│   │   ├── splitOnExperimentDate.m
-│   │   ├── splitOnCellType.m
-│   │   ├── splitOnCellLabel.m
-│   │   ├── splitOnKeywords.m
-│   │   ├── splitOnParameter.m            # Generic parameter splitter
-│   │   ├── splitOnF1F2Contrast.m
-│   │   ├── splitOnF1F2Phase.m
-│   │   ├── splitOnRadiusOrDiameter.m
-│   │   ├── splitOnHoldingSignal.m
-│   │   ├── splitOnRecKeyword.m
-│   │   ├── splitOnPatchContrast_NatImage.m
-│   │   └── ... (all 14+ splitters)
+│   │   ├── graphicalTree.m          # ✅ Interactive tree (widget pool)
+│   │   ├── graphicalTreeNode.m      # ✅ Tree node data
+│   │   ├── graphicalTreeNodeWidget.m # ✅ Reusable widgets
+│   │   ├── graphicalCheckBox.m      # ✅ Checkbox widget
+│   │   └── singleEpoch.m            # ✅ Epoch viewer
 │   │
 │   ├── analysis/
-│   │   ├── RFAnalysis.m
-│   │   ├── LSTA.m
-│   │   ├── SpatioTemporalModel.m
-│   │   ├── CenterSurround.m
-│   │   ├── Interneurons.m
-│   │   ├── Occlusion.m
-│   │   ├── MeanSelectedNodes.m
-│   │   └── RFAnalysis2.m
+│   │   ├── getMeanResponseTrace.m        # ✅ Mean ± SEM
+│   │   ├── getResponseAmplitudeStats.m   # ✅ Peak/integrated
+│   │   ├── getCycleAverageResponse.m     # ✅ Cycle averaging
+│   │   └── getLinearFilterAndPrediction.m # ✅ Linear filter
 │   │
-│   └── utilities/
-│       ├── getResponseMatrix.m           # CRITICAL - response data extraction
-│       ├── getSelectedData.m             # CRITICAL - filtered response data
-│       ├── getTreeEpochs.m               # Get epochs under tree node
-│       ├── getTreeLeaves.m               # Get leaf nodes
-│       ├── getMeanResponseTrace.m
-│       ├── getResponseAmplitudeStats.m
-│       ├── getCycleAverageResponse.m
-│       ├── getF1F2statistics.m
-│       ├── getLinearFilterAndPrediction.m
-│       ├── getNoiseStimulusAndResponse.m
-│       ├── filterEpochListByEpochGroups.m
-│       ├── makeUniformEpochList.m
-│       └── getEpochTreeSplitString.m
+│   ├── splitters/
+│   │   ├── splitOnCellType.m        # Basic splitter
+│   │   └── splitOnParameter.m       # Generic parameter splitter
+│   │
+│   ├── getSelectedData.m            # ✅ CRITICAL - filtered response data
+│   ├── getResponseMatrix.m          # ✅ CRITICAL - response matrix
+│   ├── getTreeEpochs.m              # ✅ Get epochs from node
+│   ├── loadEpicTreeData.m           # Data loader
+│   └── ... (other utilities)
 │
+└── old_epochtree/                   # Reference (read-only)
+    └── MHT-analysis-package-master/
+        ├── EpochListAnalysisFunctions/  # Legacy analysis to port
+        └── JauiModel&TreeTools/         # Legacy GUI reference
+```
+
+### Planned Additions
+
+```
+├── src/
+│   ├── analysis/
+│   │   ├── RFAnalysis.m             # 🔲 Port from old_epochtree
+│   │   ├── LSTA.m                   # 🔲 Port from old_epochtree
+│   │   ├── CenterSurround.m         # 🔲 Port from old_epochtree
+│   │   └── MeanSelectedNodes.m      # 🔲 Port from old_epochtree
+│   │
 ├── examples/
-│   ├── example_launch_gui.m
-│   ├── example_build_tree.m
-│   ├── example_analysis.m
-│   └── sample_data/
-│       └── test_data.mat
+│   └── example_usage.m              # 🔲 Usage examples
 │
 └── docs/
-    ├── UserGuide.md
-    └── AnalysisFunctions.md
+    └── UserGuide.md                 # 🔲 User documentation
 ```
 
 ---
 
 ## 10. IMPLEMENTATION PHASES
 
-### Phase 1: Core Data Layer (Week 1-2)
-- [ ] `EpochTree.m` class
-- [ ] `buildTree.m` algorithm
-- [ ] `loadEpicTreeData.m` data loader
-- [ ] Key path resolver
-- [ ] Basic splitter functions
+**Status as of January 2026: Phases 1-4 COMPLETE, Phase 5-6 PARTIAL**
 
-### Phase 2: GUI Framework (Week 3-4)
-- [ ] `epicTreeGUI.m` main class
-- [ ] `graphicalTree.m` tree visualization
-- [ ] `graphicalTreeNode.m` node widget
-- [ ] Split key dropdown
-- [ ] Node selection/expansion
+### Phase 1: Core Data Layer ✅ COMPLETE
+- [x] `epicTreeTools.m` class (1607 lines with 20+ splitters)
+- [x] `buildTree.m` / `buildTreeWithSplitters.m` algorithms
+- [x] `loadEpicTreeData.m` data loader
+- [x] Key path resolver (`getNestedValue.m`)
+- [x] Basic splitter functions (20+ in epicTreeTools)
+- [x] Selection state management (`custom` property, `getAllEpochs`, `setSelected`)
 
-### Phase 3: Data Viewer (Week 5)
-- [ ] `singleEpoch.m` epoch viewer
-- [ ] Response plotting
-- [ ] Epoch navigation (slider)
-- [ ] Info table display
+### Phase 2: GUI Framework ✅ COMPLETE
+- [x] `epicTreeGUI.m` main class (handle class, 40%/60% split layout)
+- [x] `graphicalTree.m` tree visualization (widget pool pattern)
+- [x] `graphicalTreeNode.m` node data structure
+- [x] `graphicalTreeNodeWidget.m` reusable visual widgets
+- [x] `graphicalCheckBox.m` checkbox with partial state
+- [x] Split key dropdown with 5 presets
+- [x] Node selection/expansion with callbacks
 
-### Phase 4: Data Extraction Utilities (Week 6)
-- [ ] `getResponseMatrix.m` (CRITICAL)
-- [ ] `getSelectedData.m` (CRITICAL)
-- [ ] `getTreeEpochs.m`
-- [ ] `getTreeLeaves.m`
-- [ ] `getMeanResponseTrace.m`
-- [ ] `getResponseAmplitudeStats.m`
+### Phase 3: Data Viewer ✅ COMPLETE
+- [x] `singleEpoch.m` epoch viewer
+- [x] Response plotting with multi-stream support
+- [x] Epoch navigation (slider + prev/next buttons)
+- [x] Info table display (index, date, selected, protocol, parameters)
+- [x] Selection/include checkboxes per epoch
 
-### Phase 5: All Splitters (Week 7)
-- [ ] All 14+ splitter functions
-- [ ] Generic `splitOnParameter.m`
-- [ ] Integration with dropdown
+### Phase 4: Data Extraction Utilities ✅ COMPLETE
+- [x] `getResponseMatrix.m` (CRITICAL) - [nEpochs × nSamples] matrix
+- [x] `getSelectedData.m` (CRITICAL) - filters by isSelected flag
+- [x] `getTreeEpochs.m` - wrapper for getAllEpochs
+- [x] `getMeanResponseTrace.m` - mean ± SEM with recording type support
+- [x] `getResponseAmplitudeStats.m` - peak and integrated response
+- [x] `getCycleAverageResponse.m` - cycle averaging with F1/F2
+- [x] `getLinearFilterAndPrediction.m` - linear filter via cross-correlation
 
-### Phase 6: Analysis Functions (Week 8-9)
-- [ ] `RFAnalysis.m`
-- [ ] `LSTA.m`
+### Phase 5: All Splitters ⚠️ PARTIAL (20+ already in epicTreeTools)
+- [x] 20+ splitter functions built into epicTreeTools.m
+- [x] Generic `splitOnParameter.m`
+- [x] Integration with dropdown (5 presets)
+- [ ] Expose all 20+ splitters in dropdown UI
+
+### Phase 6: Analysis Functions ⚠️ PARTIAL
+- [x] `getMeanResponseTrace.m` ✅
+- [x] `getResponseAmplitudeStats.m` ✅
+- [x] `getCycleAverageResponse.m` ✅
+- [x] `getLinearFilterAndPrediction.m` ✅
+- [ ] `RFAnalysis.m` (legacy exists in old_epochtree/)
+- [ ] `LSTA.m` (legacy exists in old_epochtree/)
 - [ ] `SpatioTemporalModel.m`
-- [ ] `CenterSurround.m`
-- [ ] `MeanSelectedNodes.m`
-- [ ] Remaining analysis functions
+- [ ] `CenterSurround.m` (legacy exists in old_epochtree/)
+- [ ] `MeanSelectedNodes.m` (legacy exists in old_epochtree/)
 
-### Phase 7: Polish & Documentation (Week 10)
-- [ ] Enhanced tree visualization
-- [ ] Keyboard shortcuts
-- [ ] Example flagging
-- [ ] Documentation
+### Phase 7: Polish & Documentation 🔲 NOT STARTED
+- [x] Keyboard navigation (arrows + 'f' key)
+- [x] Example flagging (Set Example button)
+- [ ] Enhanced tree visualization (icons, colors)
+- [ ] User documentation
 - [ ] Example workflows
 
 ---
 
 ## 11. SUCCESS CRITERIA
 
-### Minimum Viable Product (MVP)
-- [ ] Loads standard format .mat file
-- [ ] Builds tree with at least 3 split types
-- [ ] Interactive tree browser (expand/collapse/select)
-- [ ] Single epoch viewer with response plot
-- [ ] `getSelectedData()` works correctly
+### Minimum Viable Product (MVP) ✅ ACHIEVED
+- [x] Loads standard format .mat file
+- [x] Builds tree with at least 3 split types (cell type, contrast, protocol, date, combinations)
+- [x] Interactive tree browser (expand/collapse/select)
+- [x] Single epoch viewer with response plot
+- [x] `getSelectedData()` works correctly (filters by isSelected flag)
 
-### Full Feature Parity
-- [ ] All 14+ splitters implemented
-- [ ] All 8 analysis functions working
-- [ ] All data extraction utilities
-- [ ] Keyboard navigation (arrows, 'f' key)
-- [ ] Example flagging
-- [ ] Results storage on nodes
+### Full Feature Parity ⚠️ ~70% COMPLETE
+- [x] 20+ splitters implemented (in epicTreeTools.m)
+- [x] 4 core analysis functions working (getMeanResponseTrace, getResponseAmplitudeStats, getCycleAverageResponse, getLinearFilterAndPrediction)
+- [x] All data extraction utilities (getResponseMatrix, getSelectedData, getTreeEpochs)
+- [x] Keyboard navigation (arrows, 'f' key)
+- [x] Example flagging (Set Example button, red background)
+- [x] Results storage on nodes (custom.results struct)
+- [ ] Port remaining 4 analysis functions (RFAnalysis, LSTA, CenterSurround, MeanSelectedNodes)
 
 ---
 
