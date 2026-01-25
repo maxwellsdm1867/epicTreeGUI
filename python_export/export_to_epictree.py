@@ -279,55 +279,118 @@ class EpicTreeExporter:
         return epoch
 
     def _extract_response_data(self, response_data: Dict) -> Optional[Dict]:
-        """Extract response data from H5 file."""
+        """
+        Extract response data from H5 file and include in export.
+
+        The actual data is read from H5 and stored in the .mat file so
+        no H5 access is needed at runtime in MATLAB.
+        """
         h5_file = response_data.get('h5_file')
         h5_path = response_data.get('h5_path')
+        device_name = str(response_data.get('label', ''))
+
+        if not h5_file or not h5_path:
+            print(f"    Warning: No H5 path for response {device_name}")
+            return None
+
+        # Default values
+        data = np.array([])
+        sample_rate = 10000
+        units = 'unknown'
+
+        # Try to read data from H5 file
+        if os.path.exists(h5_file):
+            try:
+                with h5py.File(h5_file, 'r') as f:
+                    # Clean h5_path (remove leading slash)
+                    clean_path = h5_path.lstrip('/')
+
+                    if clean_path in f:
+                        epoch_group = f[clean_path]
+
+                        if 'data' in epoch_group:
+                            data_group = epoch_group['data']
+
+                            # Read the actual data
+                            if 'quantity' in data_group:
+                                data = np.array(data_group['quantity'][:]).flatten()
+
+                            # Get sample rate
+                            if 'sampleRate' in data_group.attrs:
+                                sample_rate = float(data_group.attrs['sampleRate'])
+
+                            # Get units
+                            if 'units' in data_group.attrs:
+                                units = str(data_group.attrs['units'])
+                    else:
+                        print(f"    Warning: Path {clean_path} not found in H5")
+
+            except Exception as e:
+                print(f"    Warning: Error reading H5 for {device_name}: {e}")
+        else:
+            print(f"    Warning: H5 file not found: {h5_file}")
+
+        # Create response struct with data included
+        response = {
+            'device_name': device_name,
+            'data': data,  # Actual data from H5, not lazy loaded
+            'spike_times': np.array([]),
+            'sample_rate': sample_rate,
+            'sample_rate_units': 'Hz',
+            'units': units,
+            'offset_ms': 0.0
+        }
+
+        return response
+
+    def _extract_stimulus_data(self, stimulus_data: Dict) -> Optional[Dict]:
+        """
+        Extract stimulus data from H5 file and include in export.
+        """
+        h5_file = stimulus_data.get('h5_file')
+        h5_path = stimulus_data.get('h5_path')
+        device_name = str(stimulus_data.get('label', ''))
 
         if not h5_file or not h5_path:
             return None
 
-        try:
-            with h5py.File(h5_file, 'r') as f:
-                if h5_path not in f:
-                    return None
+        # Default values
+        data = np.array([])
+        sample_rate = 10000
+        units = 'normalized'
 
-                epoch_group = f[h5_path]
+        # Try to read data from H5 file
+        if os.path.exists(h5_file):
+            try:
+                with h5py.File(h5_file, 'r') as f:
+                    clean_path = h5_path.lstrip('/')
+                    if clean_path in f:
+                        epoch_group = f[clean_path]
+                        if 'data' in epoch_group:
+                            data_group = epoch_group['data']
 
-                # Extract data
-                data = []
-                sample_rate = 10000  # Default
-                units = 'unknown'
+                            # Read the actual data
+                            if 'quantity' in data_group:
+                                data = np.array(data_group['quantity'][:]).flatten()
 
-                if 'data' in epoch_group:
-                    data_group = epoch_group['data']
+                            if 'sampleRate' in data_group.attrs:
+                                sample_rate = float(data_group.attrs['sampleRate'])
+                            if 'units' in data_group.attrs:
+                                units = str(data_group.attrs['units'])
+            except Exception:
+                pass  # Use defaults
 
-                    if 'quantity' in data_group:
-                        data = data_group['quantity'][:].flatten().tolist()
+        stimulus = {
+            'device_name': device_name,
+            'data': data,  # Actual data from H5
+            'sample_rate': sample_rate,
+            'units': units
+        }
 
-                    if 'sampleRate' in data_group.attrs:
-                        sample_rate = float(data_group.attrs['sampleRate'])
+        return stimulus
 
-                    if 'units' in data_group.attrs:
-                        units = str(data_group.attrs['units'])
-
-                response = {
-                    'device_name': str(response_data.get('label', '')),
-                    'data': data,
-                    'spike_times': [],  # TODO: Detect spikes
-                    'sample_rate': sample_rate,
-                    'sample_rate_units': 'Hz',
-                    'units': units,
-                    'offset_ms': 0.0
-                }
-
-                return response
-
-        except Exception as e:
-            print(f"Warning: Could not read H5 data from {h5_path}: {e}")
-            return None
-
-    def _extract_stimulus_data(self, stimulus_data: Dict) -> Optional[Dict]:
-        """Extract stimulus data from H5 file."""
+    def _extract_stimulus_data_UNUSED(self, stimulus_data: Dict) -> Optional[Dict]:
+        """UNUSED: Old implementation - kept for reference."""
         h5_file = stimulus_data.get('h5_file')
         h5_path = stimulus_data.get('h5_path')
 

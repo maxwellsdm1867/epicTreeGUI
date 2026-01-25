@@ -96,7 +96,8 @@ end
 function [data, sampleRate] = getResponseFromEpoch(epoch, streamName)
 % GETRESPONSEFROMEPOCH Extract response data from a single epoch
 %
-% Searches epoch.responses array for matching device_name
+% Searches epoch.responses array for matching device_name.
+% Supports lazy loading from H5 files when data field is empty.
 
 data = [];
 sampleRate = [];
@@ -108,31 +109,49 @@ end
 
 responses = epoch.responses;
 
-% Handle struct array vs cell array
+% Find the matching response
+resp = [];
 if isstruct(responses)
     for i = 1:length(responses)
-        resp = responses(i);
-        if isfield(resp, 'device_name') && strcmp(resp.device_name, streamName)
-            if isfield(resp, 'data')
-                data = resp.data(:)';  % Ensure row vector
-            end
-            if isfield(resp, 'sample_rate')
-                sampleRate = resp.sample_rate;
-            end
-            return;
+        if isfield(responses(i), 'device_name') && strcmp(responses(i).device_name, streamName)
+            resp = responses(i);
+            break;
         end
     end
 elseif iscell(responses)
     for i = 1:length(responses)
-        resp = responses{i};
-        if isfield(resp, 'device_name') && strcmp(resp.device_name, streamName)
-            if isfield(resp, 'data')
-                data = resp.data(:)';  % Ensure row vector
+        r = responses{i};
+        if isfield(r, 'device_name') && strcmp(r.device_name, streamName)
+            resp = r;
+            break;
+        end
+    end
+end
+
+if isempty(resp)
+    return;
+end
+
+% Get sample rate
+if isfield(resp, 'sample_rate')
+    sampleRate = resp.sample_rate;
+end
+
+% Get data - try direct field first, then lazy load from H5
+if isfield(resp, 'data') && ~isempty(resp.data)
+    data = resp.data(:)';  % Ensure row vector
+else
+    % Lazy load from H5 file
+    if isfield(resp, 'h5_file') && isfield(resp, 'h5_path') && ...
+       ~isempty(resp.h5_file) && ~isempty(resp.h5_path)
+        try
+            data = loadH5ResponseData(resp);
+            if ~isempty(data)
+                data = data(:)';  % Ensure row vector
             end
-            if isfield(resp, 'sample_rate')
-                sampleRate = resp.sample_rate;
-            end
-            return;
+        catch ME
+            warning('getResponseFromEpoch:H5LoadFailed', ...
+                'Failed to load H5 data: %s', ME.message);
         end
     end
 end

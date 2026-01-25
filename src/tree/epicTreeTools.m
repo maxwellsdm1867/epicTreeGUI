@@ -1022,6 +1022,8 @@ classdef epicTreeTools < handle
             %
             % Usage:
             %   epochs = epicTreeTools.extractAllEpochs(treeData)
+            %
+            % Handles both cell arrays and struct arrays in the hierarchy.
 
             epochs = {};
 
@@ -1029,42 +1031,52 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            for expIdx = 1:length(treeData.experiments)
-                exp = treeData.experiments(expIdx);
+            experiments = treeData.experiments;
+            for expIdx = 1:length(experiments)
+                exp = epicTreeTools.getElement(experiments, expIdx);
 
-                expInfo = struct('id', exp.id, 'exp_name', exp.exp_name);
+                expInfo = struct();
+                if isfield(exp, 'id'), expInfo.id = exp.id; end
+                if isfield(exp, 'exp_name'), expInfo.exp_name = exp.exp_name; end
                 if isfield(exp, 'is_mea'), expInfo.is_mea = exp.is_mea; end
 
                 if ~isfield(exp, 'cells'), continue; end
 
-                for cellIdx = 1:length(exp.cells)
-                    cell = exp.cells(cellIdx);
+                cells = exp.cells;
+                for cellIdx = 1:length(cells)
+                    cellData = epicTreeTools.getElement(cells, cellIdx);
 
-                    cellInfo = struct('id', cell.id);
-                    if isfield(cell, 'type'), cellInfo.type = cell.type; else, cellInfo.type = ''; end
-                    if isfield(cell, 'label'), cellInfo.label = cell.label; else, cellInfo.label = ''; end
+                    cellInfo = struct();
+                    if isfield(cellData, 'id'), cellInfo.id = cellData.id; end
+                    if isfield(cellData, 'type'), cellInfo.type = cellData.type; else, cellInfo.type = ''; end
+                    if isfield(cellData, 'label'), cellInfo.label = cellData.label; else, cellInfo.label = ''; end
 
-                    if ~isfield(cell, 'epoch_groups'), continue; end
+                    if ~isfield(cellData, 'epoch_groups'), continue; end
 
-                    for groupIdx = 1:length(cell.epoch_groups)
-                        eg = cell.epoch_groups(groupIdx);
+                    epochGroups = cellData.epoch_groups;
+                    for groupIdx = 1:length(epochGroups)
+                        eg = epicTreeTools.getElement(epochGroups, groupIdx);
 
-                        groupInfo = struct('id', eg.id);
+                        groupInfo = struct();
+                        if isfield(eg, 'id'), groupInfo.id = eg.id; end
                         if isfield(eg, 'protocol_name'), groupInfo.protocol_name = eg.protocol_name; else, groupInfo.protocol_name = ''; end
                         if isfield(eg, 'label'), groupInfo.label = eg.label; else, groupInfo.label = ''; end
 
                         if ~isfield(eg, 'epoch_blocks'), continue; end
 
-                        for blockIdx = 1:length(eg.epoch_blocks)
-                            eb = eg.epoch_blocks(blockIdx);
+                        epochBlocks = eg.epoch_blocks;
+                        for blockIdx = 1:length(epochBlocks)
+                            eb = epicTreeTools.getElement(epochBlocks, blockIdx);
 
-                            blockInfo = struct('id', eb.id);
+                            blockInfo = struct();
+                            if isfield(eb, 'id'), blockInfo.id = eb.id; end
                             if isfield(eb, 'protocol_name'), blockInfo.protocol_name = eb.protocol_name; else, blockInfo.protocol_name = ''; end
 
                             if ~isfield(eb, 'epochs'), continue; end
 
-                            for epochIdx = 1:length(eb.epochs)
-                                epoch = eb.epochs(epochIdx);
+                            epochList = eb.epochs;
+                            for epochIdx = 1:length(epochList)
+                                epoch = epicTreeTools.getElement(epochList, epochIdx);
 
                                 % Attach parent references
                                 epoch.cellInfo = cellInfo;
@@ -1089,6 +1101,17 @@ classdef epicTreeTools < handle
             end
 
             epochs = epochs(:);
+        end
+
+        function elem = getElement(arr, idx)
+            % GETELEMENT Get element from cell array or struct array
+            %
+            % Handles both cell arrays and struct arrays uniformly.
+            if iscell(arr)
+                elem = arr{idx};
+            else
+                elem = arr(idx);
+            end
         end
 
         function response = getResponseByName(epoch, deviceName)
