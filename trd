@@ -7,7 +7,7 @@
 
 | Component | Status | Files |
 |-----------|--------|-------|
-| Core Tree Class | ✅ Complete | `epicTreeTools.m` (1607 lines, 20+ splitters) |
+| Core Tree Class | ✅ Complete | `epicTreeTools.m` (1700+ lines, 20+ splitters, navigation, controlled access) |
 | GUI Framework | ✅ Complete | `epicTreeGUI.m`, `graphicalTree.m`, `graphicalTreeNode.m`, `graphicalTreeNodeWidget.m`, `graphicalCheckBox.m` |
 | Data Viewer | ✅ Complete | `singleEpoch.m` |
 | Data Utilities | ✅ Complete | `getSelectedData.m`, `getResponseMatrix.m`, `getTreeEpochs.m`, `loadH5ResponseData.m` |
@@ -28,6 +28,35 @@ h5_file = getH5FilePath(exp_name);
 % Get selected data (lazy-loads from H5)
 [data, epochs, fs] = getSelectedData(node, 'Amp1', h5_file);
 result = getMeanResponseTrace(data, fs);
+```
+
+**Tree Navigation Pattern:**
+```matlab
+% Build tree with splitters
+tree = epicTreeTools(data);
+tree.buildTree({'cellInfo.type', 'blockInfo.protocol_name', 'parameters.contrast'});
+
+% Navigate DOWN
+for i = 1:tree.childrenLength()
+    cellTypeNode = tree.childAt(i);
+    for j = 1:cellTypeNode.childrenLength()
+        protocolNode = cellTypeNode.childAt(j);
+        leaves = protocolNode.leafNodes();
+    end
+end
+
+% Navigate UP
+leaf = leaves{1};
+d = leaf.depth();                    % How deep is this node?
+parentNode = leaf.parentAt(d-1);     % Get ancestor at level
+root = leaf.getRoot();               % Get root
+pathStr = leaf.pathString();         % "OnP > FlashProtocol > 0.5"
+
+% Controlled access (no direct property assignment)
+node.putCustom('results', struct('mean', 42.5, 'n', 10));
+results = node.getCustom('results');
+hasResults = node.hasCustom('results');
+node.removeCustom('results');
 ```
 
 **Remaining Work:**
@@ -494,6 +523,86 @@ classdef EpochTree < handle
             child = [];
         end
 
+        function child = childAt(obj, idx)
+            % Get child by 1-based index
+            child = obj.children{idx};
+        end
+
+        function n = childrenLength(obj)
+            % Get number of children
+            n = length(obj.children);
+        end
+
+        function ancestor = parentAt(obj, levelsUp)
+            % Get ancestor N levels up (1 = parent, 2 = grandparent)
+            ancestor = obj;
+            for i = 1:levelsUp
+                ancestor = ancestor.parent;
+            end
+        end
+
+        function d = depth(obj)
+            % Get depth from root (root = 0)
+            d = 0;
+            node = obj;
+            while ~isempty(node.parent)
+                d = d + 1;
+                node = node.parent;
+            end
+        end
+
+        function path = pathFromRoot(obj)
+            % Get array of nodes from root to this node
+            path = {obj};
+            node = obj;
+            while ~isempty(node.parent)
+                node = node.parent;
+                path = [{node}, path];
+            end
+        end
+
+        function str = pathString(obj, sep)
+            % Get human-readable path string
+            if nargin < 2, sep = ' > '; end
+            path = obj.pathFromRoot();
+            parts = cell(1, length(path));
+            for i = 1:length(path)
+                if isempty(path{i}.splitValue)
+                    parts{i} = 'Root';
+                else
+                    parts{i} = string(path{i}.splitValue);
+                end
+            end
+            str = strjoin(parts, sep);
+        end
+
+        %% Controlled Access Methods
+        function putCustom(obj, key, value)
+            % Store value with controlled access (prevents direct .custom replacement)
+            obj.custom.(key) = value;
+        end
+
+        function value = getCustom(obj, key)
+            % Retrieve value by key (returns empty if not found)
+            if isfield(obj.custom, key)
+                value = obj.custom.(key);
+            else
+                value = [];
+            end
+        end
+
+        function result = hasCustom(obj, key)
+            % Check if key exists
+            result = isfield(obj.custom, key);
+        end
+
+        function removeCustom(obj, key)
+            % Remove key from custom
+            if isfield(obj.custom, key)
+                obj.custom = rmfield(obj.custom, key);
+            end
+        end
+
         function values = splitValues(obj)
             % Get all split key-value pairs from root to this node
             values = struct();
@@ -528,7 +637,48 @@ classdef EpochTree < handle
 end
 ```
 
-### 4.2 Epoch Struct (Maps to DATA_FORMAT_SPECIFICATION)
+### 4.2 Tree Navigation API
+
+The tree provides methods for navigating in both directions:
+
+| Method | Purpose | Returns |
+|--------|---------|---------|
+| **Navigate DOWN** | | |
+| `childAt(idx)` | Get child by 1-based index | EpochTree node |
+| `childrenLength()` | Number of children | integer |
+| `childBySplitValue(value)` | Find child by split value | EpochTree node or [] |
+| `leafNodes()` | Get all leaf descendants | cell array of nodes |
+| **Navigate UP** | | |
+| `parent` | Parent node (property) | EpochTree node or [] |
+| `parentAt(n)` | Ancestor n levels up | EpochTree node |
+| `getRoot()` | Root node | EpochTree node |
+| `depth()` | Levels from root (root=0) | integer |
+| `pathFromRoot()` | Array from root to this | cell array of nodes |
+| `pathString(sep)` | Human-readable path | string |
+| **Controlled Access** | | |
+| `putCustom(key, value)` | Store analysis results | void |
+| `getCustom(key)` | Retrieve by key | value or [] |
+| `hasCustom(key)` | Check if key exists | boolean |
+| `removeCustom(key)` | Delete key | void |
+
+**Workflow Pattern:**
+```matlab
+% Navigate tree and analyze
+for i = 1:tree.childrenLength()
+    cellNode = tree.childAt(i);
+    for j = 1:cellNode.childrenLength()
+        protocolNode = cellNode.childAt(j);
+        epochs = protocolNode.getAllEpochs(false);
+        results = analyzeEpochs(epochs);
+        protocolNode.putCustom('results', results);  % Store at node
+    end
+end
+
+% Later query results
+results = protocolNode.getCustom('results');
+```
+
+### 4.3 Epoch Struct (Maps to DATA_FORMAT_SPECIFICATION)
 
 ```matlab
 % Epoch struct fields (from DATA_FORMAT_SPECIFICATION.md)
@@ -1112,7 +1262,10 @@ epicTreeGUI/
 │
 ├── src/
 │   ├── tree/
-│   │   └── epicTreeTools.m          # ✅ Core tree class (1607 lines, 20+ splitters)
+│   │   ├── epicTreeTools.m          # ✅ Core tree class (1700+ lines, 20+ splitters)
+│   │   │                            #    - Navigation: childAt, childrenLength, parentAt, depth, pathFromRoot, pathString
+│   │   │                            #    - Controlled access: putCustom, getCustom, hasCustom, removeCustom
+│   │   └── CompatibilityList.m      # ✅ List wrapper for Java-style .elements() access
 │   │
 │   ├── gui/
 │   │   ├── graphicalTree.m          # ✅ Interactive tree (widget pool)
@@ -1136,6 +1289,10 @@ epicTreeGUI/
 │   ├── getTreeEpochs.m              # ✅ Get epochs from node
 │   ├── loadEpicTreeData.m           # Data loader
 │   └── ... (other utilities)
+│
+├── tests/
+│   ├── test_tree_navigation.m       # ✅ Navigation & controlled access (synthetic data)
+│   └── test_tree_navigation_realdata.m  # ✅ Navigation tests with real H5 data
 │
 └── old_epochtree/                   # Reference (read-only)
     └── MHT-analysis-package-master/
@@ -1167,12 +1324,14 @@ epicTreeGUI/
 **Status as of January 2026: Phases 1-5 COMPLETE, Phase 6-7 PARTIAL**
 
 ### Phase 1: Core Data Layer ✅ COMPLETE
-- [x] `epicTreeTools.m` class (1607 lines with 20+ splitters)
+- [x] `epicTreeTools.m` class (1700+ lines with 20+ splitters)
 - [x] `buildTree.m` / `buildTreeWithSplitters.m` algorithms
 - [x] `loadEpicTreeData.m` data loader
 - [x] Key path resolver (`getNestedValue.m`)
 - [x] Basic splitter functions (20+ in epicTreeTools)
 - [x] Selection state management (`custom` property, `getAllEpochs`, `setSelected`)
+- [x] Navigation methods: `childAt`, `childrenLength`, `parentAt`, `depth`, `pathFromRoot`, `pathString`
+- [x] Controlled access: `putCustom`, `getCustom`, `hasCustom`, `removeCustom` (prevents direct .custom replacement)
 
 ### Phase 2: GUI Framework ✅ COMPLETE
 - [x] `epicTreeGUI.m` main class (handle class, 40%/60% split layout)

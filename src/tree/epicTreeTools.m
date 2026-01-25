@@ -1,27 +1,73 @@
 classdef epicTreeTools < handle
     % EPICTREETOOLS Hierarchical tree structure for organizing epoch data
     %
-    % This class provides the same functionality as the legacy Java
-    % epicTreeTools/GenericepicTreeTools from jenkins-jauimodel-275.jar but
-    % implemented in pure MATLAB.
+    % This class provides tree-based organization and navigation for epoch
+    % data, with controlled access to node custom properties.
     %
-    % Usage:
-    %   % Load data and create tree
-    %   data = loadEpicTreeData('experiment.mat');
-    %   tree = epicTreeTools(data);
+    % NAVIGATION PATTERNS:
+    % ====================
+    % Navigate DOWN (to children):
+    %   n = node.childrenLength()          % Number of children
+    %   child = node.childAt(idx)          % Get child by index (1-based)
+    %   child = node.childBySplitValue(v)  % Find child by split value
+    %   leaves = node.leafNodes()          % Get all leaf nodes below
     %
-    %   % Build tree by split keys
-    %   tree.buildTree({'cellInfo.type', 'protocolSettings.contrast'});
+    % Navigate UP (to parents):
+    %   parent = node.parent               % Direct parent
+    %   ancestor = node.parentAt(3)        % Go up 3 levels
+    %   root = node.getRoot()              % Get root node
+    %   d = node.depth()                   % Levels from root (root=0)
     %
-    %   % Navigate tree
-    %   onpNode = tree.childBySplitValue('OnP');
-    %   contrastNode = onpNode.childBySplitValue(0.5);
+    % Loop over children:
+    %   for i = 1:node.childrenLength()
+    %       child = node.childAt(i);
+    %       % process child
+    %   end
     %
-    %   % Get epochs from leaf
-    %   epochs = contrastNode.epochList;
+    % CONTROLLED ACCESS (put/get custom data):
+    % ========================================
+    % Store analysis results at a node:
+    %   results.ImageSum = ImageResp;
+    %   results.NLI = NLI;
+    %   node.putCustom('results', results);
     %
-    %   % Get all leaves for batch processing
-    %   leaves = tree.leafNodes();
+    % Retrieve stored results:
+    %   results = node.getCustom('results');
+    %   if ~isempty(results)
+    %       ImageSum = results.ImageSum;
+    %   end
+    %
+    % Check if key exists:
+    %   if node.hasCustom('results')
+    %       % process
+    %   end
+    %
+    % TYPICAL ANALYSIS WORKFLOW:
+    % ==========================
+    %   % Navigate tree and analyze
+    %   for i = 1:rootNode.childrenLength()
+    %       cellTypeNode = rootNode.childAt(i);
+    %       cellType = cellTypeNode.splitValue;
+    %
+    %       for j = 1:cellTypeNode.childrenLength()
+    %           dateNode = cellTypeNode.childAt(j);
+    %
+    %           for k = 1:dateNode.childrenLength()
+    %               cellNode = dateNode.childAt(k);
+    %
+    %               % Run analysis
+    %               epochs = cellNode.getAllEpochs(true);  % selected only
+    %               [data, fs] = getSelectedData(epochs, 'Amp1');
+    %               results = analyzeData(data);
+    %
+    %               % Store results at cell level
+    %               cellNode.putCustom('results', results);
+    %           end
+    %       end
+    %   end
+    %
+    %   % Later: query stored results
+    %   results = cellNode.getCustom('results');
     %
     % Properties:
     %   splitKey    - Key path used for this split (empty for root)
@@ -31,7 +77,7 @@ classdef epicTreeTools < handle
     %   isLeaf      - True if this is a leaf node
     %   parent      - Reference to parent node (empty for root)
     %
-    % See also: loadEpicTreeData
+    % See also: loadEpicTreeData, getSelectedData, CompatibilityList
 
     properties
         splitKey = ''           % Key path used for splitting at this node
@@ -42,8 +88,11 @@ classdef epicTreeTools < handle
         parent = []             % Reference to parent node
         allEpochs = {}          % Flattened epoch list (root only)
         treeData = []           % Original hierarchical data (root only)
+    end
 
+    properties (SetAccess = private)
         % Custom properties for GUI state (replaces Java HashMap)
+        % PROTECTED - use putCustom()/getCustom() for access
         % - isSelected: Selection state for this tree node
         % - isExample: Flag to mark this node as an example (highlights in GUI)
         % - display: Struct with name, color, backgroundColor for rendering
@@ -408,6 +457,282 @@ classdef epicTreeTools < handle
 
             leaves = obj.leafNodes();
             n = length(leaves);
+        end
+
+        %% ================================================================
+        % CONTROLLED ACCESS METHODS (replaces Java HashMap custom property)
+        % These methods provide controlled access to node custom data.
+        % Analysis code should use these instead of direct property access.
+        % ================================================================
+
+        function putCustom(obj, key, value)
+            % PUTCUSTOM Store data in node's custom property
+            %
+            % Usage:
+            %   node.putCustom('results', myResults)
+            %   node.putCustom('NLIs', nliArray)
+            %
+            % This is the ONLY way to store custom data on nodes.
+            % Equivalent to Java: node.custom.put(key, value)
+            %
+            % Common keys:
+            %   'results'    - Analysis results struct
+            %   'stimParamz' - Stimulus parameters
+            %   'norNLI'     - Normalized NLI values
+            %   'NLIs'       - NLI array for cell type
+            %
+            % Example:
+            %   % Store analysis results
+            %   results.ImageSum = ImageResp;
+            %   results.DiscSum = DiscResp;
+            %   results.NLI = NLI;
+            %   node.putCustom('results', results);
+
+            if ~ischar(key) && ~isstring(key)
+                error('epicTreeTools:InvalidKey', 'Key must be a string');
+            end
+
+            % Use dynamic field name to set the value
+            obj.custom.(key) = value;
+        end
+
+        function value = getCustom(obj, key)
+            % GETCUSTOM Retrieve data from node's custom property
+            %
+            % Usage:
+            %   results = node.getCustom('results')
+            %   nlis = node.getCustom('NLIs')
+            %
+            % Returns empty [] if key not found.
+            % Equivalent to Java: node.custom.get(key)
+            %
+            % Example:
+            %   % Retrieve stored results
+            %   results = node.getCustom('results');
+            %   if ~isempty(results)
+            %       ImageSum = results.ImageSum;
+            %       DiscSum = results.DiscSum;
+            %   end
+
+            if ~ischar(key) && ~isstring(key)
+                error('epicTreeTools:InvalidKey', 'Key must be a string');
+            end
+
+            if isfield(obj.custom, key)
+                value = obj.custom.(key);
+            else
+                value = [];
+            end
+        end
+
+        function tf = hasCustom(obj, key)
+            % HASCUSTOM Check if key exists in custom property
+            %
+            % Usage:
+            %   if node.hasCustom('results')
+            %       % process results
+            %   end
+
+            tf = isfield(obj.custom, key);
+        end
+
+        function removeCustom(obj, key)
+            % REMOVECUSTOM Remove key from custom property
+            %
+            % Usage:
+            %   node.removeCustom('tempData')
+
+            if isfield(obj.custom, key)
+                obj.custom = rmfield(obj.custom, key);
+            end
+        end
+
+        function keys = customKeys(obj)
+            % CUSTOMKEYS Get all keys in custom property
+            %
+            % Usage:
+            %   keys = node.customKeys()
+
+            keys = fieldnames(obj.custom);
+        end
+
+        %% ================================================================
+        % CHILDREN NAVIGATION METHODS
+        % These provide Java-style access patterns for tree traversal.
+        % ================================================================
+
+        function child = childAt(obj, index)
+            % CHILDAT Get child by 1-based index
+            %
+            % Usage:
+            %   child = node.childAt(1)  % Get first child
+            %
+            % Same as child() but clearer name for indexed access.
+            % Equivalent to Java: children.elements(index)
+
+            if index < 1 || index > length(obj.children)
+                error('epicTreeTools:InvalidIndex', ...
+                    'Child index %d out of range [1, %d]', index, length(obj.children));
+            end
+            child = obj.children{index};
+        end
+
+        function n = childrenLength(obj)
+            % CHILDRENLENGTH Get number of children
+            %
+            % Usage:
+            %   for i = 1:node.childrenLength()
+            %       child = node.childAt(i);
+            %   end
+            %
+            % Equivalent to Java: children.length
+
+            n = length(obj.children);
+        end
+
+        function iter = childIterator(obj)
+            % CHILDITERATOR Get cell array of children for iteration
+            %
+            % Usage:
+            %   for child = node.childIterator()
+            %       % process child{1}
+            %   end
+            %
+            % Or use directly:
+            %   children = node.childIterator();
+            %   for i = 1:length(children)
+            %       child = children{i};
+            %   end
+
+            iter = obj.children;
+        end
+
+        function list = getChildren(obj)
+            % GETCHILDREN Get children as CompatibilityList for Java-style access
+            %
+            % Usage:
+            %   children = node.getChildren();
+            %   for i = 1:children.length
+            %       child = children.elements(i);
+            %   end
+            %
+            % This provides Java-style navigation:
+            %   node.getChildren().length       % number of children
+            %   node.getChildren().elements(i)  % get child by index
+            %
+            % Equivalent to Java: node.children (as CompatibilityList)
+
+            list = CompatibilityList(obj.children);
+        end
+
+        function list = getEpochList(obj)
+            % GETEPOCHLIST Get epoch list as CompatibilityList for Java-style access
+            %
+            % Usage:
+            %   epochs = node.getEpochList();
+            %   for i = 1:epochs.length
+            %       epoch = epochs.elements(i);
+            %   end
+            %
+            % This provides Java-style navigation:
+            %   node.getEpochList().length       % number of epochs
+            %   node.getEpochList().elements(i)  % get epoch by index
+            %
+            % Equivalent to Java: node.epochList (as CompatibilityList)
+
+            list = CompatibilityList(obj.epochList);
+        end
+
+        %% ================================================================
+        % PARENT NAVIGATION METHODS
+        % The .parent property provides upward tree traversal for accessing
+        % higher levels in the tree hierarchy.
+        % ================================================================
+
+        function ancestor = parentAt(obj, levelsUp)
+            % PARENTAT Get ancestor node N levels up
+            %
+            % Usage:
+            %   grandparent = node.parentAt(2)  % Go up 2 levels
+            %   root = node.parentAt(node.depth())  % Go to root
+            %
+            % Returns empty [] if levelsUp exceeds tree depth.
+            %
+            % Example:
+            %   % If at Level 5 and need Level 2 (3 levels up):
+            %   target = currentNode.parentAt(3);
+
+            ancestor = obj;
+            for i = 1:levelsUp
+                if isempty(ancestor.parent)
+                    ancestor = [];
+                    return;
+                end
+                ancestor = ancestor.parent;
+            end
+        end
+
+        function d = depth(obj)
+            % DEPTH Get depth of this node from root (root = 0)
+            %
+            % Usage:
+            %   d = node.depth()
+            %
+            % Example:
+            %   % Leaf at depth 5 means 5 levels below root
+
+            d = 0;
+            node = obj;
+            while ~isempty(node.parent)
+                d = d + 1;
+                node = node.parent;
+            end
+        end
+
+        function path = pathFromRoot(obj)
+            % PATHFROMROOT Get array of nodes from root to this node
+            %
+            % Usage:
+            %   path = node.pathFromRoot()
+            %   % path{1} = root, path{end} = node
+            %
+            % Useful for displaying full path or navigating.
+
+            path = {obj};
+            node = obj;
+            while ~isempty(node.parent)
+                node = node.parent;
+                path = [{node}; path];
+            end
+        end
+
+        function str = pathString(obj, separator)
+            % PATHSTRING Get string representation of path from root
+            %
+            % Usage:
+            %   str = node.pathString()      % Uses ' > ' separator
+            %   str = node.pathString('/')   % Custom separator
+            %
+            % Example:
+            %   % Returns: 'Root > OnP > 0.5 > epoch-123'
+
+            if nargin < 2
+                separator = ' > ';
+            end
+
+            path = obj.pathFromRoot();
+            parts = {};
+            for i = 1:length(path)
+                node = path{i};
+                if isempty(node.splitValue)
+                    parts{end+1} = 'Root';
+                elseif isnumeric(node.splitValue)
+                    parts{end+1} = sprintf('%g', node.splitValue);
+                else
+                    parts{end+1} = char(string(node.splitValue));
+                end
+            end
+            str = strjoin(parts, separator);
         end
 
         %% ================================================================
