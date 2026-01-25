@@ -23,8 +23,21 @@ result = getMeanResponseTrace(data, fs);           % Analyze
 
 **Remaining Work:**
 - Port 4 analysis functions from old_epochtree/ (RFAnalysis, LSTA, CenterSurround, MeanSelectedNodes)
-- Expose all 20+ splitters in dropdown UI
 - User documentation and examples
+
+**Usage Pattern (Programmatic Split Configuration):**
+```matlab
+% User defines split keys programmatically (not via dropdown)
+tree = epicTreeTools(data);
+tree.buildTreeWithSplitters({
+    'cellInfo.type', ...
+    @epicTreeTools.splitOnExperimentDate, ...
+    'cellInfo.label', ...
+    'parameters.imageName', ...
+    @epicTreeTools.splitOnKeywords, ...
+    'parameters.equivalentIntensity'
+});
+```
 
 ---
 
@@ -1136,7 +1149,7 @@ epicTreeGUI/
 
 ## 10. IMPLEMENTATION PHASES
 
-**Status as of January 2026: Phases 1-4 COMPLETE, Phase 5-6 PARTIAL**
+**Status as of January 2026: Phases 1-5 COMPLETE, Phase 6-7 PARTIAL**
 
 ### Phase 1: Core Data Layer ✅ COMPLETE
 - [x] `epicTreeTools.m` class (1607 lines with 20+ splitters)
@@ -1171,11 +1184,11 @@ epicTreeGUI/
 - [x] `getCycleAverageResponse.m` - cycle averaging with F1/F2
 - [x] `getLinearFilterAndPrediction.m` - linear filter via cross-correlation
 
-### Phase 5: All Splitters ⚠️ PARTIAL (20+ already in epicTreeTools)
+### Phase 5: All Splitters ✅ COMPLETE
 - [x] 20+ splitter functions built into epicTreeTools.m
 - [x] Generic `splitOnParameter.m`
-- [x] Integration with dropdown (5 presets)
-- [ ] Expose all 20+ splitters in dropdown UI
+- [x] Programmatic split configuration (user defines split keys in code, not dropdown)
+- [x] Mixed key paths + function handles supported via `buildTreeWithSplitters()`
 
 ### Phase 6: Analysis Functions ⚠️ PARTIAL
 - [x] `getMeanResponseTrace.m` ✅
@@ -1188,10 +1201,9 @@ epicTreeGUI/
 - [ ] `CenterSurround.m` (legacy exists in old_epochtree/)
 - [ ] `MeanSelectedNodes.m` (legacy exists in old_epochtree/)
 
-### Phase 7: Polish & Documentation 🔲 NOT STARTED
+### Phase 7: Polish & Documentation ⚠️ PARTIAL
 - [x] Keyboard navigation (arrows + 'f' key)
 - [x] Example flagging (Set Example button)
-- [ ] Enhanced tree visualization (icons, colors)
 - [ ] User documentation
 - [ ] Example workflows
 
