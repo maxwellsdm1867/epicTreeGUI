@@ -225,9 +225,12 @@ response = struct(...
     'device_name', 'Amp1', ...        % Recording device
     'label', 'Voltage response', ...
 
-    % Data
-    'data', [voltage_trace], ...      % Actual recorded data (voltage/current)
+    % Data - can be either embedded or lazy-loaded from H5
+    'data', [voltage_trace], ...      % Actual recorded data (may be empty for lazy loading)
     'spike_times', [50.2, 103.5, ...], ...  % Spike times in ms (if detected)
+
+    % H5 Lazy Loading (for large datasets)
+    'h5_path', '/experiment-.../responses/Amp1-...', ...  % Path within H5 file
 
     % Metadata
     'sample_rate', 10000, ...         % Hz
@@ -238,6 +241,55 @@ response = struct(...
     'offset_ms', 0.0 ...
 );
 ```
+
+### Lazy Loading from H5 Files
+
+For large datasets, response data can be lazy-loaded from H5 files instead of embedding in the .mat file. This follows the retinanalysis pattern:
+
+**Configuration (set once per session):**
+
+```matlab
+% Configure H5 directory - similar to retinanalysis H5_DIR
+epicTreeConfig('h5_dir', '/Users/data/h5');
+```
+
+**Response Structure for Lazy Loading:**
+
+- `response.data` may be empty
+- `response.h5_path` contains the path within the H5 file (e.g., `/experiment-.../responses/Amp1-...`)
+- H5 file is derived from experiment name: `{h5_dir}/{exp_name}.h5`
+
+**H5 File Structure:**
+
+```text
+{exp_name}.h5
+└── experiment-{uuid}/
+    └── .../epochGroups/epochGroup-{uuid}/
+        └── epochBlocks/{protocol}-{uuid}/
+            └── epochs/epoch-{uuid}/
+                └── responses/
+                    └── Amp1-{uuid}/
+                        └── data  (compound dataset with 'quantity' field)
+```
+
+**Loading Data:**
+
+```matlab
+% Get H5 file path from experiment name
+h5_file = getH5FilePath(exp_name);  % Uses epicTreeConfig('h5_dir')
+
+% Load response matrix with lazy loading from H5
+[dataMatrix, sampleRate] = getResponseMatrix(epochs, 'Amp1', h5_file);
+
+% Or use getSelectedData for selected epochs only
+[data, epochs, fs] = getSelectedData(treeNode, 'Amp1', h5_file);
+```
+
+**Benefits:**
+
+- .mat files remain small (metadata only)
+- Raw data stays in original H5 files
+- Data loaded on-demand when needed for analysis
 
 ### Stimulus Structure
 

@@ -96,8 +96,17 @@ if response.n == 0
     return;
 end
 
-% Get response data matrix
-[dataMatrix, sampleRate] = getResponseMatrix(epochs, streamName);
+% Get h5_file from first epoch if available (for lazy loading)
+h5_file = '';
+if ~isempty(epochs)
+    epoch1 = epochs{1};
+    if isfield(epoch1, 'h5_file') && ~isempty(epoch1.h5_file)
+        h5_file = epoch1.h5_file;
+    end
+end
+
+% Get response data matrix (pass h5_file for lazy loading)
+[dataMatrix, sampleRate] = getResponseMatrix(epochs, streamName, h5_file);
 
 if isempty(dataMatrix)
     response.mean = [];
@@ -110,7 +119,13 @@ if isempty(dataMatrix)
     return;
 end
 
+% Ensure sampleRate is a scalar double
+if iscell(sampleRate)
+    sampleRate = sampleRate{1};
+end
+sampleRate = double(sampleRate);
 response.sampleRate = sampleRate;
+
 nSamples = size(dataMatrix, 2);
 response.timeVector = (0:nSamples-1) / sampleRate;
 

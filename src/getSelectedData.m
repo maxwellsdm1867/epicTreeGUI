@@ -1,4 +1,4 @@
-function [dataMatrix, selectedEpochs, sampleRate] = getSelectedData(treeNodeOrEpochs, streamName)
+function [dataMatrix, selectedEpochs, sampleRate] = getSelectedData(treeNodeOrEpochs, streamName, h5_file)
 % GETSELECTEDDATA Get response data for ONLY selected epochs
 %
 % THIS IS THE CRITICAL FUNCTION FOR ALL ANALYSIS WORKFLOWS.
@@ -7,12 +7,14 @@ function [dataMatrix, selectedEpochs, sampleRate] = getSelectedData(treeNodeOrEp
 % Usage:
 %   [data, epochs] = getSelectedData(treeNode, 'Amp1')
 %   [data, epochs, fs] = getSelectedData(epochList, 'Amp1')
+%   [data, epochs, fs] = getSelectedData(epochList, 'Amp1', h5_file)
 %
 % Inputs:
 %   treeNodeOrEpochs - Either:
 %                      - epicTreeTools node (extracts epochs from tree)
 %                      - Cell array of epoch structs (uses directly)
 %   streamName       - Response stream name (e.g., 'Amp1', 'Amp2')
+%   h5_file          - (Optional) Path to H5 file for lazy loading
 %
 % Outputs:
 %   dataMatrix      - [nSelected x nSamples] response data matrix
@@ -41,6 +43,11 @@ function [dataMatrix, selectedEpochs, sampleRate] = getSelectedData(treeNodeOrEp
 %   plot(t, meanTrace);
 %
 % See also: getResponseMatrix, getTreeEpochs, epicTreeTools.getAllEpochs
+
+% Handle optional h5_file parameter
+if nargin < 3
+    h5_file = '';
+end
 
 % Handle input type
 if isa(treeNodeOrEpochs, 'epicTreeTools')
@@ -78,7 +85,7 @@ if isempty(selectedEpochs)
     return;
 end
 
-% Extract response data matrix
-[dataMatrix, sampleRate] = getResponseMatrix(selectedEpochs, streamName);
+% Extract response data matrix (pass h5_file for lazy loading)
+[dataMatrix, sampleRate] = getResponseMatrix(selectedEpochs, streamName, h5_file);
 
 end

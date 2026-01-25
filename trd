@@ -3,22 +3,31 @@
 ---
 ## 📊 CURRENT STATUS (January 2026)
 
-**MVP: ✅ COMPLETE** | **Full Feature Parity: ~70%**
+**MVP: ✅ COMPLETE** | **Full Feature Parity: ~75%**
 
 | Component | Status | Files |
 |-----------|--------|-------|
 | Core Tree Class | ✅ Complete | `epicTreeTools.m` (1607 lines, 20+ splitters) |
 | GUI Framework | ✅ Complete | `epicTreeGUI.m`, `graphicalTree.m`, `graphicalTreeNode.m`, `graphicalTreeNodeWidget.m`, `graphicalCheckBox.m` |
 | Data Viewer | ✅ Complete | `singleEpoch.m` |
-| Data Utilities | ✅ Complete | `getSelectedData.m`, `getResponseMatrix.m`, `getTreeEpochs.m` |
+| Data Utilities | ✅ Complete | `getSelectedData.m`, `getResponseMatrix.m`, `getTreeEpochs.m`, `loadH5ResponseData.m` |
+| Config System | ✅ Complete | `epicTreeConfig.m`, `getH5FilePath.m` (retinanalysis-style) |
+| H5 Lazy Loading | ✅ Complete | Data loaded on-demand from H5 files |
 | Analysis Functions | ⚠️ 4/8 | `getMeanResponseTrace.m`, `getResponseAmplitudeStats.m`, `getCycleAverageResponse.m`, `getLinearFilterAndPrediction.m` |
 | Documentation | 🔲 Pending | User guide, examples |
 
 **What Works Now:**
 ```matlab
-gui = epicTreeGUI('data.mat');                    % Launch GUI
-[data, epochs, fs] = getSelectedData(node, 'Amp1'); % Get selected data
-result = getMeanResponseTrace(data, fs);           % Analyze
+% Configure H5 directory (like retinanalysis H5_DIR)
+epicTreeConfig('h5_dir', '/Users/data/h5');
+
+% Load tree and get H5 file path
+gui = epicTreeGUI('data.mat');
+h5_file = getH5FilePath(exp_name);
+
+% Get selected data (lazy-loads from H5)
+[data, epochs, fs] = getSelectedData(node, 'Amp1', h5_file);
+result = getMeanResponseTrace(data, fs);
 ```
 
 **Remaining Work:**
@@ -38,6 +47,12 @@ tree.buildTreeWithSplitters({
     'parameters.equivalentIntensity'
 });
 ```
+
+**H5 Lazy Loading (retinanalysis pattern):**
+- `.mat` files contain metadata + `h5_path` for each response
+- Actual data loaded from H5 files on demand
+- Config system: `epicTreeConfig('h5_dir', path)` sets H5 directory
+- Helper: `getH5FilePath(exp_name)` constructs full H5 path
 
 ---
 

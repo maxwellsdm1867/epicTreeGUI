@@ -1,28 +1,30 @@
-function data = loadH5ResponseData(response)
+function data = loadH5ResponseData(response, h5_file)
 % LOADH5RESPONSEDATA Load response data from H5 file on demand
 %
 % This function implements lazy loading of response data. The exported
-% .mat file contains only paths to H5 files, and actual data is loaded
-% when needed using this function.
+% .mat file contains h5_path (internal path within H5 file), and the
+% h5_file can be passed as a parameter or derived from configuration.
 %
 % Usage:
-%   data = loadH5ResponseData(response)
+%   data = loadH5ResponseData(response)           % Uses response.h5_file
+%   data = loadH5ResponseData(response, h5_file)  % Uses provided h5_file
 %
 % Input:
 %   response - Response struct with fields:
-%       .h5_file    - Path to H5 file
-%       .h5_path    - Path within H5 file
+%       .h5_path    - Path within H5 file (e.g., '/experiment-.../responses/Amp1-...')
+%       .h5_file    - (Optional) Path to H5 file
 %       .data       - May be empty (will be loaded)
+%   h5_file  - (Optional) Path to H5 file, overrides response.h5_file
 %
 % Output:
 %   data - Response data as column vector
 %
 % Example:
 %   epoch = allEpochs{1};
-%   resp = epoch.responses(1);  % or epoch.responses{1}
-%   data = loadH5ResponseData(resp);
+%   resp = epoch.responses(1);
+%   data = loadH5ResponseData(resp, '/path/to/experiment.h5');
 %
-% See also: getResponseMatrix, getSelectedData
+% See also: getResponseMatrix, getSelectedData, getH5FilePath
 
 data = [];
 
@@ -37,13 +39,16 @@ if isfield(response, 'data') && ~isempty(response.data)
     return;
 end
 
-% Get H5 file path
-if ~isfield(response, 'h5_file') || isempty(response.h5_file)
-    warning('loadH5ResponseData:noPath', 'No h5_file path in response');
-    return;
+% Get H5 file path - prefer parameter, then response field
+if nargin < 2 || isempty(h5_file)
+    if isfield(response, 'h5_file') && ~isempty(response.h5_file)
+        h5_file = response.h5_file;
+    else
+        warning('loadH5ResponseData:noH5File', ...
+            'No h5_file provided and none in response struct');
+        return;
+    end
 end
-
-h5_file = response.h5_file;
 
 % Handle path mappings (NAS paths may differ between systems)
 if ~exist(h5_file, 'file')
@@ -81,42 +86,70 @@ if h5_path(1) == '/'
 end
 
 % Load data from H5 file
+% The H5 structure is: h5_path/data (compound dataset with 'quantity' field)
 try
-    % Construct full path to data
-    dataPath = [h5_path '/data/quantity'];
+    % Construct full path to data dataset
+    dataPath = ['/' h5_path '/data'];
 
-    % Try reading with h5read
-    data = h5read(h5_file, ['/' dataPath]);
-    data = data(:);  % Ensure column vector
+    % Read the compound dataset
+    rawData = h5read(h5_file, dataPath);
 
-catch ME
-    % Try alternative path structure
-    try
-        info = h5info(h5_file, ['/' h5_path]);
-
-        % Look for data group
-        for i = 1:length(info.Groups)
-            if strcmp(info.Groups(i).Name, [h5_path '/data']) || ...
-               endsWith(info.Groups(i).Name, '/data')
-                dataGroup = info.Groups(i);
-
-                % Look for quantity dataset
-                for j = 1:length(dataGroup.Datasets)
-                    if strcmp(dataGroup.Datasets(j).Name, 'quantity')
-                        fullPath = [dataGroup.Name '/quantity'];
-                        data = h5read(h5_file, fullPath);
-                        data = data(:);
-                        return;
-                    end
+    % Extract numeric values from compound dataset
+    % The dataset has fields: quantity (float64), units (string)
+    if isstruct(rawData)
+        % Compound dataset read as struct in MATLAB
+        if isfield(rawData, 'quantity')
+            data = double(rawData.quantity(:));
+        elseif isfield(rawData, 'Quantity')
+            data = double(rawData.Quantity(:));
+        else
+            % Try first numeric field
+            fn = fieldnames(rawData);
+            for i = 1:length(fn)
+                if isnumeric(rawData.(fn{i}))
+                    data = double(rawData.(fn{i})(:));
+                    break;
                 end
             end
         end
+    else
+        % Simple numeric array
+        data = double(rawData(:));
+    end
 
-        warning('loadH5ResponseData:noData', 'Could not find data in %s', h5_path);
+catch ME
+    % Try alternative: data might be in a subgroup
+    try
+        % Check if it's a group with 'quantity' dataset inside
+        altPath = ['/' h5_path '/data/quantity'];
+        data = h5read(h5_file, altPath);
+        data = double(data(:));
+    catch
+        % Final fallback - try to explore the structure
+        try
+            info = h5info(h5_file, ['/' h5_path]);
 
-    catch ME2
-        warning('loadH5ResponseData:readError', 'Error reading H5 file: %s\n%s', ...
-            ME.message, ME2.message);
+            % Look for data in datasets or groups
+            for i = 1:length(info.Datasets)
+                if strcmpi(info.Datasets(i).Name, 'data')
+                    data = h5read(h5_file, ['/' h5_path '/' info.Datasets(i).Name]);
+                    if isstruct(data) && isfield(data, 'quantity')
+                        data = double(data.quantity(:));
+                    else
+                        data = double(data(:));
+                    end
+                    return;
+                end
+            end
+
+            warning('loadH5ResponseData:noData', ...
+                'Could not find data in %s. Error: %s', h5_path, ME.message);
+
+        catch ME2
+            warning('loadH5ResponseData:readError', ...
+                'Error reading H5 file %s path %s: %s', ...
+                h5_file, h5_path, ME2.message);
+        end
     end
 end
 

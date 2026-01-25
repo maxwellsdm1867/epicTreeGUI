@@ -1,10 +1,20 @@
 %% Test EpicTreeGUI with real data
 % Test script to verify tree building and data access
+%
+% This follows the retinanalysis pattern where:
+% 1. Configure H5 directory once at startup
+% 2. Load .mat file containing metadata and h5_paths
+% 3. Data is lazy-loaded from H5 files when needed
 
 clear; clc;
 
 %% Add paths
 addpath(genpath('/Users/maxwellsdm/Documents/GitHub/epicTreeGUI/src'));
+
+%% Configure H5 directory (like retinanalysis H5_DIR)
+% This only needs to be set once per session
+epicTreeConfig('h5_dir', '/Users/maxwellsdm/Documents/epicTreeTest/h5');
+fprintf('H5 directory: %s\n', epicTreeConfig('h5_dir'));
 
 %% Load data
 dataPath = '/Users/maxwellsdm/Documents/epicTreeTest/analysis/2025-12-02_F.mat';
@@ -188,6 +198,38 @@ catch ME
     fprintf('Multi-level split failed: %s\n', ME.message);
 end
 
+%% Get H5 file path for lazy loading
+% Extract experiment name from loaded data to construct H5 path
+disp('');
+disp('--- Get H5 File Path ---');
+try
+    % Get exp_name from loaded data
+    if isfield(data, 'experiments') && iscell(data.experiments) && ~isempty(data.experiments)
+        exp = data.experiments{1};
+        if isfield(exp, 'exp_name')
+            exp_name = exp.exp_name;
+        else
+            exp_name = '2025-12-02_F';  % Fallback
+        end
+    else
+        exp_name = '2025-12-02_F';  % Fallback
+    end
+
+    % Get H5 file path using config (like retinanalysis pattern)
+    h5_file = getH5FilePath(exp_name);
+    fprintf('Experiment: %s\n', exp_name);
+    fprintf('H5 file: %s\n', h5_file);
+
+    if exist(h5_file, 'file')
+        fprintf('  ✓ H5 file exists\n');
+    else
+        fprintf('  ✗ H5 file NOT FOUND\n');
+    end
+catch ME
+    fprintf('Failed to get H5 path: %s\n', ME.message);
+    h5_file = '';
+end
+
 %% Test getSelectedData
 disp('');
 disp('--- Test getSelectedData ---');
@@ -197,7 +239,8 @@ try
         leafNode = tree.children{1};
         fprintf('Testing on node: %s\n', string(leafNode.splitValue));
 
-        [dataMatrix, epochs, sampleRate] = getSelectedData(leafNode, 'Amp1');
+        % Pass h5_file for lazy loading from H5
+        [dataMatrix, epochs, sampleRate] = getSelectedData(leafNode, 'Amp1', h5_file);
         fprintf('getSelectedData returned:\n');
         fprintf('  dataMatrix size: [%d x %d]\n', size(dataMatrix, 1), size(dataMatrix, 2));
         fprintf('  epochs: %d\n', length(epochs));
@@ -206,6 +249,8 @@ try
         % Check if data looks reasonable
         if ~isempty(dataMatrix)
             fprintf('  data range: [%.2f, %.2f]\n', min(dataMatrix(:)), max(dataMatrix(:)));
+        else
+            fprintf('  ✗ dataMatrix is EMPTY - check H5 loading\n');
         end
     end
 catch ME
@@ -219,10 +264,19 @@ disp('--- Test getResponseMatrix ---');
 try
     % Get first 5 epochs
     testEpochs = allEpochs(1:min(5, length(allEpochs)));
-    [respMatrix, fs] = getResponseMatrix(testEpochs, 'Amp1');
+
+    % Pass h5_file for lazy loading
+    [respMatrix, fs] = getResponseMatrix(testEpochs, 'Amp1', h5_file);
     fprintf('getResponseMatrix returned:\n');
     fprintf('  matrix size: [%d x %d]\n', size(respMatrix, 1), size(respMatrix, 2));
     fprintf('  sample rate: %g Hz\n', fs);
+
+    if ~isempty(respMatrix) && any(respMatrix(:) ~= 0)
+        fprintf('  data range: [%.4f, %.4f]\n', min(respMatrix(:)), max(respMatrix(:)));
+        fprintf('  ✓ Data loaded successfully!\n');
+    else
+        fprintf('  ✗ Data is empty or all zeros\n');
+    end
 catch ME
     fprintf('getResponseMatrix failed: %s\n', ME.message);
     disp(getReport(ME));
@@ -232,17 +286,27 @@ end
 disp('');
 disp('--- Test getMeanResponseTrace ---');
 try
-    if exist('respMatrix', 'var') && ~isempty(respMatrix)
-        result = getMeanResponseTrace(respMatrix, fs);
+    if exist('testEpochs', 'var') && ~isempty(testEpochs)
+        % getMeanResponseTrace expects (epochs, streamName)
+        % Need to pass h5_file through - let's update epochs to have h5_file
+        for i = 1:length(testEpochs)
+            testEpochs{i}.h5_file = h5_file;
+        end
+
+        result = getMeanResponseTrace(testEpochs, 'Amp1');
         fprintf('getMeanResponseTrace returned:\n');
         fprintf('  n: %d\n', result.n);
         fprintf('  mean length: %d\n', length(result.mean));
         fprintf('  timeVector length: %d\n', length(result.timeVector));
         fprintf('  mean range: [%.2f, %.2f]\n', min(result.mean), max(result.mean));
+
+        % Quick plot to verify
+        fprintf('  ✓ Analysis complete!\n');
+    else
+        fprintf('  No epochs to analyze\n');
     end
 catch ME
     fprintf('getMeanResponseTrace failed: %s\n', ME.message);
-    disp(getReport(ME));
 end
 
 %% List available response streams
