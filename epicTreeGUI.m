@@ -221,7 +221,8 @@ classdef epicTreeGUI < handle
             % Split dropdown
             self.treeBrowser.splitDropdown = uicontrol(self.treeBrowser.controlPanel, ...
                 'Style', 'popupmenu', ...
-                'String', {'Cell Type', 'Contrast', 'Protocol', 'Date', 'Cell Type + Contrast'}, ...
+                'String', {'Cell Type', 'Date', 'Cell Type + Cell ID', 'Date + Cell ID', ...
+                          'Cell Type + Date + Cell ID', 'Date + Cell Type', 'Protocol'}, ...
                 'Units', 'normalized', ...
                 'Position', [0.02 0.15 0.96 0.7], ...
                 'Callback', @(src,evt) self.onSplitChanged(src));
@@ -353,8 +354,10 @@ classdef epicTreeGUI < handle
             if ~isempty(epochNode.splitValue)
                 if isnumeric(epochNode.splitValue)
                     browserNode.name = sprintf('%s = %g', epochNode.splitKey, epochNode.splitValue);
+                elseif ischar(epochNode.splitValue)
+                    browserNode.name = sprintf('%s', epochNode.splitValue);
                 else
-                    browserNode.name = sprintf('%s', string(epochNode.splitValue));
+                    browserNode.name = char(string(epochNode.splitValue));
                 end
             else
                 browserNode.name = 'Root';
@@ -401,11 +404,15 @@ classdef epicTreeGUI < handle
 
             splitIdx = get(src, 'Value');
             splitOptions = {
-                {'cellInfo.type'}
-                {'parameters.contrast'}
-                {@epicTreeTools.splitOnProtocol}
-                {@epicTreeTools.splitOnExperimentDate}
-                {'cellInfo.type', 'parameters.contrast'}
+                {'cellInfo.type'}                                           % 1: Cell Type
+                {@epicTreeTools.splitOnExperimentDate}                     % 2: Date
+                {'cellInfo.type', 'cellInfo.id'}                           % 3: Cell Type + Cell ID
+                {@epicTreeTools.splitOnExperimentDate, 'cellInfo.id'}     % 4: Date + Cell ID
+                {@epicTreeTools.splitOnCellType, ...                       % 5: Cell Type + Date + Cell ID
+                 @epicTreeTools.splitOnExperimentDate, 'cellInfo.id'}
+                {@epicTreeTools.splitOnExperimentDate, ...                 % 6: Date + Cell Type
+                 @epicTreeTools.splitOnCellType}
+                {@epicTreeTools.splitOnProtocol}                           % 7: Protocol
             };
 
             if splitIdx <= length(splitOptions)
@@ -535,9 +542,20 @@ classdef epicTreeGUI < handle
             nEpochs = node.epochCount();
             nSelected = node.selectedCount();
 
+            % Convert splitValue to char (table requires char, not string objects)
+            if isempty(node.splitValue)
+                valueStr = '';
+            elseif isnumeric(node.splitValue)
+                valueStr = sprintf('%g', node.splitValue);
+            elseif ischar(node.splitValue)
+                valueStr = node.splitValue;
+            else
+                valueStr = char(string(node.splitValue));
+            end
+
             data = {
                 'Node', node.splitKey;
-                'Value', string(node.splitValue);
+                'Value', valueStr;
                 'Epochs', sprintf('%d', nEpochs);
                 'Selected', sprintf('%d', nSelected)
             };

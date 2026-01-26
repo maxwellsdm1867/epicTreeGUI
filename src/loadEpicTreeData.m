@@ -76,15 +76,36 @@ function [treeData, metadata] = loadEpicTreeData(filename)
     totalEpochs = 0;
 
     for i = 1:length(treeData.experiments)
-        exp = treeData.experiments(i);
+        % Handle both cell arrays and struct arrays
+        if iscell(treeData.experiments)
+            exp = treeData.experiments{i};
+        else
+            exp = treeData.experiments(i);
+        end
+
         totalCells = totalCells + length(exp.cells);
 
         for j = 1:length(exp.cells)
-            cell = exp.cells(j);
+            % Handle both cell arrays and struct arrays
+            if iscell(exp.cells)
+                cell = exp.cells{j};
+            else
+                cell = exp.cells(j);
+            end
+
             for k = 1:length(cell.epoch_groups)
-                eg = cell.epoch_groups(k);
+                if iscell(cell.epoch_groups)
+                    eg = cell.epoch_groups{k};
+                else
+                    eg = cell.epoch_groups(k);
+                end
+
                 for m = 1:length(eg.epoch_blocks)
-                    eb = eg.epoch_blocks(m);
+                    if iscell(eg.epoch_blocks)
+                        eb = eg.epoch_blocks{m};
+                    else
+                        eb = eg.epoch_blocks(m);
+                    end
                     totalEpochs = totalEpochs + length(eb.epochs);
                 end
             end
