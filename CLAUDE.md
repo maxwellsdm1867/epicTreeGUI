@@ -48,6 +48,25 @@ run tests/test_gui_display_data.m
 run tests/test_tree_navigation_realdata.m
 ```
 
+### Running Tests with MCP MATLAB Server
+
+**IMPORTANT:** When asked to test MATLAB code or run test files, ALWAYS use the MCP MATLAB server tools instead of regular bash commands. This ensures proper execution in the MATLAB environment.
+
+**Use MCP tools for:**
+- Running test files: `mcp__matlab__run_matlab_test_file` with absolute path
+- Executing MATLAB scripts: `mcp__matlab__run_matlab_file` with absolute path
+- Evaluating MATLAB code: `mcp__matlab__evaluate_matlab_code` with project path
+- Static code analysis: `mcp__matlab__check_matlab_code` with script path
+
+**Example:**
+```
+When user asks: "test the tool" or "run tests"
+Use: mcp__matlab__run_matlab_test_file with script_path: /Users/maxwellsdm/Documents/GitHub/epicTreeGUI/tests/test_tree_navigation_realdata.m
+NOT: Bash with matlab -batch command
+```
+
+The MCP server connects directly to an existing MATLAB session with the GUI visible, provides comprehensive test output, and properly handles MATLAB's testing framework.
+
 ### Test Data Location
 Default test data: `/Users/maxwellsdm/Documents/epicTreeTest/analysis/2025-12-02_F.mat`
 
