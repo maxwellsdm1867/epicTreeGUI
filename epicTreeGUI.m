@@ -3,7 +3,7 @@ classdef epicTreeGUI < handle
     %
     % Main GUI controller that integrates:
     %   - epicTreeTools (data organization)
-    %   - graphicalTree (tree visualization)
+    %   - epicGraphicalTree (tree visualization)
     %   - singleEpoch (epoch viewer)
     %
     % Usage:
@@ -13,13 +13,14 @@ classdef epicTreeGUI < handle
     % Layout:
     %   [40% Tree Browser] | [60% Viewer/Plotting]
     %
-    % See also: epicTreeTools, graphicalTree, getSelectedData
+    % See also: epicTreeTools, epicGraphicalTree, getSelectedData
 
     properties
         % Data
         tree                    % epicTreeTools root node
         allEpochs               % Flat epoch list (cell array)
         treeData                % Original hierarchical data struct
+        h5File                  % H5 file path for lazy loading
 
         % UI Components
         figure                  % Main figure handle
@@ -39,12 +40,18 @@ classdef epicTreeGUI < handle
     end
 
     methods
-        function self = epicTreeGUI(dataPath, varargin)
+        function self = epicTreeGUI(dataPathOrTree, varargin)
             % Constructor
             %
             % Usage:
-            %   gui = epicTreeGUI('data.mat')
-            %   gui = epicTreeGUI('data.mat', 'noEpochs')
+            %   gui = epicTreeGUI('data.mat')                    % Load from file
+            %   gui = epicTreeGUI('data.mat', 'noEpochs')       % Hide epochs
+            %   gui = epicTreeGUI(prebuiltTree)                 % Use pre-built tree
+            %
+            % The pre-built tree pattern matches legacy epochTreeGUI:
+            %   tree = epicTreeTools(data);
+            %   tree.buildTreeWithSplitters({@splitOnCellType, @splitOnDate});
+            %   gui = epicTreeGUI(tree);
 
             % Parse options
             if any(strcmpi(varargin, 'noEpochs'))
@@ -65,8 +72,60 @@ classdef epicTreeGUI < handle
             self.buildUIComponents();
 
             % Load data if provided
-            if nargin >= 1 && ~isempty(dataPath)
-                self.loadData(dataPath);
+            if nargin >= 1 && ~isempty(dataPathOrTree)
+                if isa(dataPathOrTree, 'epicTreeTools')
+                    % Pre-built tree passed in
+                    self.tree = dataPathOrTree;
+                    self.allEpochs = self.tree.allEpochs;
+                    self.treeData = [];  % Don't store original data
+
+                    % Get H5 file from config
+                    try
+                        config = epicTreeConfig();
+                        if isfield(config, 'h5_dir') && ~isempty(config.h5_dir)
+                            % Get experiment name from first epoch
+                            if ~isempty(self.allEpochs)
+                                ep = self.allEpochs{1};
+                                if isfield(ep, 'expInfo') && isfield(ep.expInfo, 'exp_name')
+                                    expName = ep.expInfo.exp_name;
+                                    self.h5File = fullfile(config.h5_dir, [expName '.h5']);
+
+                                    % Verify H5 file exists
+                                    if ~exist(self.h5File, 'file')
+                                        warning('epicTreeGUI:H5NotFound', ...
+                                            'H5 file not found: %s\nData will not load!', self.h5File);
+                                        self.h5File = '';
+                                    else
+                                        fprintf('✓ H5 file found: %s\n', self.h5File);
+                                    end
+                                end
+                            end
+                        else
+                            warning('epicTreeGUI:NoH5Config', ...
+                                'H5 directory not configured! Run: epicTreeConfig(''h5_dir'', ''/path/to/h5'')');
+                        end
+                    catch ME
+                        warning('epicTreeGUI:ConfigError', ...
+                            'Error getting H5 config: %s', ME.message);
+                    end
+
+                    % Hide split dropdown since tree is pre-built
+                    if isfield(self.treeBrowser, 'controlPanel')
+                        set(self.treeBrowser.controlPanel, 'Visible', 'off');
+                    end
+
+                    % Update tree browser
+                    self.initTreeBrowser();
+
+                    % Update title
+                    nEpochs = length(self.allEpochs);
+                    set(self.figure, 'Name', sprintf('%s - %d epochs', self.title, nEpochs));
+                elseif ischar(dataPathOrTree) || isstring(dataPathOrTree)
+                    % File path - load using default splitter
+                    self.loadData(dataPathOrTree);
+                else
+                    error('Input must be either a file path (char/string) or epicTreeTools object');
+                end
             end
 
             % Show figure
@@ -90,8 +149,11 @@ classdef epicTreeGUI < handle
 
             try
                 % Load using standard format loader
-                [data, ~] = loadEpicTreeData(dataPath);
+                [data, metadata] = loadEpicTreeData(dataPath);
                 self.treeData = data;
+
+                % Get H5 file path for lazy loading
+                self.h5File = self.getH5FilePath(metadata, dataPath);
 
                 % Create epicTreeTools and build tree
                 self.tree = epicTreeTools(data);
@@ -153,7 +215,7 @@ classdef epicTreeGUI < handle
                 return;
             end
 
-            % Get selected graphicalTreeNodes
+            % Get selected epicGraphicalTreeNodes
             [graphNodes, ~] = self.treeBrowser.graphTree.getSelectedNodes();
 
             % Extract epicTreeTools nodes from userData
@@ -232,8 +294,8 @@ classdef epicTreeGUI < handle
                 'Units', 'normalized', ...
                 'Position', [0.02 0.12 0.96 0.78]);
 
-            % Initialize graphicalTree
-            self.treeBrowser.graphTree = graphicalTree(self.treeBrowser.treeAxes, 'Epochs');
+            % Initialize epicGraphicalTree
+            self.treeBrowser.graphTree = epicGraphicalTree(self.treeBrowser.treeAxes, 'Epochs');
             self.treeBrowser.graphTree.nodesSelectedFcn = @(tree) self.onTreeSelectionChanged(tree);
             self.treeBrowser.graphTree.nodesCheckedFcn = @(tree) self.onTreeCheckChanged(tree);
 
@@ -323,13 +385,13 @@ classdef epicTreeGUI < handle
                 return;
             end
 
-            % Clear existing graphicalTree
-            gTree = self.treeBrowser.graphTree;
-            gTree.nodeList = {};
-            gTree.widgetList = {};
+            % Delete existing epicGraphicalTree (cleans up all widgets)
+            if ~isempty(self.treeBrowser.graphTree)
+                delete(self.treeBrowser.graphTree);
+            end
 
-            % Recreate graphicalTree
-            self.treeBrowser.graphTree = graphicalTree(self.treeBrowser.treeAxes, 'Epochs');
+            % Recreate epicGraphicalTree
+            self.treeBrowser.graphTree = epicGraphicalTree(self.treeBrowser.treeAxes, 'Epochs');
             gTree = self.treeBrowser.graphTree;
             gTree.nodesSelectedFcn = @(tree) self.onTreeSelectionChanged(tree);
             gTree.nodesCheckedFcn = @(tree) self.onTreeCheckChanged(tree);
@@ -343,7 +405,7 @@ classdef epicTreeGUI < handle
         end
 
         function marryEpochNodesToWidgets(self, epochNode, browserNode)
-            % Recursively create graphicalTreeNodes for epicTreeTools nodes
+            % Recursively create epicGraphicalTreeNodes for epicTreeTools nodes
 
             gTree = self.treeBrowser.graphTree;
 
@@ -355,9 +417,11 @@ classdef epicTreeGUI < handle
                 if isnumeric(epochNode.splitValue)
                     browserNode.name = sprintf('%s = %g', epochNode.splitKey, epochNode.splitValue);
                 elseif ischar(epochNode.splitValue)
-                    browserNode.name = sprintf('%s', epochNode.splitValue);
+                    displayValue = self.abbreviateProtocolName(epochNode.splitValue);
+                    browserNode.name = sprintf('%s', displayValue);
                 else
-                    browserNode.name = char(string(epochNode.splitValue));
+                    displayValue = self.abbreviateProtocolName(char(string(epochNode.splitValue)));
+                    browserNode.name = displayValue;
                 end
             else
                 browserNode.name = 'Root';
@@ -375,12 +439,37 @@ classdef epicTreeGUI < handle
                 browserNode.textBackgroundColor = [1 0.8 0.8];
             end
 
-            % Recurse on children
+            % Recurse on children OR create individual epoch nodes
             if ~epochNode.isLeaf
+                % Internal node - recurse on children
                 for ii = 1:length(epochNode.children)
                     childEpoch = epochNode.children{ii};
                     childBrowser = gTree.newNode(browserNode, '');
                     self.marryEpochNodesToWidgets(childEpoch, childBrowser);
+                end
+            elseif self.showEpochs && ~isempty(epochNode.epochList)
+                % Leaf node - create individual epoch widgets (legacy behavior)
+                epochs = epochNode.epochList;
+                for ii = 1:length(epochs)
+                    ep = epochs{ii};
+
+                    % Create epoch widget
+                    epochWidget = gTree.newNode(browserNode, '');
+                    epochWidget.userData = ep;  % Store epoch struct directly, not tree node
+
+                    % Set selection state
+                    if isfield(ep, 'isSelected') && ~isempty(ep.isSelected)
+                        epochWidget.isChecked = ep.isSelected;
+                    else
+                        epochWidget.isChecked = true;
+                    end
+
+                    % Format name: "#N: date/time"
+                    epochWidget.name = self.formatEpochName(ii, ep);
+
+                    % Pink background for individual epochs
+                    epochWidget.textColor = [0 0 0];
+                    epochWidget.textBackgroundColor = [1 .85 .85];
                 end
             end
         end
@@ -423,28 +512,68 @@ classdef epicTreeGUI < handle
         function onTreeSelectionChanged(self, ~)
             % Handle tree node selection change
 
-            nodes = self.getSelectedEpochTreeNodes();
-            if isempty(nodes) || isempty(nodes{1})
+            % Get selected graphical nodes
+            if isempty(self.treeBrowser) || isempty(self.treeBrowser.graphTree)
                 return;
             end
 
-            node = nodes{1};
-            self.updateInfoTable(node);
-            self.plotNodeData(node);
+            [graphNodes, ~] = self.treeBrowser.graphTree.getSelectedNodes();
+            if isempty(graphNodes) || isempty(graphNodes{1})
+                return;
+            end
+
+            % Check userData type
+            userData = graphNodes{1}.userData;
+
+            if isa(userData, 'epicTreeTools')
+                % Tree node clicked
+
+                % Performance optimization: Navigate to first single epoch
+                % Find first leaf node
+                leaves = userData.leafNodes();
+                if ~isempty(leaves)
+                    firstLeaf = leaves{1};
+                    % Get first epoch from that leaf
+                    if ~isempty(firstLeaf.epochList)
+                        firstEpoch = firstLeaf.epochList{1};
+                        fprintf('Note: Showing first epoch from node "%s"\n', ...
+                            string(userData.splitValue));
+                        % Plot single epoch
+                        self.updateInfoTableForEpoch(firstEpoch);
+                        self.plotSingleEpoch(firstEpoch);
+                        return;
+                    end
+                end
+
+                % Fallback: if no epochs found, show node info
+                self.updateInfoTable(userData);
+                self.plotNodeData(userData);
+
+            elseif isstruct(userData)
+                % Individual epoch - display single epoch
+                self.updateInfoTableForEpoch(userData);
+                self.plotSingleEpoch(userData);
+            end
         end
 
         function onTreeCheckChanged(self, ~)
             % Handle check/selection change
 
-            % Sync check state to epicTreeTools nodes
+            % Sync check state to epicTreeTools nodes or individual epochs
             gTree = self.treeBrowser.graphTree;
             for ii = 1:length(gTree.nodeList)
                 gNode = gTree.nodeList{ii};
                 if ~isempty(gNode.userData)
-                    gNode.userData.custom.isSelected = gNode.isChecked;
-                    % Also update epochs if leaf
-                    if gNode.userData.isLeaf
-                        gNode.userData.setSelected(gNode.isChecked, false);
+                    if isa(gNode.userData, 'epicTreeTools')
+                        % Tree node - update custom flag
+                        gNode.userData.custom.isSelected = gNode.isChecked;
+                        % Also update epochs if leaf
+                        if gNode.userData.isLeaf
+                            gNode.userData.setSelected(gNode.isChecked, false);
+                        end
+                    elseif isstruct(gNode.userData)
+                        % Individual epoch - update isSelected field
+                        gNode.userData.isSelected = gNode.isChecked;
                     end
                 end
             end
@@ -507,17 +636,24 @@ classdef epicTreeGUI < handle
             end
 
             node = nodes{1};
-            [data, ~, fs] = getSelectedData(node, 'Amp1');
+            [data, ~, fs] = getSelectedData(node, 'Amp1', self.h5File);
 
             if isempty(data)
                 msgbox('No response data available', 'Analysis');
                 return;
             end
 
+            % Convert to double and ensure fs is valid
+            data = double(data);
+            fs = double(fs);
+            if isempty(fs) || fs == 0
+                fs = 10000;  % Default sample rate
+            end
+
             % Compute mean and SEM
             meanTrace = mean(data, 1);
             semTrace = std(data, [], 1) / sqrt(size(data, 1));
-            t = (1:length(meanTrace)) / fs * 1000;
+            t = (0:length(meanTrace)-1) / fs * 1000;
 
             % Plot
             ax = self.plottingCanvas.axes;
@@ -537,7 +673,7 @@ classdef epicTreeGUI < handle
         end
 
         function updateInfoTable(self, node)
-            % Update info table for selected node
+            % Update info table for selected tree node
 
             nEpochs = node.epochCount();
             nSelected = node.selectedCount();
@@ -563,13 +699,48 @@ classdef epicTreeGUI < handle
             set(self.plottingCanvas.infoTable, 'Data', data);
         end
 
+        function updateInfoTableForEpoch(self, epoch)
+            % Update info table for selected individual epoch
+
+            % Extract epoch metadata
+            if isfield(epoch, 'expInfo') && isfield(epoch.expInfo, 'date')
+                dateStr = epoch.expInfo.date;
+            else
+                dateStr = 'Unknown';
+            end
+
+            if isfield(epoch, 'isSelected')
+                isSelected = logical(epoch.isSelected);
+            else
+                isSelected = true;
+            end
+
+            % Get protocol name
+            if isfield(epoch, 'protocolSettings') && isfield(epoch.protocolSettings, 'protocolID')
+                protocol = epoch.protocolSettings.protocolID;
+            elseif isfield(epoch, 'parameters') && isfield(epoch.parameters, 'protocol')
+                protocol = epoch.parameters.protocol;
+            else
+                protocol = 'Unknown';
+            end
+
+            data = {
+                'Type', 'Single Epoch';
+                'Date', dateStr;
+                'Protocol', char(protocol);
+                'Selected', char(string(isSelected))
+            };
+
+            set(self.plottingCanvas.infoTable, 'Data', data);
+        end
+
         function plotNodeData(self, node)
-            % Plot data for selected node
+            % Plot data for selected tree node (aggregated epochs)
 
             ax = self.plottingCanvas.axes;
 
-            % Get selected data
-            [data, ~, fs] = getSelectedData(node, 'Amp1');
+            % Get selected data (pass H5 file for lazy loading)
+            [data, ~, fs] = getSelectedData(node, 'Amp1', self.h5File);
 
             if isempty(data)
                 cla(ax);
@@ -578,10 +749,17 @@ classdef epicTreeGUI < handle
                 return;
             end
 
+            % Convert to double and ensure fs is valid
+            data = double(data);
+            fs = double(fs);
+            if isempty(fs) || fs == 0
+                fs = 10000;  % Default sample rate
+            end
+
             % Plot all traces
             cla(ax);
             hold(ax, 'on');
-            t = (1:size(data,2)) / fs * 1000;
+            t = (0:size(data,2)-1) / fs * 1000;
             for ii = 1:min(size(data,1), 20)  % Limit to 20 traces
                 plot(ax, t, data(ii,:), 'Color', [0.7 0.7 0.7]);
             end
@@ -591,6 +769,44 @@ classdef epicTreeGUI < handle
             xlabel(ax, 'Time (ms)');
             ylabel(ax, 'Response');
             title(ax, sprintf('%d epochs', size(data,1)));
+        end
+
+        function plotSingleEpoch(self, epoch)
+            % Plot data for a single epoch (lazy loaded from H5)
+
+            ax = self.plottingCanvas.axes;
+            cla(ax);
+
+            try
+                % Use getSelectedData for single epoch (lazy loads from H5)
+                epochList = {epoch};
+                [data, ~, fs] = getSelectedData(epochList, 'Amp1', self.h5File);
+
+                if isempty(data)
+                    text(ax, 0.5, 0.5, 'No response data', ...
+                        'HorizontalAlignment', 'center', 'Units', 'normalized');
+                    return;
+                end
+
+                % Convert to double and ensure fs is valid
+                data = double(data(:)');  % Ensure row vector of doubles
+                fs = double(fs);
+                if isempty(fs) || fs == 0
+                    fs = 10000;  % Default sample rate
+                end
+
+                % Plot single trace
+                t = (0:length(data)-1) / fs * 1000;  % Convert to ms
+                plot(ax, t, data, 'b', 'LineWidth', 1.5);
+
+                xlabel(ax, 'Time (ms)');
+                ylabel(ax, 'Amp1');
+                title(ax, 'Single Epoch');
+
+            catch ME
+                text(ax, 0.5, 0.5, sprintf('Error loading data:\n%s', ME.message), ...
+                    'HorizontalAlignment', 'center', 'Units', 'normalized');
+            end
         end
 
         function showKeyboardHelp(self)
@@ -609,6 +825,104 @@ classdef epicTreeGUI < handle
                 'Pure MATLAB epoch tree browser.\n\n' ...
                 'Based on legacy Rieke Lab tools.']);
             msgbox(msg, 'About');
+        end
+
+        function shortName = abbreviateProtocolName(~, fullName)
+            % ABBREVIATEPROTOCOLNAME Shorten long protocol names for display
+            %
+            % Converts:
+            %   'edu.washington.riekelab.protocols.SingleSpot'  -> 'SingleSpot'
+            %   'edu.washington.riekelab.turner.protocols.Foo'  -> 'Foo'
+            %
+            % Max length: 40 characters (truncate with '...')
+
+            if ~ischar(fullName) && ~isstring(fullName)
+                shortName = char(fullName);
+                return;
+            end
+
+            fullName = char(fullName);
+
+            % Extract last component after final '.' (protocol name only)
+            parts = strsplit(fullName, '.');
+            if length(parts) > 1
+                shortName = parts{end};
+            else
+                shortName = fullName;
+            end
+
+            % Truncate if still too long
+            maxLen = 40;
+            if length(shortName) > maxLen
+                shortName = [shortName(1:maxLen-3) '...'];
+            end
+        end
+
+        function name = formatEpochName(~, index, epoch)
+            % FORMATEPOCHNAME Format epoch display name
+            %
+            % Legacy format: "#N: YYYY-MM-DD HH:MM:SS"
+            % Example: "  1: 2025-12-02 10:15:30"
+
+            % Try to extract date/time from epoch
+            if isfield(epoch, 'expInfo') && isfield(epoch.expInfo, 'date')
+                dateStr = epoch.expInfo.date;
+            elseif isfield(epoch, 'startTime')
+                dateStr = epoch.startTime;
+            else
+                dateStr = '';
+            end
+
+            % Format name
+            if ~isempty(dateStr)
+                name = sprintf('%3d: %s', index, dateStr);
+            else
+                name = sprintf('%3d', index);
+            end
+        end
+
+        function h5Path = getH5FilePath(~, metadata, matPath)
+            % GETH5FILEPATH Get H5 file path for lazy loading
+            %
+            % Tries multiple strategies to find the H5 file
+
+            % Strategy 1: Check epicTreeConfig
+            try
+                config = epicTreeConfig();
+                if isfield(config, 'h5_dir') && ~isempty(config.h5_dir)
+                    h5Dir = config.h5_dir;
+                    % Look for H5 file in this directory
+                    if isfield(metadata, 'exp_name')
+                        h5Path = fullfile(h5Dir, [metadata.exp_name '.h5']);
+                        if exist(h5Path, 'file')
+                            return;
+                        end
+                    end
+                end
+            catch
+                % Config not available
+            end
+
+            % Strategy 2: Look for h5 directory next to .mat file
+            [matDir, matName, ~] = fileparts(matPath);
+            h5Dir = fullfile(fileparts(matDir), 'h5');
+            if exist(h5Dir, 'dir')
+                % Extract experiment name from mat file
+                if isfield(metadata, 'exp_name')
+                    expName = metadata.exp_name;
+                else
+                    % Use mat filename as experiment name
+                    expName = matName;
+                end
+
+                h5Path = fullfile(h5Dir, [expName '.h5']);
+                if exist(h5Path, 'file')
+                    return;
+                end
+            end
+
+            % Strategy 3: Return empty (will use in-memory data if available)
+            h5Path = '';
         end
     end
 end

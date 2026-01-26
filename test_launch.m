@@ -7,9 +7,17 @@ clc;
 
 fprintf('=== Launching EpicTreeGUI with Test Data ===\n\n');
 
-% Add paths
-addpath('src');
+% CRITICAL: Remove old_epochtree from path if it's there
+warning('off', 'MATLAB:rmpath:DirNotFound');
+rmpath(genpath('old_epochtree'));
+warning('on', 'MATLAB:rmpath:DirNotFound');
+
+% Add NEW code paths (in correct order - most specific first)
+addpath('src/gui');           % CRITICAL: Add this first for graphicalTree
+addpath('src/tree');
 addpath('src/splitters');
+addpath('src/utilities');
+addpath('src');
 
 % Path to the data file
 data_file = '/Users/maxwellsdm/Documents/epicTreeTest/analysis/2025-12-02_F.mat';

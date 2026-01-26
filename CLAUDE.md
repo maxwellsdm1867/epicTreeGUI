@@ -10,19 +10,41 @@ EpicTreeGUI is a pure MATLAB replacement for the legacy Rieke Lab Java-based epo
 
 ## Running and Testing
 
-### Launch GUI
+### Launch GUI - Two Patterns
+
+**Pattern 1: Simple file loading (dynamic splits)**
 ```matlab
-% From project root
-test_launch.m
+% GUI with dropdown menu to change split configuration
+gui = epicTreeGUI('data.mat');
 ```
 
-### Run Tests
+**Pattern 2: Pre-built tree (legacy pattern - RECOMMENDED)**
 ```matlab
-% Run individual test
+% Build tree structure in code first (matches legacy epochTreeGUI)
+[data, ~] = loadEpicTreeData('data.mat');
+tree = epicTreeTools(data);
+tree.buildTreeWithSplitters({
+    @epicTreeTools.splitOnCellType,
+    @epicTreeTools.splitOnExperimentDate,
+    'cellInfo.id'
+});
+gui = epicTreeGUI(tree);  % NO dropdown - tree is fixed
+```
+
+**See `USAGE_PATTERNS.md` for detailed comparison.**
+
+### Test Scripts
+```matlab
+% Pattern 1 - Simple exploration
+run test_launch.m
+
+% Pattern 2 - Legacy-style (RECOMMENDED)
+run test_legacy_pattern.m
+run test_exact_legacy_pattern.m
+
+% Unit tests
 run tests/test_tree_navigation.m
 run tests/test_gui_display_data.m
-
-% Test with real data (requires test file at specific path)
 run tests/test_tree_navigation_realdata.m
 ```
 
@@ -63,7 +85,9 @@ Interactive browser + viewer
 **2. epicTreeGUI class (epicTreeGUI.m)**
 - Main GUI controller integrating tree browser and data viewer
 - 40% tree panel (left) + 60% viewer panel (right)
-- Split dropdown triggers complete tree reorganization
+- **Two usage modes:**
+  - Simple mode: Pass file path → shows split dropdown for dynamic reorganization
+  - Legacy mode: Pass pre-built tree → NO dropdown, fixed structure (RECOMMENDED)
 - Selection management with checkbox system
 - Menu-driven analysis functions
 
