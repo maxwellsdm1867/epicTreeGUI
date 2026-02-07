@@ -106,13 +106,62 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (Populated by roadmapper) | | |
+| TEST-01 | Phase 0 | Pending |
+| TEST-02 | Phase 0 | Pending |
+| LEG-01 | Phase 1 | Pending |
+| LEG-02 | Phase 1 | Pending |
+| LEG-03 | Phase 1 | Pending |
+| CLEAN-01 | Phase 1 | Pending |
+| CLEAN-02 | Phase 1 | Pending |
+| CLEAN-03 | Phase 1 | Pending |
+| CLEAN-04 | Phase 1 | Pending |
+| CLEAN-05 | Phase 1 | Pending |
+| README-01 | Phase 1 | Pending |
+| README-02 | Phase 1 | Pending |
+| README-03 | Phase 1 | Pending |
+| README-08 | Phase 1 | Pending |
+| EXAM-01 | Phase 1 | Pending |
+| EXAM-02 | Phase 1 | Pending |
+| EXAM-03 | Phase 2 | Pending |
+| EXAM-04 | Phase 2 | Pending |
+| EXAM-05 | Phase 2 | Pending |
+| EXAM-06 | Phase 2 | Pending |
+| EXAM-07 | Phase 2 | Pending |
+| EXAM-08 | Phase 2 | Pending |
+| GUIDE-01 | Phase 2 | Pending |
+| GUIDE-02 | Phase 2 | Pending |
+| GUIDE-03 | Phase 2 | Pending |
+| GUIDE-04 | Phase 2 | Pending |
+| FUNC-01 | Phase 2 | Pending |
+| FUNC-02 | Phase 2 | Pending |
+| FUNC-03 | Phase 2 | Pending |
+| README-04 | Phase 3 | Pending |
+| README-05 | Phase 3 | Pending |
+| README-06 | Phase 3 | Pending |
+| README-07 | Phase 3 | Pending |
+| GUIDE-05 | Phase 3 | Pending |
+| GUIDE-06 | Phase 3 | Pending |
+| GUIDE-07 | Phase 3 | Pending |
+| TEST-03 | Phase 4 | Pending |
+| TEST-04 | Phase 4 | Pending |
+| TEST-05 | Phase 4 | Pending |
+| QA-01 | Phase 4 | Pending |
+| QA-02 | Phase 4 | Pending |
+| QA-03 | Phase 4 | Pending |
+| QA-04 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 38 total
-- Mapped to phases: (pending roadmap)
-- Unmapped: (pending roadmap)
+- Mapped to phases: 38/38 (100%)
+- Unmapped: 0
+
+**Phase Distribution:**
+- Phase 0 (Testing & Validation): 2 requirements
+- Phase 1 (Foundation & Legal): 14 requirements
+- Phase 2 (User Onboarding): 13 requirements
+- Phase 3 (Comprehensive Documentation): 7 requirements
+- Phase 4 (Release Polish): 6 requirements
 
 ---
 *Requirements defined: 2026-02-06*
-*Last updated: 2026-02-06 after initial definition*
+*Last updated: 2026-02-07 after roadmap creation*
