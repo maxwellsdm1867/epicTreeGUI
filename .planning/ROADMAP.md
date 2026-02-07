@@ -30,10 +30,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User can verify data extraction functions return correct results (getSelectedData, getResponseMatrix)
   4. User can run test suite and all critical workflow tests pass
   5. Any bugs or issues discovered are documented for fixing
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] (Plans will be created during `/gsd:plan-phase 0`)
+- [ ] 00-01-PLAN.md -- Test infrastructure and tree navigation tests
+- [ ] 00-02-PLAN.md -- Splitter functions and data extraction tests
+- [ ] 00-03-PLAN.md -- Analysis function tests and golden baselines
+- [ ] 00-04-PLAN.md -- GUI testing utility and automated GUI tests
+- [ ] 00-05-PLAN.md -- Integration workflow tests and testing report
 
 ### Phase 1: Foundation & Legal
 **Goal**: Repository is legally releasable with working installation path
@@ -102,7 +106,7 @@ Phases execute in numeric order: 0 → 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 0. Testing & Validation | 0/TBD | Not started | - |
+| 0. Testing & Validation | 0/5 | Planned | - |
 | 1. Foundation & Legal | 0/TBD | Not started | - |
 | 2. User Onboarding | 0/TBD | Not started | - |
 | 3. Comprehensive Documentation | 0/TBD | Not started | - |
