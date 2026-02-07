@@ -10,37 +10,33 @@ EpicTreeGUI is a pure MATLAB replacement for the legacy Rieke Lab Java-based epo
 
 ## Running and Testing
 
-### Launch GUI - Two Patterns
+### Launch GUI - Pre-Built Tree Pattern
 
-**Pattern 1: Simple file loading (dynamic splits)**
-```matlab
-% GUI with dropdown menu to change split configuration
-gui = epicTreeGUI('data.mat');
-```
+**The GUI only accepts pre-built epicTreeTools objects.** Build your tree structure in code first, matching the legacy epochTreeGUI workflow:
 
-**Pattern 2: Pre-built tree (legacy pattern - RECOMMENDED)**
 ```matlab
-% Build tree structure in code first (matches legacy epochTreeGUI)
+% 1. Load data
 [data, ~] = loadEpicTreeData('data.mat');
+
+% 2. Build tree structure with your chosen splitters
 tree = epicTreeTools(data);
 tree.buildTreeWithSplitters({
-    @epicTreeTools.splitOnCellType,
-    @epicTreeTools.splitOnExperimentDate,
-    'cellInfo.id'
+    @epicTreeTools.splitOnCellType,        % Level 1
+    @epicTreeTools.splitOnExperimentDate,  % Level 2
+    'cellInfo.id'                          % Level 3
 });
-gui = epicTreeGUI(tree);  % NO dropdown - tree is fixed
+
+% 3. Launch GUI with pre-built tree
+gui = epicTreeGUI(tree);
 ```
 
-**See `USAGE_PATTERNS.md` for detailed comparison.**
+The tree structure is **fixed** when the GUI launches - no dropdown menu. To change the organization, modify the `buildTreeWithSplitters()` call and re-run your script.
 
 ### Test Scripts
 ```matlab
-% Pattern 1 - Simple exploration
-run test_launch.m
-
-% Pattern 2 - Legacy-style (RECOMMENDED)
-run test_legacy_pattern.m
-run test_exact_legacy_pattern.m
+% Legacy-style pattern examples
+run tests/test_legacy_pattern.m
+run tests/test_exact_legacy_pattern.m
 
 % Unit tests
 run tests/test_tree_navigation.m
