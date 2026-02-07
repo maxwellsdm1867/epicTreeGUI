@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 0 of 4 (Testing & Validation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-02-07 - Roadmap created with 5 phases (0-4) covering 38 v1 requirements
+Plan: 1 of TBD in current phase
+Status: In progress
+Last activity: 2026-02-07 - Completed 00-01-PLAN.md (test framework infrastructure)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] ~10% (estimated, Phase 0 scope TBD)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: N/A
-- Total execution time: 0.0 hours
+- Total plans completed: 1
+- Average duration: 2 min
+- Total execution time: 0.03 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 0 (Testing) | 1 | 2min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: None yet
-- Trend: Not established
+- Last 5 plans: 00-01 (2min)
+- Trend: Just started
 
 *Updated after each plan completion*
 
@@ -47,6 +47,11 @@ Recent decisions affecting current work:
 - Defer v1.1 enhancements: Ship complete docs faster than adding features
 - Remove old_epochtree/: Legacy reference code not needed for users
 
+**From 00-01:**
+- Use absolute paths for test data (simpler than relative path resolution)
+- Multi-level tree in tests (enables deeper navigation validation)
+- Reset selection state before each test (prevents test interference)
+
 ### Pending Todos
 
 None yet.
@@ -58,5 +63,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-07
-Stopped at: Roadmap and STATE.md created with Phase 0 (Testing & Validation) added, ready for Phase 0 planning
+Stopped at: Completed 00-01-PLAN.md (test framework infrastructure)
 Resume file: None
+Next: 00-02 (Data Loading & Response Access Tests)
