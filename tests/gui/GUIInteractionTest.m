@@ -301,7 +301,7 @@ classdef GUIInteractionTest < matlab.unittest.TestCase
 
     methods (Test)
         function testPlotNodeDataNoError(testCase)
-            % Test calling plotNodeData on a leaf node produces no error
+            % Test selecting a leaf node and triggering data display produces no error
 
             % Navigate to a leaf node
             testCase.Utility.navigateToChild(1);  % Cell type
@@ -309,9 +309,10 @@ classdef GUIInteractionTest < matlab.unittest.TestCase
                 testCase.Utility.navigateToChild(1);  % Protocol
             end
 
-            % Call plotNodeData
-            testCase.verifyWarningFree(@() testCase.GUI.plotNodeData(testCase.Utility.CurrentNode), ...
-                'Plotting node data should not produce warnings');
+            % Highlight node (triggers GUI's onTreeSelectionChanged callback)
+            testCase.verifyWarningFree(@() testCase.Utility.highlightCurrentNode(), ...
+                'Selecting node and triggering display should not produce warnings');
+            drawnow;
         end
 
         function testInfoTableUpdates(testCase)
@@ -320,8 +321,9 @@ classdef GUIInteractionTest < matlab.unittest.TestCase
             % Navigate to first child
             testCase.Utility.navigateToChild(1);
 
-            % Update info table
-            testCase.GUI.updateInfoTable(testCase.Utility.CurrentNode);
+            % Highlight node (triggers info table update via callback)
+            testCase.Utility.highlightCurrentNode();
+            drawnow;
 
             % Verify table data is populated
             tableData = get(testCase.GUI.plottingCanvas.infoTable, 'Data');
@@ -375,9 +377,10 @@ classdef GUIInteractionTest < matlab.unittest.TestCase
             testCase.Utility.toggleCheckboxRecursive(false);
             drawnow;
 
-            % Try to plot (should handle empty data gracefully)
-            testCase.verifyWarningFree(@() testCase.GUI.plotNodeData(testCase.Utility.CurrentNode), ...
-                'Plotting empty node should not crash');
+            % Try to highlight/display (should handle empty data gracefully)
+            testCase.verifyWarningFree(@() testCase.Utility.highlightCurrentNode(), ...
+                'Selecting empty node should not crash');
+            drawnow;
         end
 
         function testNavigationToInvalidChild(testCase)
