@@ -83,7 +83,16 @@ None - Phase 0 complete.
 
 ### Blockers/Concerns
 
-None yet.
+**BUG-001 (CRITICAL):** Selection state not persisting/propagating
+- Phase 0.1 inserted to fix before proceeding to documentation
+- See BUGS_FOUND_PHASE0.md for full analysis
+
+### Roadmap Evolution
+
+- **Phase 0.1 inserted after Phase 0:** Critical Bug Fixes - Selection State (URGENT)
+  - Reason: Phase 0 testing discovered BUG-001 that breaks core filtering functionality
+  - Impact: Must fix before documentation phase (Phase 1) since docs would describe broken behavior
+  - Status: Not planned yet
 
 ## Session Continuity
 

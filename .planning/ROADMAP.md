@@ -39,6 +39,26 @@ Plans:
 - [x] 00-04-PLAN.md -- GUI testing utility and automated GUI tests
 - [x] 00-05-PLAN.md -- Integration workflow tests and testing report
 
+### Phase 0.1: Critical Bug Fixes - Selection State (INSERTED)
+**Goal**: Fix critical selection state bug (BUG-001) that breaks core filtering functionality
+**Depends on**: Phase 0
+**Requirements**: None (urgent bug fix)
+**Success Criteria** (what must be TRUE):
+  1. User can deselect epochs and `getAllEpochs(true)` returns only selected epochs
+  2. User can call `getSelectedData()` and receive only selected epochs, not all epochs
+  3. Selection state persists correctly in tree hierarchy
+  4. Tests validate selection filtering works end-to-end
+  5. Architecture clearly documents where selection state lives and how it propagates
+**Plans**: 0 plans
+
+Plans:
+- [ ] TBD (run `/gsd:plan-phase 0.1` to break down)
+
+**Details:**
+Phase 0 testing discovered BUG-001: Selection state not persisting/propagating. When users deselect epochs, `selectedCount()` reports correctly but `getAllEpochs(true)` and `getSelectedData()` ignore the selection and return ALL epochs. This breaks the core filtering workflow.
+
+See `BUGS_FOUND_PHASE0.md` for full analysis and architectural options.
+
 ### Phase 1: Foundation & Legal
 **Goal**: Repository is legally releasable with working installation path
 **Depends on**: Phase 0
@@ -102,11 +122,12 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0 → 1 → 2 → 3 → 4
+Phases execute in numeric order: 0 → 0.1 → 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 0. Testing & Validation | 5/5 | Complete | 2026-02-08 |
+| 0.1. Critical Bug Fixes - Selection State | 0/TBD | Not planned | - |
 | 1. Foundation & Legal | 0/TBD | Not started | - |
 | 2. User Onboarding | 0/TBD | Not started | - |
 | 3. Comprehensive Documentation | 0/TBD | Not started | - |
