@@ -59,8 +59,8 @@
 
 ### Testing & Validation
 
-- [ ] **TEST-01**: Verify all analysis functions work correctly with real data
-- [ ] **TEST-02**: Test suite covering critical workflows exists
+- [x] **TEST-01**: Verify all analysis functions work correctly with real data
+- [x] **TEST-02**: Test suite covering critical workflows exists
 - [ ] **TEST-03**: All examples run without errors on clean install
 - [ ] **TEST-04**: Documentation links are valid (no broken links)
 - [ ] **TEST-05**: Verify minimum MATLAB version requirement (R2020b)
@@ -106,8 +106,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TEST-01 | Phase 0 | Pending |
-| TEST-02 | Phase 0 | Pending |
+| TEST-01 | Phase 0 | Complete |
+| TEST-02 | Phase 0 | Complete |
 | LEG-01 | Phase 1 | Pending |
 | LEG-02 | Phase 1 | Pending |
 | LEG-03 | Phase 1 | Pending |
