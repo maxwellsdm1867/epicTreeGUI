@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 0 of 4 (Testing & Validation)
-Plan: 1 of TBD in current phase
+Plan: 2 of TBD in current phase
 Status: In progress
-Last activity: 2026-02-07 - Completed 00-01-PLAN.md (test framework infrastructure)
+Last activity: 2026-02-08 - Completed 00-02-PLAN.md (splitter & data extraction validation)
 
-Progress: [█░░░░░░░░░] ~10% (estimated, Phase 0 scope TBD)
+Progress: [██░░░░░░░░] ~20% (estimated, Phase 0 scope TBD)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 2 min
-- Total execution time: 0.03 hours
+- Total plans completed: 2
+- Average duration: 19 min
+- Total execution time: 0.63 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 0 (Testing) | 1 | 2min | 2min |
+| 0 (Testing) | 2 | 38min | 19min |
 
 **Recent Trend:**
-- Last 5 plans: 00-01 (2min)
-- Trend: Just started
+- Last 5 plans: 00-01 (2min), 00-02 (36min)
+- Trend: Accelerating (more comprehensive tests)
 
 *Updated after each plan completion*
 
@@ -52,6 +52,12 @@ Recent decisions affecting current work:
 - Multi-level tree in tests (enables deeper navigation validation)
 - Reset selection state before each test (prevents test interference)
 
+**From 00-02:**
+- Use parameterized tests (TestParameter) for testing multiple splitters efficiently
+- Graceful H5 data handling with assumeFail() when data unavailable
+- Validate no epochs lost: sum of leaf epoch counts must equal total
+- Test multi-arg splitters separately (not parameterized)
+
 ### Pending Todos
 
 None yet.
@@ -62,7 +68,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-07
-Stopped at: Completed 00-01-PLAN.md (test framework infrastructure)
+Last session: 2026-02-08
+Stopped at: Completed 00-02-PLAN.md (splitter & data extraction validation)
 Resume file: None
-Next: 00-02 (Data Loading & Response Access Tests)
+Next: 00-03 (Integration Tests - TBD)
