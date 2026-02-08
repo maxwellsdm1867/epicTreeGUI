@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 0 of 4 (Testing & Validation)
-Plan: 2 of TBD in current phase
+Plan: 4 of TBD in current phase
 Status: In progress
-Last activity: 2026-02-08 - Completed 00-02-PLAN.md (splitter & data extraction validation)
+Last activity: 2026-02-08 - Completed 00-04-PLAN.md (GUI interaction testing)
 
-Progress: [██░░░░░░░░] ~20% (estimated, Phase 0 scope TBD)
+Progress: [███░░░░░░░] ~30% (estimated, Phase 0 scope TBD)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 19 min
-- Total execution time: 0.63 hours
+- Total plans completed: 3
+- Average duration: 18 min
+- Total execution time: 0.88 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 0 (Testing) | 2 | 38min | 19min |
+| 0 (Testing) | 3 | 53min | 18min |
 
 **Recent Trend:**
-- Last 5 plans: 00-01 (2min), 00-02 (36min)
-- Trend: Accelerating (more comprehensive tests)
+- Last 5 plans: 00-01 (2min), 00-02 (36min), 00-04 (15min)
+- Trend: Stabilizing around 15-35min per plan
 
 *Updated after each plan completion*
 
@@ -58,6 +58,12 @@ Recent decisions affecting current work:
 - Validate no epochs lost: sum of leaf epoch counts must equal total
 - Test multi-arg splitters separately (not parameterized)
 
+**From 00-04:**
+- TreeNavigationUtility controls actual GUI checkboxes via widget callbacks (not just setSelected)
+- Tests use programmatic interaction without App Testing Framework
+- Fresh GUI instance per test avoids state leakage
+- Tests access public API only (use highlightCurrentNode to trigger callbacks)
+
 ### Pending Todos
 
 None yet.
@@ -69,6 +75,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 00-02-PLAN.md (splitter & data extraction validation)
+Stopped at: Completed 00-04-PLAN.md (GUI interaction testing)
 Resume file: None
-Next: 00-03 (Integration Tests - TBD)
+Next: 00-05 (Next plan in phase - TBD)
