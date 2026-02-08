@@ -49,10 +49,12 @@ Plans:
   3. Selection state persists correctly in tree hierarchy
   4. Tests validate selection filtering works end-to-end
   5. Architecture clearly documents where selection state lives and how it propagates
-**Plans**: 0 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD (run `/gsd:plan-phase 0.1` to break down)
+- [ ] 00.1-01-PLAN.md -- Core selection verification, .ugm persistence methods, and LoadUserMetadata constructor option
+- [ ] 00.1-02-PLAN.md -- GUI "Save Epoch Mask" button and matFilePath integration
+- [ ] 00.1-03-PLAN.md -- Selection state and .ugm persistence test suites
 
 **Details:**
 Phase 0 testing discovered BUG-001: Selection state not persisting/propagating. When users deselect epochs, `selectedCount()` reports correctly but `getAllEpochs(true)` and `getSelectedData()` ignore the selection and return ALL epochs. This breaks the core filtering workflow.
@@ -127,7 +129,7 @@ Phases execute in numeric order: 0 → 0.1 → 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 0. Testing & Validation | 5/5 | Complete | 2026-02-08 |
-| 0.1. Critical Bug Fixes - Selection State | 0/TBD | Not planned | - |
+| 0.1. Critical Bug Fixes - Selection State | 0/3 | Planned | - |
 | 1. Foundation & Legal | 0/TBD | Not started | - |
 | 2. User Onboarding | 0/TBD | Not started | - |
 | 3. Comprehensive Documentation | 0/TBD | Not started | - |
