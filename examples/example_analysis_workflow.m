@@ -10,18 +10,39 @@
 %% Setup
 clear; clc;
 
-% Add paths
-addpath(genpath('/Users/maxwellsdm/Documents/GitHub/epicTreeGUI/src'));
+% Get script directory for relative path resolution
+scriptDir = fileparts(mfilename('fullpath'));
+parentDir = fileparts(scriptDir);
 
-% Configure H5 directory (modify path as needed)
+% Check if epicTreeTools is on path, if not run install
+if isempty(which('epicTreeTools'))
+    fprintf('epicTreeTools not found on path. Running install...\n');
+    installScript = fullfile(parentDir, 'install.m');
+    if exist(installScript, 'file')
+        run(installScript);
+    else
+        error('install.m not found. Please run install.m from repository root.');
+    end
+end
+
+% Data file path - use bundled sample data by default
+dataPath = fullfile(scriptDir, 'data', 'sample_epochs.mat');
+
+% Optional: Override with full dataset path if available
+fullDataPath = '/Users/maxwellsdm/Documents/epicTreeTest/analysis/2025-12-02_F.mat';
+if exist(fullDataPath, 'file')
+    fprintf('Note: Full dataset available at %s\n', fullDataPath);
+    fprintf('Using bundled sample data: %s\n', dataPath);
+else
+    fprintf('Using bundled sample data: %s\n', dataPath);
+end
+
+% Configure H5 directory (optional, for lazy loading)
 h5Dir = '/Users/maxwellsdm/Documents/epicTreeTest/h5';
 if exist(h5Dir, 'dir')
     epicTreeConfig('h5_dir', h5Dir);
-    fprintf('H5 directory: %s\n', h5Dir);
+    fprintf('H5 directory configured: %s\n', h5Dir);
 end
-
-% Data file path (modify as needed)
-dataPath = '/Users/maxwellsdm/Documents/epicTreeTest/analysis/2025-12-02_F.mat';
 
 %% Load Data
 fprintf('\n=== Loading Data ===\n');
@@ -93,31 +114,20 @@ fprintf('\n=== Example 4: Data Retrieval ===\n');
 testNode = leaves{1};
 fprintf('Testing on: %s\n', testNode.pathString());
 
-% Get H5 file path
-if isfield(data, 'experiments')
-    if iscell(data.experiments)
-        exp = data.experiments{1};
-    else
-        exp = data.experiments(1);
-    end
-    if isfield(exp, 'exp_name')
-        exp_name = exp.exp_name;
-    else
-        exp_name = '2025-12-02_F';
-    end
-else
-    exp_name = '2025-12-02_F';
+% Get selected data (H5 file optional for bundled data)
+% Note: getSelectedData can work with embedded data (no H5 file needed)
+try
+    [dataMatrix, epochs, sampleRate] = getSelectedData(testNode, 'Amp1');
+    fprintf('Retrieved:\n');
+    fprintf('  Data size: [%d x %d]\n', size(dataMatrix, 1), size(dataMatrix, 2));
+    fprintf('  Sample rate: %g Hz\n', sampleRate);
+    fprintf('  Data range: [%.4f, %.4f]\n', min(dataMatrix(:)), max(dataMatrix(:)));
+catch ME
+    fprintf('Data retrieval skipped: %s\n', ME.message);
+    fprintf('(H5 files not available for bundled sample data)\n');
+    dataMatrix = [];
+    sampleRate = 10000;  % Default for next examples
 end
-h5_file = getH5FilePath(exp_name);
-fprintf('H5 file: %s\n', h5_file);
-
-% Get selected data
-[dataMatrix, epochs, sampleRate] = getSelectedData(testNode, 'Amp1', h5_file);
-
-fprintf('Retrieved:\n');
-fprintf('  Data size: [%d x %d]\n', size(dataMatrix, 1), size(dataMatrix, 2));
-fprintf('  Sample rate: %g Hz\n', sampleRate);
-fprintf('  Data range: [%.4f, %.4f]\n', min(dataMatrix(:)), max(dataMatrix(:)));
 
 %% Example 5: Selection Filtering
 fprintf('\n=== Example 5: Selection Filtering ===\n');
@@ -176,7 +186,12 @@ fprintf('  Custom keys: %s\n', strjoin(keys', ', '));
 fprintf('\n=== Example 7: Mean Response Trace ===\n');
 
 % Get data
-[data_ex7, ~, fs] = getSelectedData(testNode, 'Amp1', h5_file);
+try
+    [data_ex7, ~, fs] = getSelectedData(testNode, 'Amp1');
+catch
+    fprintf('Skipping Example 7: H5 data not available\n');
+    return;
+end
 
 % Compute mean and SEM
 meanTrace = mean(data_ex7, 1);
@@ -217,11 +232,15 @@ if tree.childrenLength() > 0
     % Compare using MeanSelectedNodes
     if length(protocolNodes) >= 2
         figure('Name', 'Protocol Comparison');
-        results = MeanSelectedNodes(protocolNodes, 'Amp1', ...
-            'h5_file', h5_file, ...
-            'BaselineCorrect', true, ...
-            'ShowLegend', true, ...
-            'ShowAnalysis', true);
+        try
+            results = MeanSelectedNodes(protocolNodes, 'Amp1', ...
+                'BaselineCorrect', true, ...
+                'ShowLegend', true, ...
+                'ShowAnalysis', true);
+        catch
+            fprintf('MeanSelectedNodes skipped (requires H5 data)\n');
+            results = struct('respAmp', []);
+        end
 
         fprintf('Response amplitudes:\n');
         for i = 1:length(results.respAmp)
@@ -243,7 +262,11 @@ for i = 1:length(leaves)
     leaf = leaves{i};
 
     % Get data
-    [leafData, ~, ~] = getSelectedData(leaf, 'Amp1', h5_file);
+    try
+        [leafData, ~, ~] = getSelectedData(leaf, 'Amp1');
+    catch
+        leafData = [];
+    end
 
     if isempty(leafData)
         continue;
