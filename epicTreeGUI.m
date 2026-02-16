@@ -7,24 +7,35 @@ classdef epicTreeGUI < handle
     %   - singleEpoch (epoch viewer)
     %
     % Usage:
-    %   gui = epicTreeGUI('data.mat')
-    %   gui = epicTreeGUI('data.mat', 'noEpochs')  % Hide individual epochs
+    %   % Load data and build tree
+    %   [data, ~] = loadEpicTreeData('data.mat');
+    %   tree = epicTreeTools(data);
+    %   tree.buildTreeWithSplitters({
+    %       @epicTreeTools.splitOnCellType,
+    %       @epicTreeTools.splitOnExperimentDate,
+    %       'cellInfo.id'
+    %   });
+    %
+    %   % Launch GUI with pre-built tree
+    %   gui = epicTreeGUI(tree);
+    %   gui = epicTreeGUI(tree, 'noEpochs');  % Hide individual epochs
     %
     % Layout:
     %   [40% Tree Browser] | [60% Viewer/Plotting]
     %
-    % See also: epicTreeTools, epicGraphicalTree, getSelectedData
+    % See also: epicTreeTools, epicGraphicalTree, getSelectedData, loadEpicTreeData
 
     properties
         % Data
         tree                    % epicTreeTools root node
         allEpochs               % Flat epoch list (cell array)
-        treeData                % Original hierarchical data struct
         h5File                  % H5 file path for lazy loading
+        matFilePath = ''        % Path to source .mat file (for .ugm file discovery)
+        loadedMask = []         % Selection mask loaded at startup (for close comparison)
 
         % UI Components
         figure                  % Main figure handle
-        treeBrowser             % struct: panel, graphTree, splitDropdown
+        treeBrowser             % struct: panel, graphTree
         plottingCanvas          % struct: panel, axes, infoTable
 
         % State
@@ -36,22 +47,23 @@ classdef epicTreeGUI < handle
         title = 'Epic Tree GUI'
         fontSize = 12
         xDivLeft = 0.4          % Tree panel width (40%)
-        currentSplitKeys = {'cellInfo.type'}  % Current split configuration
     end
 
     methods
-        function self = epicTreeGUI(dataPathOrTree, varargin)
-            % Constructor
+        function self = epicTreeGUI(treeObj, varargin)
+            % Constructor - Accepts pre-built epicTreeTools object only
             %
             % Usage:
-            %   gui = epicTreeGUI('data.mat')                    % Load from file
-            %   gui = epicTreeGUI('data.mat', 'noEpochs')       % Hide epochs
-            %   gui = epicTreeGUI(prebuiltTree)                 % Use pre-built tree
-            %
-            % The pre-built tree pattern matches legacy epochTreeGUI:
+            %   % Build tree first
+            %   [data, ~] = loadEpicTreeData('data.mat');
             %   tree = epicTreeTools(data);
-            %   tree.buildTreeWithSplitters({@splitOnCellType, @splitOnDate});
+            %   tree.buildTreeWithSplitters({@epicTreeTools.splitOnCellType, ...});
+            %
+            %   % Launch GUI
             %   gui = epicTreeGUI(tree);
+            %   gui = epicTreeGUI(tree, 'noEpochs');  % Hide individual epochs
+            %
+            % This matches the legacy epochTreeGUI pattern.
 
             % Parse options
             if any(strcmpi(varargin, 'noEpochs'))
@@ -71,13 +83,20 @@ classdef epicTreeGUI < handle
             % Build UI components
             self.buildUIComponents();
 
-            % Load data if provided
-            if nargin >= 1 && ~isempty(dataPathOrTree)
-                if isa(dataPathOrTree, 'epicTreeTools')
+            % Validate and set tree
+            if nargin >= 1 && ~isempty(treeObj)
+                if isa(treeObj, 'epicTreeTools')
                     % Pre-built tree passed in
-                    self.tree = dataPathOrTree;
+                    self.tree = treeObj;
                     self.allEpochs = self.tree.allEpochs;
-                    self.treeData = [];  % Don't store original data
+
+                    % Store .mat file path for .ugm file persistence
+                    if ~isempty(self.tree.sourceFile)
+                        self.matFilePath = self.tree.sourceFile;
+                    end
+
+                    % Store loaded mask for close comparison (build from current isSelected state)
+                    self.loadedMask = self.buildCurrentMask();
 
                     % Get H5 file from config
                     try
@@ -109,22 +128,14 @@ classdef epicTreeGUI < handle
                             'Error getting H5 config: %s', ME.message);
                     end
 
-                    % Hide split dropdown since tree is pre-built
-                    if isfield(self.treeBrowser, 'controlPanel')
-                        set(self.treeBrowser.controlPanel, 'Visible', 'off');
-                    end
-
                     % Update tree browser
                     self.initTreeBrowser();
 
                     % Update title
                     nEpochs = length(self.allEpochs);
                     set(self.figure, 'Name', sprintf('%s - %d epochs', self.title, nEpochs));
-                elseif ischar(dataPathOrTree) || isstring(dataPathOrTree)
-                    % File path - load using default splitter
-                    self.loadData(dataPathOrTree);
                 else
-                    error('Input must be either a file path (char/string) or epicTreeTools object');
+                    error('Input must be an epicTreeTools object. Use loadEpicTreeData() then build tree with buildTreeWithSplitters().');
                 end
             end
 
@@ -139,71 +150,6 @@ classdef epicTreeGUI < handle
             end
         end
 
-        function loadData(self, dataPath)
-            % LOADDATA Load data from .mat file
-            %
-            % Usage:
-            %   gui.loadData('data.mat')
-
-            self.isBusy = true;
-
-            try
-                % Load using standard format loader
-                [data, metadata] = loadEpicTreeData(dataPath);
-                self.treeData = data;
-
-                % Get H5 file path for lazy loading
-                self.h5File = self.getH5FilePath(metadata, dataPath);
-
-                % Create epicTreeTools and build tree
-                self.tree = epicTreeTools(data);
-                self.tree.buildTree(self.currentSplitKeys);
-                self.allEpochs = self.tree.allEpochs;
-
-                % Update tree browser
-                self.initTreeBrowser();
-
-                % Update title
-                nEpochs = length(self.allEpochs);
-                set(self.figure, 'Name', sprintf('%s - %d epochs', self.title, nEpochs));
-
-            catch ME
-                errordlg(sprintf('Error loading data:\n%s', ME.message), 'Load Error');
-            end
-
-            self.isBusy = false;
-        end
-
-        function rebuildTree(self, splitKeys)
-            % REBUILDTREE Rebuild tree with new split keys
-            %
-            % Usage:
-            %   gui.rebuildTree({'cellInfo.type', 'parameters.contrast'})
-
-            if isempty(self.treeData)
-                return;
-            end
-
-            self.isBusy = true;
-            self.currentSplitKeys = splitKeys;
-
-            % Rebuild tree
-            self.tree = epicTreeTools(self.treeData);
-
-            % Check if any keys are function handles
-            hasFunctionHandles = any(cellfun(@(x) isa(x, 'function_handle'), splitKeys));
-
-            if hasFunctionHandles
-                self.tree.buildTreeWithSplitters(splitKeys);
-            else
-                self.tree.buildTree(splitKeys);
-            end
-
-            % Update tree browser
-            self.initTreeBrowser();
-
-            self.isBusy = false;
-        end
 
         function nodes = getSelectedEpochTreeNodes(self)
             % GETSELECTEDEPOCHTREENODES Get selected tree nodes
@@ -273,26 +219,10 @@ classdef epicTreeGUI < handle
                 'Units', 'normalized', ...
                 'Position', [0 0 self.xDivLeft 1]);
 
-            % Control panel (top)
-            self.treeBrowser.controlPanel = uipanel(self.treeBrowser.panel, ...
-                'Title', 'Split By', ...
-                'FontSize', self.fontSize - 2, ...
-                'Units', 'normalized', ...
-                'Position', [0.02 0.92 0.96 0.07]);
-
-            % Split dropdown
-            self.treeBrowser.splitDropdown = uicontrol(self.treeBrowser.controlPanel, ...
-                'Style', 'popupmenu', ...
-                'String', {'Cell Type', 'Date', 'Cell Type + Cell ID', 'Date + Cell ID', ...
-                          'Cell Type + Date + Cell ID', 'Date + Cell Type', 'Protocol'}, ...
-                'Units', 'normalized', ...
-                'Position', [0.02 0.15 0.96 0.7], ...
-                'Callback', @(src,evt) self.onSplitChanged(src));
-
-            % Tree axes (middle)
+            % Tree axes (takes up most of the panel)
             self.treeBrowser.treeAxes = axes('Parent', self.treeBrowser.panel, ...
                 'Units', 'normalized', ...
-                'Position', [0.02 0.12 0.96 0.78]);
+                'Position', [0.02 0.12 0.96 0.87]);
 
             % Initialize epicGraphicalTree
             self.treeBrowser.graphTree = epicGraphicalTree(self.treeBrowser.treeAxes, 'Epochs');
@@ -363,8 +293,8 @@ classdef epicTreeGUI < handle
 
             % File menu
             fileMenu = uimenu(self.figure, 'Label', 'File');
-            uimenu(fileMenu, 'Label', 'Load Data...', 'Callback', @(src,evt) self.onLoadData());
-            uimenu(fileMenu, 'Label', 'Export Selection...', 'Callback', @(src,evt) self.onExportSelection(), 'Separator', 'on');
+            uimenu(fileMenu, 'Label', 'Export Selection...', 'Callback', @(src,evt) self.onExportSelection());
+            uimenu(fileMenu, 'Label', 'Save Epoch Mask...', 'Callback', @(src,evt) self.onSaveEpochMask());
             uimenu(fileMenu, 'Label', 'Close', 'Callback', @(src,evt) self.onClose(), 'Separator', 'on');
 
             % Analysis menu
@@ -478,36 +408,53 @@ classdef epicTreeGUI < handle
     %% Private Methods - Callbacks
     methods (Access = private)
         function onClose(self)
-            delete(self);
-        end
+            % Close handler: compare current selection to loaded mask, prompt to save changes
 
-        function onLoadData(self)
-            [file, path] = uigetfile({'*.mat', 'MATLAB Data (*.mat)'}, 'Select Data File');
-            if file ~= 0
-                self.loadData(fullfile(path, file));
+            % Build current mask from isSelected flags (one-time)
+            currentMask = self.buildCurrentMask();
+
+            % Compare to loaded mask
+            if ~isempty(self.loadedMask) && ~isempty(currentMask)
+                % Check if masks differ
+                if length(currentMask) == length(self.loadedMask)
+                    if ~isequal(currentMask, self.loadedMask)
+                        % Selection changed - prompt user
+                        choice = questdlg(...
+                            'Selection state has changed since loading. Update mask with session changes?', ...
+                            'Save Changes?', ...
+                            'Update Mask', 'Discard Changes', 'Cancel', ...
+                            'Update Mask');
+
+                        switch choice
+                            case 'Update Mask'
+                                % Save to latest .ugm or create new if none exists
+                                if ~isempty(self.matFilePath)
+                                    latestUGM = epicTreeTools.findLatestUGM(self.matFilePath);
+                                    if isempty(latestUGM)
+                                        % Create new
+                                        filepath = epicTreeTools.generateUGMFilename(self.matFilePath);
+                                        self.tree.saveUserMetadata(filepath);
+                                    else
+                                        % Update latest
+                                        self.tree.saveUserMetadata(latestUGM);
+                                    end
+                                end
+                                % Continue closing
+                            case 'Discard Changes'
+                                % Continue closing without saving
+                            case 'Cancel'
+                                % Don't close
+                                return;
+                        end
+                    end
+                end
             end
+
+            % Existing close logic (close figure)
+            delete(self.figure);
         end
 
-        function onSplitChanged(self, src)
-            % Handle split dropdown change
 
-            splitIdx = get(src, 'Value');
-            splitOptions = {
-                {'cellInfo.type'}                                           % 1: Cell Type
-                {@epicTreeTools.splitOnExperimentDate}                     % 2: Date
-                {'cellInfo.type', 'cellInfo.id'}                           % 3: Cell Type + Cell ID
-                {@epicTreeTools.splitOnExperimentDate, 'cellInfo.id'}     % 4: Date + Cell ID
-                {@epicTreeTools.splitOnCellType, ...                       % 5: Cell Type + Date + Cell ID
-                 @epicTreeTools.splitOnExperimentDate, 'cellInfo.id'}
-                {@epicTreeTools.splitOnExperimentDate, ...                 % 6: Date + Cell Type
-                 @epicTreeTools.splitOnCellType}
-                {@epicTreeTools.splitOnProtocol}                           % 7: Protocol
-            };
-
-            if splitIdx <= length(splitOptions)
-                self.rebuildTree(splitOptions{splitIdx});
-            end
-        end
 
         function onTreeSelectionChanged(self, ~)
             % Handle tree node selection change
@@ -623,6 +570,68 @@ classdef epicTreeGUI < handle
                 selectedEpochs = epochs;
                 save(fullfile(path, file), 'selectedEpochs');
                 msgbox(sprintf('Exported %d epochs', length(epochs)), 'Export');
+            end
+        end
+
+        function onSaveEpochMask(self)
+            % Save current selection state to .ugm file
+
+            % Validate we have data and path
+            if isempty(self.tree) || isempty(self.tree.allEpochs)
+                errordlg('No data loaded.', 'Save Epoch Mask');
+                return;
+            end
+
+            if isempty(self.matFilePath)
+                % Ask user to specify the .mat file path
+                [file, path] = uigetfile('*.mat', 'Select the source .mat file for this dataset');
+                if file == 0
+                    return;  % User cancelled
+                end
+                self.matFilePath = fullfile(path, file);
+                self.tree.sourceFile = self.matFilePath;
+            end
+
+            % Find existing .ugm files
+            latestUGM = epicTreeTools.findLatestUGM(self.matFilePath);
+
+            if isempty(latestUGM)
+                % No existing files - create new
+                filepath = epicTreeTools.generateUGMFilename(self.matFilePath);
+                self.tree.saveUserMetadata(filepath);
+
+                % Update loadedMask to current state (for close comparison)
+                self.loadedMask = self.buildCurrentMask();
+
+                msgbox(sprintf('Selection mask saved to:\n%s', filepath), 'Epoch Mask Saved');
+            else
+                % Existing files found - ask user
+                % Use questdlg for broader MATLAB compatibility (works pre-R2020a too)
+                choice = questdlg(...
+                    sprintf('Found existing selection file:\n%s\n\nReplace it or create a new one?', latestUGM), ...
+                    'Save Epoch Mask', ...
+                    'Replace Latest', 'Create New', 'Cancel', ...
+                    'Create New');
+
+                switch choice
+                    case 'Replace Latest'
+                        self.tree.saveUserMetadata(latestUGM);
+
+                        % Update loadedMask to current state
+                        self.loadedMask = self.buildCurrentMask();
+
+                        msgbox(sprintf('Selection mask updated:\n%s', latestUGM), 'Epoch Mask Saved');
+                    case 'Create New'
+                        filepath = epicTreeTools.generateUGMFilename(self.matFilePath);
+                        self.tree.saveUserMetadata(filepath);
+
+                        % Update loadedMask to current state
+                        self.loadedMask = self.buildCurrentMask();
+
+                        msgbox(sprintf('Selection mask saved to:\n%s', filepath), 'Epoch Mask Saved');
+                    case 'Cancel'
+                        % Do nothing
+                end
             end
         end
 
@@ -923,6 +932,22 @@ classdef epicTreeGUI < handle
 
             % Strategy 3: Return empty (will use in-memory data if available)
             h5Path = '';
+        end
+
+        function mask = buildCurrentMask(self)
+            % Build selection mask from current isSelected flags (one-time)
+            if isempty(self.tree) || isempty(self.tree.allEpochs)
+                mask = [];
+                return;
+            end
+
+            allEps = self.tree.getAllEpochs(false);
+            mask = false(length(allEps), 1);
+            for i = 1:length(allEps)
+                if isfield(allEps{i}, 'isSelected') && allEps{i}.isSelected
+                    mask(i) = true;
+                end
+            end
         end
     end
 end
