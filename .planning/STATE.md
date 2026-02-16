@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 01 of 4 (Foundation & Legal)
-Plan: 2 of 3 in current phase
+Plan: 3 of 3 in current phase
 Status: In progress
-Last activity: 2026-02-16 - Completed 01-02-PLAN.md (Legal and infrastructure files)
+Last activity: 2026-02-16 - Completed 01-01-PLAN.md (Repository cleanup)
 
-Progress: [████░░░░░░] ~43% (Phase 0 & 00.1 complete, Phase 01 in progress)
+Progress: [████░░░░░░] ~44% (Phase 0 & 00.1 complete, Phase 01 nearly complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
-- Average duration: 6.8 min
-- Total execution time: 1.28 hours
+- Total plans completed: 11
+- Average duration: 6.5 min
+- Total execution time: 1.33 hours
 
 **By Phase:**
 
@@ -29,12 +29,12 @@ Progress: [████░░░░░░] ~43% (Phase 0 & 00.1 complete, Phase 
 |-------|-------|-------|----------|
 | 0 (Testing) | 5 | 58min | 12min |
 | 00.1 (Bug Fixes) | 4 | 12min | 3min |
-| 01 (Foundation) | 1 | 2min | 2min |
+| 01 (Foundation) | 2 | 5min | 2.5min |
 
 **Recent Trend:**
-- Last 5 plans: 00.1-01 (3min), 00.1-02 (2min), 00.1-03 (3min), 00.1-04 (4min), 01-02 (2min)
+- Last 5 plans: 00.1-02 (2min), 00.1-03 (3min), 00.1-04 (4min), 01-02 (2min), 01-01 (3min)
 - Trend: Consistent 2-4min execution continues for focused plans
-- Phase 01 started with 2min execution (legal/infrastructure files)
+- Phase 01 progress: 2 of 3 plans complete (cleanup + legal files)
 
 *Updated after each plan completion*
 
@@ -100,6 +100,12 @@ Recent decisions affecting current work:
 - Simplified architecture emphasis: Documented one-time mask building (no real-time sync) throughout all docs
 - Python integration section: Added scipy.io examples for RetinAnalysis/DataJoint workflows reading .ugm files
 
+**From 01-01:**
+- Repository organization: Move legacy code to docs/legacy/, development docs to docs/dev/, organize test scripts into tests/debug/ and tests/verification/
+- Clean root directory: Reduce from 60+ items to 11 items (6 files + 5 directories)
+- Python code removal: Remove Python pipeline code (new_retinanalysis/, python_export/) as it's not part of the MATLAB tool distribution
+- Execution coordination: Some work was done in Plan 01-02 commit (cb86a55) before Plan 01-01 execution, but final state matches requirements
+
 **From 01-02:**
 - Use 'The epicTreeGUI Authors' as copyright holder placeholder (standard for collaborative projects)
 - Add explicit subdirectories only in install.m (not genpath) to avoid polluting path with test/doc directories
@@ -131,6 +137,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: Completed 01-02-PLAN.md (Legal and infrastructure files)
+Stopped at: Completed 01-01-PLAN.md (Repository cleanup)
 Resume file: None
-Next: Continue Phase 01 - Foundation & Legal (plans 01 and 03 remaining)
+Next: Continue Phase 01 - Foundation & Legal (plan 03 remaining: README and quickstart)
