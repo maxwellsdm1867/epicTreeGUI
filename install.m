@@ -13,7 +13,7 @@ function install()
 %   - epicTreeGUI root directory (epicTreeGUI.m)
 %   - src/                   (getSelectedData, loadEpicTreeData, etc.)
 %   - src/tree/              (epicTreeTools)
-%   - src/tree/graphicalTree/ (visual tree rendering)
+%   - src/gui/               (visual tree rendering)
 %   - src/splitters/         (splitter functions)
 %   - src/utilities/         (utility functions)
 %   - src/config/            (if exists)
@@ -53,7 +53,7 @@ function install()
         installDir,                                    % Root (epicTreeGUI.m)
         fullfile(installDir, 'src'),                   % Core functions
         fullfile(installDir, 'src', 'tree'),           % epicTreeTools
-        fullfile(installDir, 'src', 'tree', 'graphicalTree'), % Visual tree
+        fullfile(installDir, 'src', 'gui'),              % GUI & visual tree
         fullfile(installDir, 'src', 'splitters'),      % Splitter functions
         fullfile(installDir, 'src', 'utilities')       % Utilities
     };
