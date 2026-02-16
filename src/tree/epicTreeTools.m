@@ -89,6 +89,7 @@ classdef epicTreeTools < handle
         allEpochs = {}          % Flattened epoch list (root only)
         treeData = []           % Original hierarchical data (root only)
         sourceFile = ''         % Path to source .mat file (for .ugm file discovery)
+        h5File = ''             % Path to H5 file for lazy loading (set on root, inherited by children)
     end
 
     properties (SetAccess = private)
@@ -149,11 +150,43 @@ classdef epicTreeTools < handle
                     obj.sourceFile = dataOrParent.source_file;
                 end
 
+                % Auto-resolve H5 file from epicTreeConfig
+                try
+                    h5Dir = epicTreeConfig('h5_dir');
+                    if ~isempty(h5Dir) && ~isempty(obj.sourceFile)
+                        [~, expName, ~] = fileparts(obj.sourceFile);
+                        candidateH5 = fullfile(h5Dir, [expName '.h5']);
+                        if exist(candidateH5, 'file')
+                            obj.h5File = candidateH5;
+                        end
+                    elseif ~isempty(h5Dir)
+                        % Try to find H5 from experiment name in data
+                        if isfield(dataOrParent, 'experiments')
+                            exps = dataOrParent.experiments;
+                            exp = epicTreeTools.getElement(exps, 1);
+                            if isfield(exp, 'exp_name')
+                                candidateH5 = fullfile(h5Dir, [exp.exp_name '.h5']);
+                                if exist(candidateH5, 'file')
+                                    obj.h5File = candidateH5;
+                                end
+                            end
+                        end
+                    end
+                catch
+                    % epicTreeConfig may not be available — no H5 auto-resolve
+                end
+
                 % Parse optional arguments
                 p = inputParser;
                 p.KeepUnmatched = true;  % Allow unknown params
                 addParameter(p, 'LoadUserMetadata', 'auto', @(x) ischar(x) || isstring(x));
+                addParameter(p, 'H5File', '', @(x) ischar(x) || isstring(x));
                 parse(p, varargin{:});
+
+                % Explicit H5File overrides auto-resolved
+                if ~isempty(p.Results.H5File)
+                    obj.h5File = char(p.Results.H5File);
+                end
 
                 loadOption = char(p.Results.LoadUserMetadata);
 
@@ -331,7 +364,7 @@ classdef epicTreeTools < handle
             end
 
             % Sort
-            [~, sortIdx] = obj.sortValues(values);
+            [sortIdx, ~] = obj.sortValues(values);
             epochs = epochs(sortIdx);
         end
 
@@ -351,6 +384,165 @@ classdef epicTreeTools < handle
             %   names = tree.stimuliStreamNames()
 
             names = obj.getStreamNames('stimuli');
+        end
+
+        function info = nodeInfo(obj)
+            % NODEINFO Get comprehensive metadata summary for this node
+            %
+            % Returns a struct with all discoverable metadata from this
+            % node's epochs — parameters, cell info, protocol info, etc.
+            % Use this to see what parameters are available for splitting
+            % or analysis, even if you didn't split on them.
+            %
+            % Usage:
+            %   info = node.nodeInfo()
+            %
+            % Returns struct with:
+            %   .epochCount      - Number of epochs
+            %   .selectedCount   - Number of selected epochs
+            %   .splitPath       - Path from root (string)
+            %   .cellTypes       - Unique cell types
+            %   .protocols       - Unique protocol names
+            %   .parameterNames  - All parameter field names (union across epochs)
+            %   .parameters      - Struct of unique values per parameter
+            %   .responseStreams - Available response stream names
+            %   .sampleRate      - Sample rate (from first epoch)
+
+            info = struct();
+            info.epochCount = obj.epochCount();
+            info.selectedCount = obj.selectedCount();
+            info.splitPath = obj.pathString();
+            info.isLeaf = obj.isLeaf;
+
+            epochs = obj.getAllEpochs(false);
+            if isempty(epochs)
+                return;
+            end
+
+            % Collect unique cell types
+            cellTypes = {};
+            for i = 1:length(epochs)
+                ct = epicTreeTools.getNestedValue(epochs{i}, 'cellInfo.type');
+                if ~isempty(ct)
+                    ct = char(string(ct));
+                    if ~any(strcmp(cellTypes, ct))
+                        cellTypes{end+1} = ct;
+                    end
+                end
+            end
+            info.cellTypes = cellTypes;
+
+            % Collect unique protocols
+            protocols = {};
+            for i = 1:length(epochs)
+                prot = epicTreeTools.getNestedValue(epochs{i}, 'blockInfo.protocol_name');
+                if ~isempty(prot)
+                    prot = char(string(prot));
+                    if ~any(strcmp(protocols, prot))
+                        protocols{end+1} = prot;
+                    end
+                end
+            end
+            info.protocols = protocols;
+
+            % Collect all parameter names and unique values
+            paramNames = {};
+            paramValues = struct();
+            for i = 1:length(epochs)
+                ep = epochs{i};
+                if isfield(ep, 'parameters') && isstruct(ep.parameters)
+                    fns = fieldnames(ep.parameters);
+                    for j = 1:length(fns)
+                        fn = fns{j};
+                        if ~any(strcmp(paramNames, fn))
+                            paramNames{end+1} = fn;
+                        end
+                        % Collect unique values
+                        safeFn = matlab.lang.makeValidName(fn);
+                        val = ep.parameters.(fn);
+                        valStr = epicTreeTools.valueToString(val);
+                        if ~isfield(paramValues, safeFn)
+                            paramValues.(safeFn) = {valStr};
+                        else
+                            if ~any(strcmp(paramValues.(safeFn), valStr))
+                                paramValues.(safeFn){end+1} = valStr;
+                            end
+                        end
+                    end
+                end
+            end
+            info.parameterNames = sort(paramNames);
+            info.parameters = paramValues;
+
+            % Response streams
+            if obj.isLeaf
+                info.responseStreams = obj.responseStreamNames();
+            else
+                % Use first leaf
+                leaves = obj.leafNodes();
+                if ~isempty(leaves)
+                    info.responseStreams = leaves{1}.responseStreamNames();
+                else
+                    info.responseStreams = {};
+                end
+            end
+
+            % Sample rate from first epoch
+            if ~isempty(epochs) && isfield(epochs{1}, 'responses')
+                resp = epicTreeTools.getResponseByName(epochs{1}, 'Amp1');
+                if ~isempty(resp) && isfield(resp, 'sample_rate')
+                    info.sampleRate = resp.sample_rate;
+                else
+                    info.sampleRate = [];
+                end
+            else
+                info.sampleRate = [];
+            end
+        end
+
+        function printInfo(obj)
+            % PRINTINFO Print formatted metadata summary for this node
+            %
+            % Usage:
+            %   node.printInfo()
+            %
+            % Displays: path, epoch counts, cell types, protocols,
+            % parameter names with unique values.
+
+            info = obj.nodeInfo();
+
+            fprintf('\n=== Node Info: %s ===\n', info.splitPath);
+            fprintf('  Epochs: %d (%d selected)\n', info.epochCount, info.selectedCount);
+            fprintf('  Leaf: %s\n', string(info.isLeaf));
+
+            if ~isempty(info.cellTypes)
+                fprintf('  Cell types: %s\n', strjoin(info.cellTypes, ', '));
+            end
+            if ~isempty(info.protocols)
+                fprintf('  Protocols: %s\n', strjoin(info.protocols, ', '));
+            end
+            if ~isempty(info.responseStreams)
+                fprintf('  Response streams: %s\n', strjoin(info.responseStreams, ', '));
+            end
+            if ~isempty(info.sampleRate)
+                fprintf('  Sample rate: %.0f Hz\n', double(info.sampleRate));
+            end
+
+            if ~isempty(info.parameterNames)
+                fprintf('\n  Parameters (%d):\n', length(info.parameterNames));
+                fns = fieldnames(info.parameters);
+                for i = 1:length(fns)
+                    vals = info.parameters.(fns{i});
+                    if length(vals) <= 5
+                        valStr = strjoin(string(vals), ', ');
+                    else
+                        valStr = sprintf('%s, ... (%d unique)', ...
+                            strjoin(string(vals(1:3)), ', '), length(vals));
+                    end
+                    fprintf('    %s: [%s]\n', fns{i}, valStr);
+                end
+            end
+            fprintf('\n');
         end
 
         function n = length(obj)
@@ -850,6 +1042,9 @@ classdef epicTreeTools < handle
             %   respMatrix = node.responsesByStreamName('Amp1')
             %
             % Returns matrix where each row is one epoch's response data.
+            % Automatically handles H5 lazy loading using the tree's h5File.
+            %
+            % Equivalent to Java: EpochList.stimuliByStreamName(String)
 
             epochs = obj.epochList;
             if isempty(epochs)
@@ -857,29 +1052,9 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            % Get first response to determine size
-            [firstData, ~, ~] = epicTreeTools.getResponseData(epochs{1}, streamName);
-            if isempty(firstData)
-                dataMatrix = [];
-                return;
-            end
-
-            nSamples = length(firstData);
-            nEpochs = length(epochs);
-            dataMatrix = zeros(nEpochs, nSamples);
-
-            for i = 1:nEpochs
-                [data, ~, ~] = epicTreeTools.getResponseData(epochs{i}, streamName);
-                if ~isempty(data)
-                    if length(data) == nSamples
-                        dataMatrix(i, :) = data;
-                    elseif length(data) < nSamples
-                        dataMatrix(i, 1:length(data)) = data;
-                    else
-                        dataMatrix(i, :) = data(1:nSamples);
-                    end
-                end
-            end
+            % Use getResponseMatrix which handles H5 loading
+            h5 = obj.resolveH5File();
+            [dataMatrix, ~] = getResponseMatrix(epochs, streamName, h5);
         end
 
         function [dataMatrix, sampleRate] = dataMatrix(obj, deviceName)
@@ -888,18 +1063,21 @@ classdef epicTreeTools < handle
             % Usage:
             %   [data, fs] = node.dataMatrix('Amp1')
             %
-            % Convenience method combining responsesByStreamName with sample rate.
+            % Convenience method that returns [nEpochs x nSamples] matrix
+            % and sample rate. Handles H5 lazy loading automatically.
             % Equivalent to Java: GenericEpochList.dataMatrix()
 
-            dataMatrix = obj.responsesByStreamName(deviceName);
+            epochs = obj.epochList;
             sampleRate = [];
 
-            if ~isempty(obj.epochList)
-                resp = epicTreeTools.getResponseByName(obj.epochList{1}, deviceName);
-                if ~isempty(resp) && isfield(resp, 'sample_rate')
-                    sampleRate = resp.sample_rate;
-                end
+            if isempty(epochs)
+                dataMatrix = [];
+                return;
             end
+
+            % Use getResponseMatrix which handles H5 loading
+            h5 = obj.resolveH5File();
+            [dataMatrix, sampleRate] = getResponseMatrix(epochs, deviceName, h5);
         end
 
         function spikesMatrix = spikeTimesMatrix(obj, deviceName)
@@ -918,6 +1096,24 @@ classdef epicTreeTools < handle
                 [~, ~, spikes] = epicTreeTools.getResponseData(epochs{i}, deviceName);
                 spikesMatrix{i} = spikes;
             end
+        end
+
+        function [data, selectedEpochs, sampleRate] = selectedData(obj, streamName)
+            % SELECTEDDATA Get response data for selected epochs only
+            %
+            % Usage:
+            %   [data, epochs, fs] = node.selectedData('Amp1')
+            %
+            % Equivalent to getSelectedData(node, streamName) but as a
+            % method on the node itself. Resolves H5 file automatically.
+            %
+            % Returns:
+            %   data           - [nSelected x nSamples] response matrix
+            %   selectedEpochs - Cell array of selected epoch structs
+            %   sampleRate     - Sample rate in Hz
+
+            h5 = obj.resolveH5File();
+            [data, selectedEpochs, sampleRate] = getSelectedData(obj, streamName, h5);
         end
 
         %% ================================================================
@@ -1084,6 +1280,76 @@ classdef epicTreeTools < handle
                     obj.children{i}.setSelected(isSelected, true);
                 end
             end
+        end
+
+        function setSelectedByIndex(obj, indices)
+            % SETSELECTEDBYINDEX Select only the epochs at given indices (1-based)
+            %
+            % Deselects all epochs in this node first, then selects only
+            % the ones at the specified indices. Works on leaf nodes.
+            %
+            % Usage:
+            %   node.setSelectedByIndex([1, 3, 5])       % Select epochs 1, 3, 5
+            %   node.setSelectedByIndex(1:50)             % Select first 50
+            %
+            % See also: setSelectedByMask, setSelected
+
+            obj.setSelected(false, true);  % deselect all first
+
+            if obj.isLeaf
+                root = obj.getRoot();
+                for i = 1:length(indices)
+                    idx = indices(i);
+                    if idx >= 1 && idx <= length(obj.epochList)
+                        obj.epochList{idx}.isSelected = true;
+                        if isfield(obj.epochList{idx}, 'epochIndex')
+                            rootIdx = obj.epochList{idx}.epochIndex;
+                            root.allEpochs{rootIdx}.isSelected = true;
+                        end
+                    end
+                end
+            else
+                % For non-leaf nodes, gather all epochs and select by index
+                allEps = obj.getAllEpochs(false);
+                root = obj.getRoot();
+                for i = 1:length(indices)
+                    idx = indices(i);
+                    if idx >= 1 && idx <= length(allEps)
+                        ep = allEps{idx};
+                        if isfield(ep, 'epochIndex')
+                            rootIdx = ep.epochIndex;
+                            root.allEpochs{rootIdx}.isSelected = true;
+                        end
+                    end
+                end
+                % Sync leaf epochLists with root
+                obj.propagateSelectionToLeaves();
+            end
+        end
+
+        function setSelectedByMask(obj, mask)
+            % SETSELECTEDBYMASK Select epochs using a logical mask
+            %
+            % mask must be a logical vector with length == epochCount().
+            % true = selected, false = deselected.
+            %
+            % Usage:
+            %   % Select epochs where spotIntensity > 0.5
+            %   eps = node.getAllEpochs(false);
+            %   mask = false(length(eps), 1);
+            %   for i = 1:length(eps)
+            %       mask(i) = eps{i}.parameters.spotIntensity > 0.5;
+            %   end
+            %   node.setSelectedByMask(mask);
+            %
+            % See also: setSelectedByIndex, setSelected
+
+            allEps = obj.getAllEpochs(false);
+            assert(length(mask) == length(allEps), ...
+                sprintf('Mask length (%d) must match epoch count (%d)', length(mask), length(allEps)));
+
+            indices = find(mask);
+            obj.setSelectedByIndex(indices);
         end
 
         function count = epochCount(obj)
@@ -1524,6 +1790,44 @@ classdef epicTreeTools < handle
             end
         end
 
+        function h5 = resolveH5File(obj)
+            % RESOLVEH5FILE Get H5 file path from this node or root
+            %
+            % Walks up the tree to find h5File on the root node, or uses
+            % epicTreeConfig as fallback.
+
+            h5 = '';
+
+            % Check this node first
+            if ~isempty(obj.h5File)
+                h5 = obj.h5File;
+                return;
+            end
+
+            % Walk up to root
+            node = obj;
+            while ~isempty(node.parent)
+                node = node.parent;
+            end
+            if ~isempty(node.h5File)
+                h5 = node.h5File;
+                return;
+            end
+
+            % Fallback: try epicTreeConfig
+            try
+                h5Dir = epicTreeConfig('h5_dir');
+                if ~isempty(h5Dir) && ~isempty(node.sourceFile)
+                    [~, expName, ~] = fileparts(node.sourceFile);
+                    candidate = fullfile(h5Dir, [expName '.h5']);
+                    if exist(candidate, 'file')
+                        h5 = candidate;
+                    end
+                end
+            catch
+            end
+        end
+
         function names = getStreamNames(obj, streamType)
             % Get unique stream names from epochs
 
@@ -1546,6 +1850,17 @@ classdef epicTreeTools < handle
                     for j = 1:length(streams)
                         if isfield(streams(j), 'device_name')
                             name = streams(j).device_name;
+                            if ~isempty(name) && ~nameSet.isKey(name)
+                                nameSet(name) = true;
+                                names{end+1} = name;
+                            end
+                        end
+                    end
+                elseif iscell(streams)
+                    for j = 1:length(streams)
+                        s = streams{j};
+                        if isfield(s, 'device_name')
+                            name = s.device_name;
                             if ~isempty(name) && ~nameSet.isKey(name)
                                 nameSet(name) = true;
                                 names{end+1} = name;
@@ -1630,6 +1945,12 @@ classdef epicTreeTools < handle
                 if isfield(exp, 'exp_name'), expInfo.exp_name = exp.exp_name; end
                 if isfield(exp, 'is_mea'), expInfo.is_mea = exp.is_mea; end
 
+                % Resolve H5 file path for lazy loading
+                expH5File = '';
+                if isfield(exp, 'h5_file') && ~isempty(exp.h5_file)
+                    expH5File = exp.h5_file;
+                end
+
                 if ~isfield(exp, 'cells'), continue; end
 
                 cells = exp.cells;
@@ -1651,6 +1972,13 @@ classdef epicTreeTools < handle
                         if isfield(eg, 'id'), groupInfo.id = eg.id; end
                         if isfield(eg, 'protocol_name'), groupInfo.protocol_name = eg.protocol_name; else, groupInfo.protocol_name = ''; end
                         if isfield(eg, 'label'), groupInfo.label = eg.label; else, groupInfo.label = ''; end
+                        if isfield(eg, 'start_time'), groupInfo.start_time = eg.start_time; end
+                        if isfield(eg, 'end_time'), groupInfo.end_time = eg.end_time; end
+                        if isfield(eg, 'recording_technique'), groupInfo.recording_technique = eg.recording_technique; end
+                        if isfield(eg, 'external_solution'), groupInfo.external_solution = eg.external_solution; end
+                        if isfield(eg, 'internal_solution'), groupInfo.internal_solution = eg.internal_solution; end
+                        if isfield(eg, 'pipette_solution'), groupInfo.pipette_solution = eg.pipette_solution; end
+                        if isfield(eg, 'series_resistance_comp'), groupInfo.series_resistance_comp = eg.series_resistance_comp; end
 
                         if ~isfield(eg, 'epoch_blocks'), continue; end
 
@@ -1661,6 +1989,9 @@ classdef epicTreeTools < handle
                             blockInfo = struct();
                             if isfield(eb, 'id'), blockInfo.id = eb.id; end
                             if isfield(eb, 'protocol_name'), blockInfo.protocol_name = eb.protocol_name; else, blockInfo.protocol_name = ''; end
+                            if isfield(eb, 'protocol_id'), blockInfo.protocol_id = eb.protocol_id; end
+                            if isfield(eb, 'start_time'), blockInfo.start_time = eb.start_time; end
+                            if isfield(eb, 'end_time'), blockInfo.end_time = eb.end_time; end
 
                             if ~isfield(eb, 'epochs'), continue; end
 
@@ -1673,6 +2004,11 @@ classdef epicTreeTools < handle
                                 epoch.groupInfo = groupInfo;
                                 epoch.blockInfo = blockInfo;
                                 epoch.expInfo = expInfo;
+
+                                % Attach H5 file path for lazy loading
+                                if ~isempty(expH5File) && ~isfield(epoch, 'h5_file')
+                                    epoch.h5_file = expH5File;
+                                end
 
                                 % Alias parameters as protocolSettings for compatibility
                                 if isfield(epoch, 'parameters') && ~isfield(epoch, 'protocolSettings')
@@ -1713,10 +2049,21 @@ classdef epicTreeTools < handle
             response = [];
             if ~isfield(epoch, 'responses'), return; end
 
-            for i = 1:length(epoch.responses)
-                if strcmp(epoch.responses(i).device_name, deviceName)
-                    response = epoch.responses(i);
-                    return;
+            responses = epoch.responses;
+            if isstruct(responses)
+                for i = 1:length(responses)
+                    if strcmp(responses(i).device_name, deviceName)
+                        response = responses(i);
+                        return;
+                    end
+                end
+            elseif iscell(responses)
+                for i = 1:length(responses)
+                    r = responses{i};
+                    if isfield(r, 'device_name') && strcmp(r.device_name, deviceName)
+                        response = r;
+                        return;
+                    end
                 end
             end
         end
@@ -1730,10 +2077,21 @@ classdef epicTreeTools < handle
             stimulus = [];
             if ~isfield(epoch, 'stimuli'), return; end
 
-            for i = 1:length(epoch.stimuli)
-                if strcmp(epoch.stimuli(i).device_name, deviceName)
-                    stimulus = epoch.stimuli(i);
-                    return;
+            stimuli = epoch.stimuli;
+            if isstruct(stimuli)
+                for i = 1:length(stimuli)
+                    if strcmp(stimuli(i).device_name, deviceName)
+                        stimulus = stimuli(i);
+                        return;
+                    end
+                end
+            elseif iscell(stimuli)
+                for i = 1:length(stimuli)
+                    s = stimuli{i};
+                    if isfield(s, 'device_name') && strcmp(s.device_name, deviceName)
+                        stimulus = s;
+                        return;
+                    end
                 end
             end
         end

@@ -34,15 +34,30 @@ The tree structure is **fixed** when the GUI launches - no dropdown menu. To cha
 
 ### Test Scripts
 ```matlab
+% Core automated tests (no GUI needed, real H5 data)
+run tests/test_selection_navigation_auto.m   % 8 tests: build, navigate, select, extract
+run tests/test_comprehensive_functions.m     % 16 tests: full scientific workflow + benchmarks
+
 % Legacy-style pattern examples
 run tests/test_legacy_pattern.m
 run tests/test_exact_legacy_pattern.m
+
+% Interactive (requires GUI)
+run tests/test_selection_navigation.m        % GUI + manual node selection
 
 % Unit tests
 run tests/test_tree_navigation.m
 run tests/test_gui_display_data.m
 run tests/test_tree_navigation_realdata.m
 ```
+
+### Test Standards
+
+- **No `%%` section breaks** in test scripts — MATLAB `runtests` treats each `%%` as isolated scope, breaking shared variables
+- **Protocol-specific parameters** (preTime, spotIntensity, etc.) are only tested on nodes that have them — not all protocols share the same parameters
+- **`getAllEpochs()` returns copies** — never test selection by modifying returned structs; use `setSelected()`, `setSelectedByIndex()`, or `setSelectedByMask()`
+- **Use `char(string(node.splitValue))`** for string conversion — `splitValue` can be numeric, char, or string type; `strjoin` requires char cell arrays
+- **Date/time fields** are .NET ticks (int64) — convert with: `datetime(double(ticks)/(1e7*86400), 'ConvertFrom', 'datenum') - calyears(1) + caldays(1)`
 
 ### Running Tests with MCP MATLAB Server
 
@@ -126,7 +141,10 @@ Interactive browser + viewer
 - `responses`: Array with `device_name`, `data`, `spike_times`, `sample_rate`
 - `stimuli`: Stimulus waveforms
 - `isSelected`: Selection flag (CRITICAL for filtering)
-- `expInfo`, `groupInfo`, `blockInfo`: Parent hierarchy references
+- `expInfo`: Experiment metadata (id, exp_name, is_mea)
+- `groupInfo`: Epoch group metadata (id, label, start_time, end_time, recording_technique, solutions)
+- `blockInfo`: Epoch block metadata (id, protocol_name, protocol_id, start_time, end_time)
+- `h5_file`: Path to H5 file for lazy loading of waveform data
 
 **Tree organization:**
 - Root node contains all epochs in `allEpochs` property
@@ -224,9 +242,21 @@ end
 
 ### Selection Management
 ```matlab
-% Select specific nodes
+% Select/deselect entire nodes
 node.setSelected(true, false);        % This node only
 node.setSelected(true, true);         % This node + all descendants
+
+% Select specific epochs by index (for debugging/scripting)
+node.setSelectedByIndex(1:50);        % Select first 50 epochs
+node.setSelectedByIndex([1, 5, 10]);  % Select specific epochs
+
+% Select by condition using logical mask
+eps = node.getAllEpochs(false);
+mask = false(length(eps), 1);
+for i = 1:length(eps)
+    mask(i) = eps{i}.parameters.spotIntensity > 0.5;
+end
+node.setSelectedByMask(mask);
 
 % Get selected epochs
 selectedEpochs = tree.getAllEpochs(true);   % Only selected
@@ -236,6 +266,8 @@ allEpochs = tree.getAllEpochs(false);       % All epochs
 nTotal = node.epochCount();
 nSelected = node.selectedCount();
 ```
+
+**IMPORTANT**: `getAllEpochs()` returns **copies** of epoch structs (MATLAB value semantics). Modifying `isSelected` on returned copies has NO effect. Always use `setSelected()`, `setSelectedByIndex()`, or `setSelectedByMask()` which update both `epochList` and `root.allEpochs`.
 
 ### .ugm Persistence Pattern
 ```matlab
@@ -327,7 +359,9 @@ delete(self.figure);
 - `putCustom(key, value)` - Store analysis results
 - `getCustom(key)` - Retrieve stored data
 - `hasCustom(key)` - Check if key exists
-- `setSelected(flag, recursive)` - Manage selection state
+- `setSelected(flag, recursive)` - Select/deselect all epochs in node
+- `setSelectedByIndex(indices)` - Select specific epochs by 1-based index
+- `setSelectedByMask(logicalMask)` - Select epochs matching a condition
 
 ## File Organization
 
