@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 
 ## Current Position
 
-Phase: 01 of 4 (Foundation & Legal)
-Plan: COMPLETE (3 of 3 plans finished)
-Status: Phase complete - ready for Phase 02
-Last activity: 2026-02-16 - Completed 01-03-PLAN.md (README and quickstart)
+Phase: 05 (DataJoint Integration - Export .mat from DataJoint Query Results)
+Plan: 01 of 3 COMPLETE
+Status: Phase 05 in progress
+Last activity: 2026-02-16 - Completed 05-01-PLAN.md (Python export module)
 
-Progress: [█████░░░░░] ~50% (Phase 0, 00.1, and 01 complete)
+Progress: [██████░░░░] ~60% (Phase 0, 00.1, 01, and 05-01 complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
-- Average duration: 6.2 min
-- Total execution time: 1.67 hours
+- Total plans completed: 13
+- Average duration: 6.0 min
+- Total execution time: 1.78 hours
 
 **By Phase:**
 
@@ -30,11 +30,12 @@ Progress: [█████░░░░░] ~50% (Phase 0, 00.1, and 01 complete)
 | 0 (Testing) | 5 | 58min | 12min |
 | 00.1 (Bug Fixes) | 4 | 12min | 3min |
 | 01 (Foundation) | 3 | 10min | 3.3min |
+| 05 (DataJoint) | 1 | 4min | 4min |
 
 **Recent Trend:**
-- Last 5 plans: 00.1-03 (3min), 00.1-04 (4min), 01-01 (3min), 01-02 (2min), 01-03 (5min)
-- Trend: Phase 01 complete with consistent 2-5min execution
-- Phase 01 COMPLETE: All 3 plans finished (cleanup + legal + README/quickstart)
+- Last 5 plans: 00.1-04 (4min), 01-01 (3min), 01-02 (2min), 01-03 (5min), 05-01 (4min)
+- Trend: TDD execution efficient (4min for 33 tests + 2 modules)
+- Phase 05 started: Plan 01 complete (Python export module)
 
 *Updated after each plan completion*
 
@@ -119,6 +120,14 @@ Recent decisions affecting current work:
 - Auto-run install.m in examples to ensure dependencies available
 - Bundled sample data: 24 epochs, 364 KB, no H5 dependency (embedded response data)
 
+**From 05-01:**
+- scipy.io.savemat format='5' for maximum MATLAB compatibility (not v7.3 HDF5)
+- Flatten nested JSON parameters to single-level dicts with underscore separators
+- Store h5_path references only (no embedded waveform data) for small .mat files
+- MEA experiments raise ValueError (single-cell patch only per Phase 05 scope)
+- Animal/Preparation metadata merged into cell properties (9-to-5 level flattening)
+- TDD RED-GREEN-REFACTOR cycle with 33 tests (26 unit + 7 integration)
+
 ### Pending Todos
 
 **Test Execution:**
@@ -148,6 +157,6 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: Completed 01-03-PLAN.md (README and quickstart)
+Stopped at: Completed 05-01-PLAN.md (Python export module with TDD)
 Resume file: None
-Next: Begin Phase 02 - Documentation (create user guide, API reference, tutorials)
+Next: Continue Phase 05 - Plan 02 (Flask endpoint integration) or Plan 03 (MATLAB verification)
