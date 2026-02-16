@@ -237,6 +237,74 @@ nTotal = node.epochCount();
 nSelected = node.selectedCount();
 ```
 
+### .ugm Persistence Pattern
+```matlab
+% Save current selection state (builds mask from isSelected flags one-time)
+filepath = epicTreeTools.generateUGMFilename(tree.sourceFile);
+tree.saveUserMetadata(filepath);
+
+% Load selection from .ugm file (copies mask to isSelected flags one-time)
+success = tree.loadUserMetadata(filepath);
+if ~success
+    warning('Failed to load .ugm file');
+end
+
+% Find latest .ugm file
+latestUGM = epicTreeTools.findLatestUGM(tree.sourceFile);
+if ~isempty(latestUGM)
+    tree.loadUserMetadata(latestUGM);
+end
+
+% Constructor options
+tree = epicTreeTools(data);  % Auto-load latest .ugm if exists (default)
+tree = epicTreeTools(data, 'LoadUserMetadata', 'latest');  % Error if none
+tree = epicTreeTools(data, 'LoadUserMetadata', 'none');    % Start fresh
+tree = epicTreeTools(data, 'LoadUserMetadata', 'path/to/file.ugm');
+```
+
+**Three-file architecture:**
+- H5 file (optional): Raw experiment data
+- MAT file (required): Exported epoch structure from Python
+- UGM file (optional): User-generated metadata (selection mask)
+
+**Simplified architecture:**
+- `epoch.isSelected` = source of truth during session
+- Mask built ONE-TIME when saving (no centralized mask property)
+- Mask copied ONE-TIME when loading (no real-time sync overhead)
+- Close handler compares current mask to loaded mask, prompts to save if changed
+
+See `docs/SELECTION_STATE_ARCHITECTURE.md` for full documentation.
+
+### GUI Close Handler Pattern
+```matlab
+% In epicTreeGUI.onClose():
+
+% Build current mask from isSelected flags (one-time)
+currentMask = self.buildCurrentMask();
+
+% Compare to mask loaded at startup
+if ~isequal(currentMask, self.loadedMask)
+    % Prompt user
+    choice = questdlg('Update mask with session changes?', ...);
+
+    if strcmp(choice, 'Update Mask')
+        % Save to latest .ugm or create new
+        latestUGM = epicTreeTools.findLatestUGM(self.matFilePath);
+        if isempty(latestUGM)
+            filepath = epicTreeTools.generateUGMFilename(self.matFilePath);
+        else
+            filepath = latestUGM;
+        end
+        self.tree.saveUserMetadata(filepath);
+    end
+end
+
+% Close figure
+delete(self.figure);
+```
+
+**User experience:** Explicit control over saving changes. No auto-save surprises. Can discard changes or cancel close.
+
 ## Critical Functions to Know
 
 **Tree navigation:**
@@ -249,6 +317,11 @@ nSelected = node.selectedCount();
 - `getSelectedData(nodeOrEpochs, streamName)` - **Use this for all analysis**
 - `epicTreeTools.getNestedValue(obj, keyPath)` - Access nested struct fields
 - `epicTreeTools.getResponseData(epoch, deviceName)` - Low-level response access
+- `epicTreeTools.saveUserMetadata(filepath)` - Save selection state to .ugm file (builds mask from isSelected one-time)
+- `epicTreeTools.loadUserMetadata(filepath)` - Load selection state from .ugm file (copies mask to isSelected one-time)
+- `epicTreeTools.findLatestUGM(matFilePath)` - Find newest .ugm file (static)
+- `epicTreeTools.generateUGMFilename(matFilePath)` - Generate timestamped .ugm filename (static)
+- `epicTreeTools.refreshNodeSelectionState()` - Sync node.custom.isSelected with epoch states
 
 **Node state:**
 - `putCustom(key, value)` - Store analysis results
@@ -293,6 +366,13 @@ The `old_epochtree/` directory contains legacy Java-based code for reference onl
 
 ### Selection state is CRITICAL
 Always filter epochs using `getAllEpochs(true)` or `getSelectedData()` to respect user selections. Direct access to `epochList` bypasses selection filtering.
+
+### .ugm files persist selection state
+The .ugm (User-Generated Metadata) files store which epochs are selected. These are separate from the .mat file to keep user modifications isolated from raw experiment data. By default, `epicTreeTools(data)` auto-loads the latest .ugm file if one exists. Use `'LoadUserMetadata', 'none'` to start fresh.
+
+**Simplified architecture:** No centralized `selectionMask` property. The `epoch.isSelected` flag on each epoch is the source of truth during session. Mask is built only when saving (one-time operation). On load, mask is copied to `isSelected` flags (one-time operation). No real-time sync overhead. Close handler compares current mask to loaded mask and prompts to save if changed.
+
+**Python integration:** .ugm files are readable in Python via `scipy.io.loadmat()`. See `docs/SELECTION_STATE_ARCHITECTURE.md` for RetinAnalysis/DataJoint integration examples.
 
 ### Parameter field aliases
 The code handles both `parameters` and `protocolSettings` field names for backward compatibility. Use `epicTreeTools.getNestedValue()` or let the system auto-alias.
