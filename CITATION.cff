@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "EpicTreeGUI: Hierarchical Browser for Neurophysiology Data"
+version: 1.0.0
+date-released: 2026-02-28
+authors:
+  - name: "The epicTreeGUI Authors"
+repository-code: "https://github.com/Rieke-Lab/epicTreeGUI"
+keywords:
+  - neuroscience
+  - electrophysiology
+  - data analysis
+  - MATLAB
+  - neurophysiology
+  - epoch tree
+license: MIT
+abstract: >
+  EpicTreeGUI is a pure MATLAB GUI for hierarchical browsing and analysis
+  of neurophysiology epoch data. It provides dynamic tree organization
+  using configurable splitting criteria, enabling efficient data subset
+  selection and comparative analysis across experimental conditions.
