@@ -10,30 +10,30 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 00.1 of 4 (Critical Bug Fixes - Selection State)
-Plan: 3 of 3 in current phase
-Status: Phase 00.1 complete
-Last activity: 2026-02-16 - Completed 00.1-03-PLAN.md (Test suite for selection state and .ugm persistence)
+Plan: 4 of 4 in current phase
+Status: Phase 00.1 COMPLETE
+Last activity: 2026-02-16 - Completed 00.1-04-PLAN.md (Document selection state architecture and .ugm persistence)
 
-Progress: [████░░░░░░] ~42% (Phase 0 complete, Phase 00.1 complete with full test coverage, ready for Phase 1)
+Progress: [████░░░░░░] ~42% (Phase 0 complete, Phase 00.1 COMPLETE with full docs, ready for Phase 1)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 8 min
-- Total execution time: 1.10 hours
+- Total plans completed: 9
+- Average duration: 7 min
+- Total execution time: 1.17 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 0 (Testing) | 5 | 58min | 12min |
-| 00.1 (Bug Fixes) | 3 | 8min | 2.7min |
+| 00.1 (Bug Fixes) | 4 | 12min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: 00-04 (15min), 00-05 (1min), 00.1-01 (3min), 00.1-02 (2min), 00.1-03 (3min)
-- Trend: Very fast execution on focused bug fix plans (2-3min), longer on complex testing (15min)
-- Phase 00.1 complete with 8min total (3 plans)
+- Last 5 plans: 00-05 (1min), 00.1-01 (3min), 00.1-02 (2min), 00.1-03 (3min), 00.1-04 (4min)
+- Trend: Consistent 2-4min execution on focused bug fix and documentation plans
+- Phase 00.1 COMPLETE with 12min total (4 plans)
 
 *Updated after each plan completion*
 
@@ -94,6 +94,11 @@ Recent decisions affecting current work:
 - Anti-pattern documentation in tests: Test suite explicitly documents direct epoch modification anti-pattern
 - Graceful test skipping: Tests use assumeTrue/assumeNotEmpty to skip when data unavailable
 
+**From 00.1-04:**
+- Comprehensive architecture doc: Created 1082-line SELECTION_STATE_ARCHITECTURE.md covering storage, propagation, persistence, Python integration, and anti-patterns
+- Simplified architecture emphasis: Documented one-time mask building (no real-time sync) throughout all docs
+- Python integration section: Added scipy.io examples for RetinAnalysis/DataJoint workflows reading .ugm files
+
 ### Pending Todos
 
 **Test Execution:**
@@ -114,11 +119,11 @@ Recent decisions affecting current work:
 - **Phase 0.1 inserted after Phase 0:** Critical Bug Fixes - Selection State (URGENT)
   - Reason: Phase 0 testing discovered BUG-001 that breaks core filtering functionality
   - Impact: Must fix before documentation phase (Phase 1) since docs would describe broken behavior
-  - Status: COMPLETE - Plan 00.1-01 finished 2026-02-15
+  - Status: COMPLETE - All 4 plans finished 2026-02-16 (verification, GUI integration, tests, docs)
 
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: Completed 00.1-03-PLAN.md (Test suite for selection state and .ugm persistence)
+Stopped at: Completed 00.1-04-PLAN.md (Document selection state architecture and .ugm persistence)
 Resume file: None
-Next: Phase 00.1 complete with full test coverage - ready to begin Phase 1 (Documentation & Core Examples)
+Next: Phase 00.1 COMPLETE - ready to begin Phase 1 (Documentation & Core Examples)
