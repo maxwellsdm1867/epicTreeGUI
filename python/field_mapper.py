@@ -150,6 +150,7 @@ def extract_experiment_fields(obj_dict):
     """
     return {
         'id': obj_dict.get('id'),
+        'h5_uuid': obj_dict.get('h5_uuid') or '',
         'exp_name': obj_dict.get('exp_name', ''),
         'is_mea': obj_dict.get('is_mea', False),
         'label': obj_dict.get('label') or '',
@@ -171,6 +172,7 @@ def extract_animal_fields(obj_dict):
     """
     return {
         'id': obj_dict.get('id'),
+        'h5_uuid': obj_dict.get('h5_uuid') or '',
         'species': obj_dict.get('species') or '',
         'age': obj_dict.get('age') or '',
         'sex': obj_dict.get('sex', '')
@@ -189,6 +191,7 @@ def extract_preparation_fields(obj_dict):
     """
     return {
         'id': obj_dict.get('id'),
+        'h5_uuid': obj_dict.get('h5_uuid') or '',
         'bath_solution': obj_dict.get('bath_solution') or '',
         'region': obj_dict.get('region') or ''
     }
@@ -206,6 +209,7 @@ def extract_cell_fields(obj_dict):
     """
     return {
         'id': obj_dict.get('id'),
+        'h5_uuid': obj_dict.get('h5_uuid') or '',
         'type': obj_dict.get('type') or '',
         'label': obj_dict.get('label') or ''
     }
@@ -223,6 +227,7 @@ def extract_epoch_group_fields(obj_dict):
     """
     return {
         'id': obj_dict.get('id'),
+        'h5_uuid': obj_dict.get('h5_uuid') or '',
         'label': obj_dict.get('label') or '',
         'protocol_name': obj_dict.get('protocol_name') or '',
         'protocol_id': obj_dict.get('protocol_id', 0),
@@ -243,6 +248,7 @@ def extract_epoch_block_fields(obj_dict):
     """
     return {
         'id': obj_dict.get('id'),
+        'h5_uuid': obj_dict.get('h5_uuid') or '',
         'label': obj_dict.get('label') or '',
         'protocol_name': obj_dict.get('protocol_name') or '',
         'protocol_id': obj_dict.get('protocol_id', 0),
@@ -263,6 +269,7 @@ def extract_epoch_fields(obj_dict):
     """
     return {
         'id': obj_dict.get('id'),
+        'h5_uuid': obj_dict.get('h5_uuid') or '',
         'label': obj_dict.get('label') or '',
         'start_time': obj_dict.get('start_time', ''),
         'end_time': obj_dict.get('end_time', '')

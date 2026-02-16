@@ -1420,13 +1420,24 @@ classdef epicTreeTools < handle
                 [~, basename, ~] = fileparts(filepath);
             end
 
+            % Build epoch_h5_uuids array (for DataJoint round-trip)
+            epoch_h5_uuids = cell(length(root.allEpochs), 1);
+            for i = 1:length(root.allEpochs)
+                if isfield(root.allEpochs{i}, 'h5_uuid')
+                    epoch_h5_uuids{i} = root.allEpochs{i}.h5_uuid;
+                else
+                    epoch_h5_uuids{i} = '';
+                end
+            end
+
             % Build ugm struct
             ugm = struct();
-            ugm.version = '1.0';
+            ugm.version = '1.1';
             ugm.created = datestr(now, 'yyyy-mm-dd HH:MM:SS');  % Use string instead of datetime object
             ugm.epoch_count = length(root.allEpochs);
             ugm.mat_file_basename = basename;
             ugm.selection_mask = mask;
+            ugm.epoch_h5_uuids = epoch_h5_uuids;
 
             % Save to file
             save(filepath, 'ugm', '-v7.3');

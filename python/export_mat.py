@@ -170,6 +170,7 @@ def build_cell(cell_node, animal_meta, prep_meta, h5_file):
     # Merge Animal + Preparation into Cell properties
     cell = {
         'id': cell_fields['id'],
+        'h5_uuid': cell_fields['h5_uuid'],
         'label': cell_fields['label'],
         'type': cell_fields['type'],
         'tags': extract_tags(cell_node),
@@ -209,6 +210,7 @@ def build_epoch_group(eg_node, h5_file):
 
     epoch_group = {
         'id': eg_fields['id'],
+        'h5_uuid': eg_fields['h5_uuid'],
         'label': eg_fields['label'],
         'protocol_name': eg_fields['protocol_name'],
         'protocol_id': eg_fields['protocol_id'],
@@ -246,6 +248,7 @@ def build_epoch_block(eb_node, h5_file):
 
     epoch_block = {
         'id': eb_fields['id'],
+        'h5_uuid': eb_fields['h5_uuid'],
         'label': eb_fields['label'],
         'protocol_name': eb_fields['protocol_name'],
         'protocol_id': eb_fields['protocol_id'],
@@ -284,6 +287,7 @@ def build_epoch(epoch_node, h5_file):
 
     epoch = {
         'id': epoch_fields['id'],
+        'h5_uuid': epoch_fields['h5_uuid'],
         'label': epoch_fields['label'],
         'start_time': epoch_fields['start_time'],
         'end_time': epoch_fields['end_time'],
