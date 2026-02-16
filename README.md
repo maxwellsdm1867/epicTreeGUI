@@ -27,17 +27,20 @@ EpicTreeGUI provides hierarchical organization and analysis of neurophysiology e
 ## Installation
 
 1. Clone this repository:
+
    ```bash
    git clone https://github.com/Rieke-Lab/epicTreeGUI.git
    cd epicTreeGUI
    ```
 
 2. Run the installation script in MATLAB:
+
    ```matlab
    install
    ```
 
 3. Verify installation:
+
    ```matlab
    help epicTreeTools
    ```

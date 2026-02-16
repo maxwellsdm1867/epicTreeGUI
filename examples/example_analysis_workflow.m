@@ -28,21 +28,14 @@ end
 % Data file path - use bundled sample data by default
 dataPath = fullfile(scriptDir, 'data', 'sample_epochs.mat');
 
-% Optional: Override with full dataset path if available
-fullDataPath = '/Users/maxwellsdm/Documents/epicTreeTest/analysis/2025-12-02_F.mat';
-if exist(fullDataPath, 'file')
-    fprintf('Note: Full dataset available at %s\n', fullDataPath);
-    fprintf('Using bundled sample data: %s\n', dataPath);
-else
-    fprintf('Using bundled sample data: %s\n', dataPath);
-end
+% To use your own dataset, set dataPath to your .mat file:
+%   dataPath = '/path/to/your/data.mat';
+fprintf('Using data: %s\n', dataPath);
 
 % Configure H5 directory (optional, for lazy loading)
-h5Dir = '/Users/maxwellsdm/Documents/epicTreeTest/h5';
-if exist(h5Dir, 'dir')
-    epicTreeConfig('h5_dir', h5Dir);
-    fprintf('H5 directory configured: %s\n', h5Dir);
-end
+% Set this to your H5 data directory if available:
+%   h5Dir = '/path/to/h5/data';
+%   epicTreeConfig('h5_dir', h5Dir);
 
 %% Load Data
 fprintf('\n=== Loading Data ===\n');
