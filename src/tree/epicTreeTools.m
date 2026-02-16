@@ -138,7 +138,7 @@ classdef epicTreeTools < handle
                 % Tag each epoch with unique index for tracking across tree structure
                 % This allows setSelected to efficiently update epochs in root.allEpochs
                 for i = 1:length(obj.allEpochs)
-                    obj.allEpochs{i}._epochIndex = i;
+                    obj.allEpochs{i}.epochIndex = i;
                 end
 
                 obj.epochList = obj.allEpochs;
@@ -1065,14 +1065,14 @@ classdef epicTreeTools < handle
                 % Get root to access allEpochs
                 root = obj.getRoot();
 
-                % Update epochs using their _epochIndex to directly access root.allEpochs
+                % Update epochs using their epochIndex to directly access root.allEpochs
                 for i = 1:length(obj.epochList)
                     % Update epoch in epochList
                     obj.epochList{i}.isSelected = isSelected;
 
-                    % Also update the SAME epoch in root.allEpochs using _epochIndex
-                    if isfield(obj.epochList{i}, '_epochIndex')
-                        idx = obj.epochList{i}._epochIndex;
+                    % Also update the SAME epoch in root.allEpochs using epochIndex
+                    if isfield(obj.epochList{i}, 'epochIndex')
+                        idx = obj.epochList{i}.epochIndex;
                         root.allEpochs{idx}.isSelected = isSelected;
                     end
                 end
