@@ -1097,14 +1097,18 @@ classdef epicTreeTools < handle
             % Saves selection state to .ugm file with metadata.
             % Builds selection mask from epoch isSelected flags (one-time on save).
 
-            % Get root node to access all epochs
+            % Get root node to access all epochs directly
             root = obj.getRoot();
-            allEps = root.getAllEpochs(false);
+
+            % Access allEpochs property directly for consistency
+            if ~isprop(root, 'allEpochs') || isempty(root.allEpochs)
+                error('epicTreeTools:NoEpochs', 'Root node has no allEpochs property');
+            end
 
             % Build mask from isSelected flags (ONE-TIME on save)
-            mask = false(length(allEps), 1);
-            for i = 1:length(allEps)
-                if isfield(allEps{i}, 'isSelected') && allEps{i}.isSelected
+            mask = false(length(root.allEpochs), 1);
+            for i = 1:length(root.allEpochs)
+                if isfield(root.allEpochs{i}, 'isSelected') && root.allEpochs{i}.isSelected
                     mask(i) = true;
                 end
             end
@@ -1174,24 +1178,30 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            % Get root node to access all epochs
+            % Get root node to access all epochs directly (not through getAllEpochs)
             root = obj.getRoot();
-            allEps = root.getAllEpochs(false);
+
+            % Access allEpochs property directly to modify originals, not copies
+            if ~isprop(root, 'allEpochs') || isempty(root.allEpochs)
+                warning('epicTreeTools:NoEpochs', 'Root node has no allEpochs property');
+                return;
+            end
 
             % Validate epoch count matches
-            if ugm.epoch_count ~= length(allEps)
+            if ugm.epoch_count ~= length(root.allEpochs)
                 warning('epicTreeTools:EpochCountMismatch', ...
                     'Epoch count mismatch: .ugm has %d, tree has %d', ...
-                    ugm.epoch_count, length(allEps));
+                    ugm.epoch_count, length(root.allEpochs));
                 return;
             end
 
             % Copy mask to isSelected flags (ONE-TIME on load)
-            for i = 1:length(allEps)
+            % Modify allEpochs directly to avoid copying issues
+            for i = 1:length(root.allEpochs)
                 if i <= length(ugm.selection_mask)
-                    allEps{i}.isSelected = ugm.selection_mask(i);
+                    root.allEpochs{i}.isSelected = ugm.selection_mask(i);
                 else
-                    allEps{i}.isSelected = true;  % Default for new epochs
+                    root.allEpochs{i}.isSelected = true;  % Default for new epochs
                 end
             end
 

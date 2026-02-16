@@ -87,7 +87,7 @@ classdef test_ugm_persistence < matlab.unittest.TestCase
             tree.saveUserMetadata(ugmPath);
 
             % Load the .ugm file manually
-            loaded = load(ugmPath);
+            loaded = load(ugmPath, '-mat');
 
             % Verify ugm struct exists
             testCase.verifyTrue(isfield(loaded, 'ugm'), ...
@@ -170,7 +170,7 @@ classdef test_ugm_persistence < matlab.unittest.TestCase
             tree.saveUserMetadata(ugmPath);
 
             % Load and verify
-            loaded = load(ugmPath);
+            loaded = load(ugmPath, '-mat');
             ugm = loaded.ugm;
 
             testCase.verifyEqual(length(ugm.selection_mask), tree.epochCount(), ...
@@ -192,7 +192,7 @@ classdef test_ugm_persistence < matlab.unittest.TestCase
             tree.saveUserMetadata(ugmPath);
 
             % Manually modify epoch_count in .ugm file
-            loaded = load(ugmPath);
+            loaded = load(ugmPath, '-mat');
             ugm = loaded.ugm;
             ugm.epoch_count = ugm.epoch_count + 10;  % Corrupt the count
             save(ugmPath, 'ugm', '-v7.3');
@@ -220,7 +220,7 @@ classdef test_ugm_persistence < matlab.unittest.TestCase
 
             % Attempt to load
             testCase.verifyWarning(@() tree.loadUserMetadata(nonexistentPath), ...
-                '', ...
+                'epicTreeTools:FileNotFound', ...
                 'loadUserMetadata should warn for missing file');
 
             success = tree.loadUserMetadata(nonexistentPath);
@@ -242,7 +242,7 @@ classdef test_ugm_persistence < matlab.unittest.TestCase
 
             % Attempt to load
             testCase.verifyWarning(@() tree.loadUserMetadata(corruptedPath), ...
-                '', ...
+                'epicTreeTools:LoadFailed', ...
                 'loadUserMetadata should warn for corrupted file');
 
             success = tree.loadUserMetadata(corruptedPath);
@@ -411,7 +411,7 @@ classdef test_ugm_persistence < matlab.unittest.TestCase
             tree.saveUserMetadata(ugmPath);
 
             % Load and verify mask was built from isSelected flags
-            loaded = load(ugmPath);
+            loaded = load(ugmPath, '-mat');
             ugm = loaded.ugm;
 
             % Count true values in mask
