@@ -1119,7 +1119,7 @@ classdef epicTreeTools < handle
             % Build ugm struct
             ugm = struct();
             ugm.version = '1.0';
-            ugm.created = datetime('now');
+            ugm.created = datestr(now, 'yyyy-mm-dd HH:MM:SS');  % Use string instead of datetime object
             ugm.epoch_count = length(allEps);
             ugm.mat_file_basename = basename;
             ugm.selection_mask = mask;
@@ -2294,7 +2294,10 @@ classdef epicTreeTools < handle
             end
 
             % Sort descending (most recent first)
-            [~, idx] = sort({files.name}, 'descend');
+            % Use cell array sort with proper syntax
+            names = {files.name};
+            [~, idx] = sort(names);
+            idx = flip(idx);  % Reverse to get descending order
 
             % Return most recent
             filepath = fullfile(directory, files(idx(1)).name);
