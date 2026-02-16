@@ -137,3 +137,13 @@ Phases execute in numeric order: 0 → 0.1 → 1 → 2 → 3 → 4
 | 2. User Onboarding | 0/TBD | Not started | - |
 | 3. Comprehensive Documentation | 0/TBD | Not started | - |
 | 4. Release Polish | 0/TBD | Not started | - |
+
+### Phase 5: DataJoint integration — export .mat from DataJoint query results
+
+**Goal:** Add Flask endpoint and UI button to export DataJoint query results in epicTreeGUI's standard .mat format, end-to-end tested with real data
+**Depends on:** Phase 4
+**Plans:** 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Python export module (export_mat.py, field_mapper.py, tests) - TDD
+- [ ] 05-02-PLAN.md — Flask endpoint + UI button + end-to-end verification
