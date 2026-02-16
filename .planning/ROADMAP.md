@@ -72,10 +72,12 @@ See `BUGS_FOUND_PHASE0.md` for full analysis and architectural options.
   3. User can follow installation instructions and verify setup with provided commands
   4. User can run one complete example from README with bundled data without path errors
   5. Repository root directory has professional appearance with less than 5 loose files
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] (Plans will be created during `/gsd:plan-phase 1`)
+- [ ] 01-01-PLAN.md -- Repository cleanup: move legacy code, remove Python pipeline, consolidate root files
+- [ ] 01-02-PLAN.md -- Legal files and install.m: MIT LICENSE, CITATION.cff, CHANGELOG.md, path setup
+- [ ] 01-03-PLAN.md -- README.md, sample data bundle, and quickstart example
 
 ### Phase 2: User Onboarding
 **Goal**: New users can independently learn and succeed with epicTreeGUI
