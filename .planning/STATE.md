@@ -10,30 +10,30 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 00.1 of 4 (Critical Bug Fixes - Selection State)
-Plan: 1 of 1 in current phase
+Plan: 2 of 2 in current phase
 Status: Phase 00.1 complete
-Last activity: 2026-02-15 - Completed 00.1-01-PLAN.md (selection state bug fix and .ugm persistence)
+Last activity: 2026-02-16 - Completed 00.1-02-PLAN.md (Save Epoch Mask functionality and close handler)
 
 Progress: [████░░░░░░] ~42% (Phase 0 complete, Phase 00.1 complete, ready for Phase 1)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 10 min
-- Total execution time: 1.02 hours
+- Total plans completed: 7
+- Average duration: 9 min
+- Total execution time: 1.05 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 0 (Testing) | 5 | 58min | 12min |
-| 00.1 (Bug Fixes) | 1 | 3min | 3min |
+| 00.1 (Bug Fixes) | 2 | 5min | 2.5min |
 
 **Recent Trend:**
-- Last 5 plans: 00-02 (36min), 00-03 (4min), 00-04 (15min), 00-05 (1min), 00.1-01 (3min)
-- Trend: Fast execution on focused plans (1-4min), longer on complex testing (15-36min)
-- Phase 00.1 complete with 3min total
+- Last 5 plans: 00-03 (4min), 00-04 (15min), 00-05 (1min), 00.1-01 (3min), 00.1-02 (2min)
+- Trend: Very fast execution on focused bug fix plans (2-3min), longer on complex testing (15min)
+- Phase 00.1 complete with 5min total
 
 *Updated after each plan completion*
 
@@ -84,6 +84,11 @@ Recent decisions affecting current work:
 - Command window warnings show selection counts to prevent silent data exclusion
 - Three-file architecture: .mat (raw data), .ugm (selection state), workspace (active tree)
 
+**From 00.1-02:**
+- questdlg for MATLAB compatibility: Use questdlg() vs uiconfirm() for pre-R2020a support
+- Close handler updates latest .ugm (not create new) when saving changes
+- Combined task implementation: Tasks 1 & 2 implemented atomically due to interdependence
+
 ### Pending Todos
 
 None - Phase 00.1 complete.
@@ -104,7 +109,7 @@ None - Phase 00.1 complete.
 
 ## Session Continuity
 
-Last session: 2026-02-15
-Stopped at: Completed 00.1-01-PLAN.md (selection state bug fix and .ugm persistence)
+Last session: 2026-02-16
+Stopped at: Completed 00.1-02-PLAN.md (Save Epoch Mask functionality and close handler)
 Resume file: None
 Next: Phase 00.1 complete - ready to begin Phase 1 (Documentation & Core Examples)
