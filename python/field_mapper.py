@@ -46,6 +46,14 @@ def flatten_json_params(params_dict, prefix=''):
     if params_dict is None:
         return {}
 
+    # If params_dict is a JSON string, parse it first
+    if isinstance(params_dict, str):
+        import json
+        try:
+            params_dict = json.loads(params_dict)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
     if not isinstance(params_dict, dict):
         return {}
 
@@ -63,9 +71,38 @@ def flatten_json_params(params_dict, prefix=''):
             nested = flatten_json_params(value, full_key)
             result.update(nested)
         else:
-            result[full_key] = value
+            # Sanitize None values for MATLAB compatibility
+            result[full_key] = sanitize_for_matlab(value)
 
     return result
+
+
+def deep_sanitize(obj):
+    """
+    Recursively sanitize an entire nested structure for scipy.io.savemat.
+
+    Converts all None values to empty strings or empty lists,
+    and converts non-serializable types (datetime, etc.) to strings.
+
+    Args:
+        obj: Any Python object (dict, list, scalar)
+
+    Returns:
+        MATLAB-compatible version of the object
+    """
+    if obj is None:
+        return ''
+    if isinstance(obj, dict):
+        return {k: deep_sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [deep_sanitize(item) for item in obj]
+    # Convert datetime objects to strings
+    if hasattr(obj, 'strftime'):
+        return str(obj)
+    # Convert any other non-standard types to string
+    if not isinstance(obj, (int, float, str, bool, bytes)):
+        return str(obj)
+    return obj
 
 
 def parse_sample_rate(rate_str):

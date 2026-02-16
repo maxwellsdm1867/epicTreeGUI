@@ -288,16 +288,32 @@ classdef epicTreeTools < handle
             % Usage:
             %   child = tree.childBySplitValue('OnP')
             %   child = tree.childBySplitValue(0.5)
+            %   child = tree.childBySplitValue('SingleSpot')  % matches 'edu...SingleSpot'
             %
-            % Returns empty [] if not found
+            % First tries exact match. If no exact match and value is a
+            % string, falls back to substring match (contains).
+            % Returns empty [] if not found.
 
             node = [];
 
+            % First pass: exact match
             for i = 1:length(obj.children)
                 child = obj.children{i};
                 if obj.valuesEqual(child.splitValue, value)
                     node = child;
                     return;
+                end
+            end
+
+            % Second pass: substring match for strings
+            if (ischar(value) || isstring(value))
+                for i = 1:length(obj.children)
+                    child = obj.children{i};
+                    if (ischar(child.splitValue) || isstring(child.splitValue)) ...
+                            && contains(string(child.splitValue), string(value))
+                        node = child;
+                        return;
+                    end
                 end
             end
         end
@@ -1569,8 +1585,8 @@ classdef epicTreeTools < handle
             % Recursive tree building algorithm
 
             if isempty(keyPaths)
-                % Base case: leaf node
-                obj.epochList = epochs;
+                % Base case: leaf node — sort by start_time for consistent ordering
+                obj.epochList = obj.sortEpochsByStartTime(epochs);
                 obj.children = {};
                 obj.isLeaf = true;
                 return;
@@ -1610,8 +1626,8 @@ classdef epicTreeTools < handle
             % Recursive tree building with splitter functions
 
             if isempty(splitters)
-                % Base case: leaf node
-                obj.epochList = epochs;
+                % Base case: leaf node — sort by start_time for consistent ordering
+                obj.epochList = obj.sortEpochsByStartTime(epochs);
                 obj.children = {};
                 obj.isLeaf = true;
                 return;
@@ -1788,6 +1804,53 @@ classdef epicTreeTools < handle
                 end
                 [sortedVals, sortIdx] = sort(strVals);
             end
+        end
+
+        function sorted = sortEpochsByStartTime(~, epochs)
+            % Sort epochs by start_time for consistent ordering across exports.
+            % Handles both .NET ticks (int64) and date strings ("YYYY-MM-DD HH:MM:SS").
+
+            n = length(epochs);
+            if n <= 1
+                sorted = epochs;
+                return;
+            end
+
+            % Extract sortable time values
+            timeVals = nan(n, 1);
+            for i = 1:n
+                ep = epochs{i};
+                st = [];
+
+                % Try epoch-level start_time first
+                if isfield(ep, 'start_time')
+                    st = ep.start_time;
+                elseif isfield(ep, 'blockInfo') && isfield(ep.blockInfo, 'start_time')
+                    st = ep.blockInfo.start_time;
+                end
+
+                if isempty(st)
+                    timeVals(i) = i;  % Preserve original order if no time
+                    continue;
+                end
+
+                % .NET ticks (int64 or large numeric)
+                if isnumeric(st) || isinteger(st)
+                    timeVals(i) = double(st);
+                elseif ischar(st) || isstring(st)
+                    % Date string — parse to datenum
+                    try
+                        timeVals(i) = datenum(char(st));
+                    catch
+                        timeVals(i) = i;  % Fallback: preserve order
+                    end
+                else
+                    timeVals(i) = i;
+                end
+            end
+
+            [~, sortIdx] = sort(timeVals);
+            sorted = epochs(sortIdx);
         end
 
         function h5 = resolveH5File(obj)

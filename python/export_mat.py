@@ -14,6 +14,7 @@ import scipy.io
 from field_mapper import (
     sanitize_for_matlab,
     flatten_json_params,
+    deep_sanitize,
     extract_experiment_fields,
     extract_animal_fields,
     extract_preparation_fields,
@@ -65,6 +66,9 @@ def export_to_mat(tree_data, username, download_dir, h5_file_path=None):
     # Write to .mat file
     filename = f"epictree_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mat"
     filepath = os.path.join(download_dir, filename)
+
+    # Deep sanitize entire structure to remove None values, convert datetimes, etc.
+    export_data = deep_sanitize(export_data)
 
     scipy.io.savemat(
         filepath,

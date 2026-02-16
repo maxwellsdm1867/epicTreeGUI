@@ -15,6 +15,7 @@ A pure MATLAB GUI for browsing and analyzing epoch data.
 7. [Analysis Functions](#analysis-functions)
 8. [GUI Usage](#gui-usage)
 9. [Common Workflows](#common-workflows)
+10. [DataJoint Export to epicTreeGUI](#datajoint-export-to-epictreegui)
 
 ---
 
@@ -518,6 +519,100 @@ end
 
 ---
 
+## DataJoint Export to epicTreeGUI
+
+You can export data from the DataJoint web app directly into a `.mat` file that epicTreeGUI understands. This lets you go from database query to MATLAB analysis in one click.
+
+### Prerequisites
+
+- **Docker Desktop** running (for MySQL + DataJoint containers)
+- **Node.js** installed (for the Next.js frontend)
+- **Python 3.9+** with poetry (for the Flask backend)
+- **H5 files** accessible on disk (the export stores paths, not raw waveforms)
+
+### Setup (First Time)
+
+1. **Start Docker Desktop** and wait for it to be ready.
+
+2. **Start the DataJoint web app:**
+
+```bash
+cd /path/to/datajoint/next-app
+
+# Start Flask backend (use port 5001 if 5000 is taken by AirPlay on macOS)
+cd api
+poetry install
+poetry run flask run --port 5001
+
+# In another terminal, start Next.js frontend
+cd /path/to/datajoint/next-app
+npm install
+npm run dev
+```
+
+3. **Configure the proxy** if using a non-default Flask port. In `next.config.js`, set the destination to match your Flask port:
+
+```javascript
+destination: 'http://127.0.0.1:5001/:path*'
+```
+
+4. **Open the app** at `http://localhost:3000`.
+
+### Adding Data to DataJoint
+
+1. **Create a database** in the web app (e.g., `single_cell_test`).
+2. **Add your data directories:**
+   - **H5 directory**: folder containing your `.h5` experiment files
+   - **Meta directory**: folder containing `analysis/*.mat` files (from RetinAnalysis)
+   - **Tags directory**: folder containing `.json` tag files (can be empty `{}` files)
+3. Wait for data ingestion to complete.
+
+### Exporting to epicTreeGUI
+
+1. **Run a query** in the web app to select experiments/cells of interest.
+2. **Click "Export to epicTree"** (green button in the results toolbar).
+3. A `.mat` file downloads to your browser's download folder.
+
+### Using the Export in MATLAB
+
+```matlab
+% 1. Load the export
+exportFile = '/path/to/epictree_export_YYYYMMDD_HHMMSS.mat';
+[data, meta] = loadEpicTreeData(exportFile);
+
+% 2. Configure H5 directory (derived from the export itself)
+tree = epicTreeTools(data, 'LoadUserMetadata', 'none');
+tree.buildTree({'cellInfo.type'});
+allEps = tree.getAllEpochs(false);
+h5Dir = fileparts(allEps{1}.responses{1}.h5_file);
+epicTreeConfig('h5_dir', h5Dir);
+
+% 3. Build tree with your preferred splitters
+tree.buildTreeWithSplitters({
+    @epicTreeTools.splitOnCellType,
+    @epicTreeTools.splitOnProtocol
+});
+
+% 4. Navigate and analyze
+firstCell = tree.childAt(1);
+ssNode = firstCell.childBySplitValue('SingleSpot');
+[data, epochs, fs] = getSelectedData(ssNode, 'Amp1');
+plot((1:size(data,2))/fs*1000, mean(data,1));
+xlabel('Time (ms)'); ylabel('Response (pA)');
+
+% 5. Launch GUI
+gui = epicTreeGUI(tree);
+```
+
+### Notes
+
+- **Protocol names**: DataJoint exports use full Java package paths (e.g., `edu.washington.riekelab.protocols.SingleSpot`). The `childBySplitValue` method supports substring matching, so `childBySplitValue('SingleSpot')` works.
+- **Epoch ordering**: Epochs are sorted by `start_time` at leaf nodes, so the same data produces identical ordering regardless of whether it came from a RetinAnalysis export or DataJoint export.
+- **H5 lazy loading**: The export stores `h5_path` references, not raw waveform data. H5 files must be accessible at the paths recorded in the export.
+- **No MEA support**: The DataJoint export currently supports single-cell patch clamp data only (`is_mea = false`).
+
+---
+
 ## Troubleshooting
 
 ### "No epochs found"
@@ -554,4 +649,4 @@ help MeanSelectedNodes
 
 ---
 
-*Last updated: January 2026*
+*Last updated: February 2026*
