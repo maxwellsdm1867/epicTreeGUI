@@ -56,3 +56,6 @@ test_data/
 __pycache__/
 *.pyc
 *.pyo
+
+# Legacy reference code (preserved locally, not tracked)
+docs/legacy/old_epochtree/
