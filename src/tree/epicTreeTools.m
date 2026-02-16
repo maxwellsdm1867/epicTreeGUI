@@ -1223,6 +1223,9 @@ classdef epicTreeTools < handle
                 end
             end
 
+            % Propagate isSelected from root.allEpochs to all leaf epochLists
+            root.propagateSelectionToLeaves();
+
             % Refresh node selection state cache
             root.refreshNodeSelectionState();
 
@@ -1263,6 +1266,34 @@ classdef epicTreeTools < handle
                     end
                 end
                 obj.custom.isSelected = anyChildSelected;
+            end
+        end
+
+        function propagateSelectionToLeaves(obj)
+            % PROPAGATESELECTIONTOLEAVES Copy isSelected from root.allEpochs to leaf epochLists
+            %
+            % Usage:
+            %   tree.propagateSelectionToLeaves()
+            %
+            % After updating isSelected in root.allEpochs (e.g., after loading .ugm),
+            % propagate those changes to all leaf node epochList copies.
+            % Uses epochIndex field to match epochs.
+
+            if obj.isLeaf
+                % Update each epoch in epochList from root.allEpochs
+                root = obj.getRoot();
+                for i = 1:length(obj.epochList)
+                    if isfield(obj.epochList{i}, 'epochIndex')
+                        idx = obj.epochList{i}.epochIndex;
+                        % Copy isSelected from root.allEpochs to this leaf's epochList
+                        obj.epochList{i}.isSelected = root.allEpochs{idx}.isSelected;
+                    end
+                end
+            else
+                % Recurse to children
+                for i = 1:length(obj.children)
+                    obj.children{i}.propagateSelectionToLeaves();
+                end
             end
         end
     end
