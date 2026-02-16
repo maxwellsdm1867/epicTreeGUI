@@ -60,6 +60,9 @@ function [treeData, metadata] = loadEpicTreeData(filename)
     treeData.format_version = format_version;
     treeData.experiments = loaded.experiments;
 
+    % Store source file path so epicTreeTools can discover .ugm files
+    treeData.source_file = filename;
+
     % Print summary
     fprintf('\n');
     fprintf('========================================\n');

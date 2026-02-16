@@ -88,6 +88,7 @@ classdef epicTreeTools < handle
         parent = []             % Reference to parent node
         allEpochs = {}          % Flattened epoch list (root only)
         treeData = []           % Original hierarchical data (root only)
+        sourceFile = ''         % Path to source .mat file (for .ugm file discovery)
     end
 
     properties (SetAccess = private)
@@ -124,6 +125,11 @@ classdef epicTreeTools < handle
                 obj.allEpochs = obj.extractAllEpochs(dataOrParent);
                 obj.epochList = obj.allEpochs;
                 obj.isLeaf = true;  % Until buildTree is called
+
+                % Capture source file path if available in data
+                if isfield(dataOrParent, 'source_file')
+                    obj.sourceFile = dataOrParent.source_file;
+                end
             end
         end
 
