@@ -145,5 +145,24 @@ Phases execute in numeric order: 0 → 0.1 → 1 → 2 → 3 → 4
 **Plans:** 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Python export module (export_mat.py, field_mapper.py, tests) - TDD
+- [x] 05-01-PLAN.md — Python export module (export_mat.py, field_mapper.py, tests) - TDD
 - [ ] 05-02-PLAN.md — Flask endpoint + UI button + end-to-end verification
+
+### Additional Work (Outside Phases)
+
+**epicAnalysis class** (2026-02-16):
+- Ported legacy RFAnalysis/RFAnalysis2 → `epicAnalysis.RFAnalysis()` in `src/analysis/epicAnalysis.m`
+- Also ported: detectSpikes, baselineCorrect, differenceOfGaussians, singleGaussian, halfMaxSize
+- 10 tests passing with real ExpandingSpots data (`tests/test_epicAnalysis.m`)
+- Updated `docs/dev/MISSING_TOOLS.md` P5.1/P5.2 status
+
+**DataJoint trace display fix** (2026-02-16):
+- Made NAS_DATA_DIR/NAS_ANALYSIS_DIR configurable via environment variables
+- Added H5 path validation with clear error messages in get_trace_binary(), get_data_generic()
+- Changes in datajoint repo: `next-app/api/helpers/utils.py`, `next-app/api/helpers/query.py`
+
+**UGM mask round-trip design** (2026-02-16):
+- .ugm files already readable in Python via scipy.io.loadmat (documented in SELECTION_STATE_ARCHITECTURE.md)
+- Round-trip: MATLAB saves .ugm → Python reads mask → filters epochs for DataJoint export
+- Future: DataJoint Tags table could store per-epoch selection state, but current .ugm file approach is simpler and already works
+- Import path: DataJoint export .mat → MATLAB loads + .ugm → analysis → save .ugm → Python reads .ugm for filtered re-export

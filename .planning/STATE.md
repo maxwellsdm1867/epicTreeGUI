@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Researchers should be able to discover, install, understand, and use epicTreeGUI without prior knowledge of the Rieke Lab system or legacy epoch tree tools.
-**Current focus:** Phase 0 - Testing & Validation
+**Current focus:** Phase 05 - DataJoint Integration + Analysis Porting
 
 ## Current Position
 
 Phase: 05 (DataJoint Integration - Export .mat from DataJoint Query Results)
 Plan: 01 of 3 COMPLETE
-Status: Phase 05 in progress
-Last activity: 2026-02-16 - Completed 05-01-PLAN.md (Python export module)
+Status: Phase 05 in progress; epicAnalysis class ported; DataJoint trace display fixed
+Last activity: 2026-02-16 - Ported legacy RFAnalysis to epicAnalysis class, fixed DataJoint trace display path config
 
-Progress: [██████░░░░] ~60% (Phase 0, 00.1, 01, and 05-01 complete)
+Progress: [██████░░░░] ~65% (Phase 0, 00.1, 01, 05-01 complete; epicAnalysis ported; DJ trace fix)
 
 ## Performance Metrics
 
@@ -128,6 +128,18 @@ Recent decisions affecting current work:
 - Animal/Preparation metadata merged into cell properties (9-to-5 level flattening)
 - TDD RED-GREEN-REFACTOR cycle with 33 tests (26 unit + 7 integration)
 
+**From epicAnalysis porting (2026-02-16):**
+- Merged RFAnalysis + RFAnalysis2 into single `epicAnalysis.RFAnalysis()` with per-epoch statistics
+- Ported 7 legacy functions: RFAnalysis, detectSpikes, baselineCorrect, differenceOfGaussians, singleGaussian, halfMaxSize, defaultParams
+- All static methods under epicAnalysis class (namespace isolation, no naming conflicts)
+- Plot color wrapping via `mod()` for >8 conditions
+- 10 tests passing with real ExpandingSpots data (13 spot sizes, CenterSize=162.2)
+
+**From DataJoint trace display fix (2026-02-16):**
+- NAS_DATA_DIR and NAS_ANALYSIS_DIR now configurable via env vars (fallback to original hardcoded paths)
+- Added path existence validation in get_trace_binary() and get_data_generic() with clear FileNotFoundError
+- Added h5_path validation before dataset access (KeyError with descriptive message)
+
 ### Pending Todos
 
 **Test Execution:**
@@ -135,6 +147,11 @@ Recent decisions affecting current work:
 - Run test_ugm_persistence.m in MATLAB environment
 - Verify all tests pass or skip gracefully if data unavailable
 - Add test results to TESTING_REPORT.md
+
+**DataJoint Integration:**
+- Execute Phase 05-02: Flask endpoint + UI button (plan ready)
+- Verify end-to-end export in browser (human gate)
+- Design UGM mask import endpoint for DataJoint (send selection state back)
 
 ### Blockers/Concerns
 
@@ -157,6 +174,17 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: Completed 05-01-PLAN.md (Python export module with TDD)
+Stopped at: Ported epicAnalysis class, fixed DataJoint trace display, updated docs
 Resume file: None
-Next: Continue Phase 05 - Plan 02 (Flask endpoint integration) or Plan 03 (MATLAB verification)
+Next steps:
+- Execute Phase 05-02 (Flask endpoint + UI button) — plan is ready
+- Design UGM mask import endpoint for DataJoint Tags table
+- Continue to Phase 2 (User Onboarding) after Phase 05 complete
+
+### New Files Created This Session
+- `src/analysis/epicAnalysis.m` — Static class with RFAnalysis, detectSpikes, baselineCorrect, DOG/Gaussian fitting, halfMaxSize
+- `tests/test_epicAnalysis.m` — 10 tests, all passing with real H5 data
+
+### Files Modified This Session (DataJoint repo)
+- `datajoint/next-app/api/helpers/utils.py` — NAS_DATA_DIR/NAS_ANALYSIS_DIR configurable via env vars
+- `datajoint/next-app/api/helpers/query.py` — Path validation in get_trace_binary() and get_data_generic()

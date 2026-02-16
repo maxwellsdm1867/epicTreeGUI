@@ -211,15 +211,11 @@ epochData = getSelectedData(treeData, epochIndices, streamName)
 These exist in old_epochtree/ but need adaptation to new data format.
 
 ### P5.1: RFAnalysis.m
-**Status**: Exists in old_epochtree/  
-**Purpose**: RF center/surround characterization, Gaussian/DOG fitting  
-**Needs**: Adapter to access RF parameters from new data format  
-**Location to reference**: [old_epochtree/RFAnalysis.m](old_epochtree/RFAnalysis.m)
-
-### P5.2: RFAnalysis2.m
-**Status**: Exists in old_epochtree/  
-**Purpose**: Extended RF analysis  
-**Location to reference**: [old_epochtree/RFAnalysis2.m](old_epochtree/RFAnalysis2.m)
+**Status**: PORTED to `epicAnalysis.RFAnalysis()` in `src/analysis/epicAnalysis.m`
+**Purpose**: RF center/surround characterization, DOG fitting, per-epoch statistics (std, SEM)
+**Includes**: Merged RFAnalysis + RFAnalysis2 (per-epoch stats, error bars)
+**Also ported**: `detectSpikes`, `baselineCorrect`, `differenceOfGaussians`, `singleGaussian`, `halfMaxSize`, `defaultParams`
+**Tests**: `tests/test_epicAnalysis.m` (10 tests, all passing with real ExpandingSpots data)
 
 ### P5.3: LSTA.m
 **Status**: Exists in old_epochtree/  
