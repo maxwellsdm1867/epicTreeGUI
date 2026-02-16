@@ -1153,9 +1153,9 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            % Try loading
+            % Try loading (use -mat flag for .ugm extension compatibility)
             try
-                loaded = load(filepath);
+                loaded = load(filepath, '-mat');
             catch ME
                 warning('epicTreeTools:LoadFailed', 'Failed to load %s: %s', filepath, ME.message);
                 return;
