@@ -1498,23 +1498,49 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            % Validate epoch count matches
-            if ugm.epoch_count ~= length(root.allEpochs)
-                warning('epicTreeTools:EpochCountMismatch', ...
-                    'Epoch count mismatch: .ugm has %d, tree has %d', ...
-                    ugm.epoch_count, length(root.allEpochs));
+            % Require h5_uuid on both .ugm and epochs — no positional matching
+            if ~isfield(ugm, 'epoch_h5_uuids') || isempty(ugm.epoch_h5_uuids)
+                warning('epicTreeTools:NoUUIDs', ...
+                    'This .ugm file has no epoch_h5_uuids. Re-export from DataJoint and re-save the .ugm.');
                 return;
             end
 
-            % Copy mask to isSelected flags (ONE-TIME on load)
-            % Modify allEpochs directly to avoid copying issues
-            for i = 1:length(root.allEpochs)
-                if i <= length(ugm.selection_mask)
-                    root.allEpochs{i}.isSelected = ugm.selection_mask(i);
-                else
-                    root.allEpochs{i}.isSelected = true;  % Default for new epochs
+            if ~isfield(root.allEpochs{1}, 'h5_uuid') || isempty(root.allEpochs{1}.h5_uuid)
+                warning('epicTreeTools:NoUUIDs', ...
+                    'Epochs have no h5_uuid. Re-export from DataJoint to get UUIDs on epochs.');
+                return;
+            end
+
+            % UUID-based matching (robust to reordering/repopulation)
+            ugmUuids = ugm.epoch_h5_uuids;
+            ugmMask = ugm.selection_mask;
+            uuidToSelected = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+            for i = 1:length(ugmUuids)
+                uuid = ugmUuids{i};
+                if ~isempty(uuid)
+                    uuidToSelected(uuid) = logical(ugmMask(i));
                 end
             end
+
+            matched = 0;
+            unmatched = 0;
+            for i = 1:length(root.allEpochs)
+                uuid = root.allEpochs{i}.h5_uuid;
+                if ~isempty(uuid) && uuidToSelected.isKey(uuid)
+                    root.allEpochs{i}.isSelected = uuidToSelected(uuid);
+                    matched = matched + 1;
+                else
+                    root.allEpochs{i}.isSelected = true;  % Default for unmatched
+                    unmatched = unmatched + 1;
+                end
+            end
+
+            if unmatched > 0
+                fprintf('  Note: %d epochs had no UUID match (kept selected)\n', unmatched);
+            end
+
+            fprintf('Selection mask loaded: %s\n', filepath);
+            fprintf('  %d/%d epochs matched by h5_uuid\n', matched, length(root.allEpochs));
 
             % Propagate isSelected from root.allEpochs to all leaf epochLists
             root.propagateSelectionToLeaves();
@@ -1522,10 +1548,15 @@ classdef epicTreeTools < handle
             % Refresh node selection state cache
             root.refreshNodeSelectionState();
 
-            % Print command window warning
-            excluded = ugm.epoch_count - sum(ugm.selection_mask);
-            fprintf('Selection mask loaded: %s\n  %d of %d epochs excluded (%.1f%%)\n', ...
-                filepath, excluded, ugm.epoch_count, 100*excluded/ugm.epoch_count);
+            % Print summary
+            excludedCount = 0;
+            for i = 1:length(root.allEpochs)
+                if ~root.allEpochs{i}.isSelected
+                    excludedCount = excludedCount + 1;
+                end
+            end
+            fprintf('  %d of %d epochs excluded (%.1f%%)\n', ...
+                excludedCount, length(root.allEpochs), 100*excludedCount/length(root.allEpochs));
 
             success = true;
         end
@@ -2018,6 +2049,7 @@ classdef epicTreeTools < handle
                 if isfield(exp, 'id'), expInfo.id = exp.id; end
                 if isfield(exp, 'exp_name'), expInfo.exp_name = exp.exp_name; end
                 if isfield(exp, 'is_mea'), expInfo.is_mea = exp.is_mea; end
+                if isfield(exp, 'h5_uuid'), expInfo.h5_uuid = exp.h5_uuid; end
 
                 % Resolve H5 file path for lazy loading
                 expH5File = '';
@@ -2035,6 +2067,7 @@ classdef epicTreeTools < handle
                     if isfield(cellData, 'id'), cellInfo.id = cellData.id; end
                     if isfield(cellData, 'type'), cellInfo.type = cellData.type; else, cellInfo.type = ''; end
                     if isfield(cellData, 'label'), cellInfo.label = cellData.label; else, cellInfo.label = ''; end
+                    if isfield(cellData, 'h5_uuid'), cellInfo.h5_uuid = cellData.h5_uuid; end
 
                     if ~isfield(cellData, 'epoch_groups'), continue; end
 
@@ -2046,6 +2079,7 @@ classdef epicTreeTools < handle
                         if isfield(eg, 'id'), groupInfo.id = eg.id; end
                         if isfield(eg, 'protocol_name'), groupInfo.protocol_name = eg.protocol_name; else, groupInfo.protocol_name = ''; end
                         if isfield(eg, 'label'), groupInfo.label = eg.label; else, groupInfo.label = ''; end
+                        if isfield(eg, 'h5_uuid'), groupInfo.h5_uuid = eg.h5_uuid; end
                         if isfield(eg, 'start_time'), groupInfo.start_time = eg.start_time; end
                         if isfield(eg, 'end_time'), groupInfo.end_time = eg.end_time; end
                         if isfield(eg, 'recording_technique'), groupInfo.recording_technique = eg.recording_technique; end
@@ -2064,6 +2098,7 @@ classdef epicTreeTools < handle
                             if isfield(eb, 'id'), blockInfo.id = eb.id; end
                             if isfield(eb, 'protocol_name'), blockInfo.protocol_name = eb.protocol_name; else, blockInfo.protocol_name = ''; end
                             if isfield(eb, 'protocol_id'), blockInfo.protocol_id = eb.protocol_id; end
+                            if isfield(eb, 'h5_uuid'), blockInfo.h5_uuid = eb.h5_uuid; end
                             if isfield(eb, 'start_time'), blockInfo.start_time = eb.start_time; end
                             if isfield(eb, 'end_time'), blockInfo.end_time = eb.end_time; end
 
@@ -2764,6 +2799,10 @@ classdef epicTreeTools < handle
             % Returns:
             %   filepath - Path to most recent .ugm file, or '' if none found
             %
+            % Search order:
+            %   1. epicTreeConfig('ugm_dir') if set
+            %   2. Same directory as the .mat file
+            %
             % Searches for .ugm files with pattern: basename_*.ugm
             % Sorts by filename (ISO 8601 timestamps sort lexicographically)
 
@@ -2773,25 +2812,29 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            % Extract directory and basename
-            [directory, basename, ~] = fileparts(matFilePath);
+            [matDir, basename, ~] = fileparts(matFilePath);
 
-            % Find matching .ugm files
-            pattern = fullfile(directory, [basename '_*.ugm']);
-            files = dir(pattern);
-
-            if isempty(files)
-                return;
+            % Determine search directories
+            searchDirs = {};
+            ugmDir = epicTreeConfig('ugm_dir');
+            if ~isempty(ugmDir) && exist(ugmDir, 'dir')
+                searchDirs{end+1} = ugmDir;
             end
+            searchDirs{end+1} = matDir;
 
-            % Sort descending (most recent first)
-            % Use cell array sort with proper syntax
-            names = {files.name};
-            [~, idx] = sort(names);
-            idx = flip(idx);  % Reverse to get descending order
+            % Search each directory for matching .ugm files
+            for d = 1:length(searchDirs)
+                pattern = fullfile(searchDirs{d}, [basename '_*.ugm']);
+                files = dir(pattern);
 
-            % Return most recent
-            filepath = fullfile(directory, files(idx(1)).name);
+                if ~isempty(files)
+                    names = {files.name};
+                    [~, idx] = sort(names);
+                    idx = flip(idx);
+                    filepath = fullfile(searchDirs{d}, files(idx(1)).name);
+                    return;
+                end
+            end
         end
 
         function filepath = generateUGMFilename(matFilePath)
@@ -2803,14 +2846,27 @@ classdef epicTreeTools < handle
             % Returns:
             %   filepath - Generated .ugm filepath with timestamp
             %
+            % Saves to epicTreeConfig('ugm_dir') if set, otherwise next to
+            % the .mat file.
+            %
             % Format: basename_YYYY-MM-DD_HH-mm-ss.ugm
 
             if isempty(matFilePath)
                 error('epicTreeTools:EmptyPath', 'matFilePath cannot be empty');
             end
 
-            % Extract directory and basename
-            [directory, basename, ~] = fileparts(matFilePath);
+            [matDir, basename, ~] = fileparts(matFilePath);
+
+            % Use configured ugm_dir if set, otherwise same dir as .mat
+            ugmDir = epicTreeConfig('ugm_dir');
+            if ~isempty(ugmDir)
+                if ~exist(ugmDir, 'dir')
+                    mkdir(ugmDir);
+                end
+                directory = ugmDir;
+            else
+                directory = matDir;
+            end
 
             % Generate timestamp
             timestamp = string(datetime('now'), 'uuuu-MM-dd_HH-mm-ss');

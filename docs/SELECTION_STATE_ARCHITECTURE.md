@@ -272,27 +272,45 @@ The .ugm (User-Generated Metadata) file stores selection state separately from r
 
 ## .ugm File Format
 
-### Structure (v1.0)
+### Structure (v1.1)
 
-The .ugm file is a MATLAB MAT file (v7.3 format) containing a single struct:
+The .ugm file is a MATLAB MAT file (v7.3 / HDF5 format) containing a single struct:
 
 ```matlab
 ugm = struct(...
-    'version',         '1.0', ...              % Format version string
-    'created',         datetime('now'), ...    % Creation timestamp
-    'epoch_count',     length(allEps), ...     % Total epoch count (validation)
-    'mat_file_basename', 'data_file', ...      % Source .mat basename
-    'selection_mask',  logical([1; 0; 1; ...]) % Boolean mask (length = epoch_count)
+    'version',          '1.1', ...              % Format version string
+    'created',          '2026-02-16 10:00:00', ...  % Creation timestamp (string)
+    'epoch_count',      length(allEps), ...     % Total epoch count (validation)
+    'mat_file_basename', 'data_file', ...       % Source .mat basename
+    'selection_mask',   logical([1; 0; 1; ...]),% Boolean mask (length = epoch_count)
+    'epoch_h5_uuids',  {uuid1, uuid2, ...}     % Cell array of h5_uuid strings
 );
 ```
 
 ### Field Descriptions
 
-- **`version`**: Format version (currently '1.0'). Future versions may add fields.
-- **`created`**: MATLAB datetime object showing when .ugm was created
+- **`version`**: Format version. Current version is `'1.1'` (added `epoch_h5_uuids`).
+- **`created`**: Timestamp string (`'yyyy-mm-dd HH:MM:SS'`) showing when .ugm was created.
 - **`epoch_count`**: Total number of epochs. Used to validate mask matches current tree.
 - **`mat_file_basename`**: Basename of source .mat file (without extension). Helps identify which .mat this .ugm belongs to.
-- **`selection_mask`**: Logical column vector. Index i = true means epoch i is selected. Order matches `getAllEpochs(false)`.
+- **`selection_mask`**: Logical column vector. Index i = true means epoch i is selected.
+- **`epoch_h5_uuids`**: Cell array of h5_uuid strings, one per epoch. Used for UUID-based matching on load (not positional). Epochs without h5_uuid get empty string `''`.
+
+### Loading Strategy: UUID-Based Matching
+
+`loadUserMetadata()` matches epochs by `h5_uuid`, not by position:
+
+1. Build a lookup map from the .ugm: `h5_uuid → selected (true/false)`
+2. For each epoch in the tree, find its h5_uuid in the map
+3. Apply the corresponding selection state
+4. Unmatched epochs default to selected
+
+This is robust to:
+- Epoch reordering between exports
+- Database repopulation adding/removing epochs
+- Different splitter configurations changing tree structure
+
+**Requirement:** Both the .ugm file and the loaded epochs must have h5_uuid. If either is missing, `loadUserMetadata()` warns and refuses to load (no positional fallback).
 
 ### Filename Convention
 
@@ -786,66 +804,107 @@ end
 
 ## Python Integration
 
-### Reading .ugm Files in Python (RetinAnalysis/DataJoint)
+### Reading .ugm Files in Python
 
-The .ugm file is a MATLAB MAT file readable with `scipy.io.loadmat`:
+The .ugm file is saved in MATLAB's v7.3 format (HDF5). **Use `h5py` to read it, not `scipy.io.loadmat`.**
+
+The provided `python/import_ugm.py` module handles all the HDF5 parsing:
 
 ```python
-import scipy.io
+from import_ugm import read_ugm
+
+ugm_data = read_ugm('experiment_2025-12-02_2026-02-15_10-30-00.ugm')
+
+print(ugm_data)
+# {
+#     'version': '1.1',
+#     'created': '2026-02-16 10:00:00',
+#     'epoch_count': 1915,
+#     'selected_count': 1328,
+#     'excluded_count': 587,
+#     'excluded_uuids': ['abc-123', 'def-456', ...],  # h5_uuids of deselected epochs
+#     'selected_uuids': ['ghi-789', 'jkl-012', ...],  # h5_uuids of selected epochs
+# }
+```
+
+**Why h5py?** MATLAB's `-v7.3` flag saves in HDF5 format. `scipy.io.loadmat` raises `NotImplementedError` for v7.3 files. The `import_ugm.py` module handles HDF5 object references, cell arrays of strings, and other MATLAB-specific HDF5 patterns.
+
+### Reading .ugm Files Directly with h5py
+
+If you need lower-level access:
+
+```python
+import h5py
 import numpy as np
 
-# Load .ugm file
-ugm_path = 'experiment_2025-12-02_2026-02-15_10-30-00.ugm'
-ugm = scipy.io.loadmat(ugm_path)
+with h5py.File('file.ugm', 'r') as f:
+    ugm = f['ugm']
+    mask = np.array(ugm['selection_mask']).flatten().astype(bool)
+    epoch_count = int(np.array(ugm['epoch_count']).flatten()[0])
 
-# Extract selection mask
-# Note: MATLAB structs in scipy become nested arrays, need to unwrap
-mask = ugm['ugm'][0, 0]['selection_mask'][0]  # Boolean array
+    # Read h5_uuids (cell array of strings stored as HDF5 object references)
+    refs = np.array(ugm['epoch_h5_uuids']).flatten()
+    uuids = []
+    for ref in refs:
+        chars = np.array(f[ref]).flatten()
+        uuids.append(''.join(chr(int(c)) for c in chars))
 
-# Verify epoch count matches
-epoch_count = ugm['ugm'][0, 0]['epoch_count'][0, 0]
-assert len(mask) == epoch_count, "Mask length mismatch"
-
-# Filter epochs before export
-# Assuming you have epochs array from .mat file
-selected_epochs = epochs[mask]
-
-print(f"Selected {np.sum(mask)} of {epoch_count} epochs ({100*np.sum(mask)/epoch_count:.1f}%)")
+    print(f"Selected {np.sum(mask)} of {epoch_count} epochs")
 ```
 
-### Integration with Database Export
+### DataJoint Round-Trip
+
+The full round-trip workflow pushes MATLAB selections back to DataJoint as epoch tags:
+
+```
+DataJoint ──export .mat──> MATLAB ──save .ugm──> Python ──import tags──> DataJoint
+```
+
+1. **Export from DataJoint** (web UI "Export to epicTree" button)
+   - Creates `.mat` with `h5_uuid` on every epoch, cell, group, block
+   - Flask endpoint: `POST /results/export-mat`
+
+2. **Analyze in MATLAB**
+   ```matlab
+   [data, ~] = loadEpicTreeData('epictree_export_20260216.mat');
+   tree = epicTreeTools(data);
+   tree.buildTreeWithSplitters({@epicTreeTools.splitOnCellType, @epicTreeTools.splitOnProtocol});
+   gui = epicTreeGUI(tree);
+   % User selects/deselects epochs...
+   % On close: prompted to save .ugm
+   ```
+
+3. **Import mask back to DataJoint** (web UI "Import Mask" button)
+   - Upload `.ugm` file via file picker
+   - Flask endpoint: `POST /results/import-ugm`
+   - Deselected epochs get tagged `"excluded"` in the Tags table, keyed by `h5_uuid`
+   - Import is idempotent (re-importing same .ugm = same result)
+
+4. **Result**: DataJoint Tags table reflects MATLAB selections
+
+**Programmatic import** (without web UI):
 
 ```python
-# In your export_to_database.py workflow:
+from import_ugm import read_ugm
 
-def export_with_selection_mask(mat_file, ugm_file=None):
-    """Export epochs to database, optionally applying selection mask"""
-    # Load experiment data
-    data = scipy.io.loadmat(mat_file)
-    epochs = extract_epochs(data)  # Your existing function
+ugm_data = read_ugm('experiment.ugm')
 
-    # Apply selection mask if provided
-    if ugm_file and os.path.exists(ugm_file):
-        ugm = scipy.io.loadmat(ugm_file)
-        mask = ugm['ugm'][0, 0]['selection_mask'][0]
-
-        # Validate
-        if len(mask) != len(epochs):
-            print(f"Warning: Mask length ({len(mask)}) != epoch count ({len(epochs)})")
-            print("Skipping mask application")
-        else:
-            epochs = epochs[mask]
-            print(f"Applied selection mask: {len(epochs)} epochs selected")
-
-    # Export to database
-    export_to_datajoint(epochs)
-
-# Usage:
-export_with_selection_mask(
-    'experiment.mat',
-    ugm_file='experiment_2025-12-02_10-30-00.ugm'  # Optional
-)
+# ugm_data['excluded_uuids'] contains h5_uuids of deselected epochs
+# Use these to insert 'excluded' tags into your DataJoint Tags table
+for uuid in ugm_data['excluded_uuids']:
+    # Your DataJoint insert logic here
+    Tags.insert1({'h5_uuid': uuid, 'tag': 'excluded', ...})
 ```
+
+### h5_uuid: The Stable Epoch Identifier
+
+The `h5_uuid` field is the **only** identifier used for matching between .ugm masks and epoch data. It is:
+
+- Derived from the H5 source file (stable across database repopulations)
+- Present on every epoch, cell, epoch_group, epoch_block, and experiment
+- Required by both `loadUserMetadata()` (MATLAB) and `read_ugm()` (Python)
+
+**Why not database IDs?** Auto-increment IDs change when the database is repopulated. If you export, analyze in MATLAB, save a .ugm, then the database gets repopulated with new IDs, a positional or ID-based mask would apply to the wrong epochs. `h5_uuid` survives this.
 
 ### Finding the Latest .ugm File in Python
 
@@ -858,7 +917,6 @@ def find_latest_ugm(mat_file_path):
     directory = os.path.dirname(mat_file_path)
     basename = os.path.splitext(os.path.basename(mat_file_path))[0]
 
-    # Search for matching .ugm files
     pattern = os.path.join(directory, f"{basename}_*.ugm")
     ugm_files = glob.glob(pattern)
 
@@ -868,84 +926,20 @@ def find_latest_ugm(mat_file_path):
     # Sort by filename (ISO 8601 timestamps sort correctly)
     ugm_files.sort(reverse=True)
     return ugm_files[0]
-
-# Usage:
-ugm_file = find_latest_ugm('experiment.mat')
-if ugm_file:
-    print(f"Found selection mask: {ugm_file}")
-else:
-    print("No selection mask found, using all epochs")
 ```
 
-### Three-File Workflow with Python
+### Three-File Workflow
 
-**Complete workflow:**
-
-1. **Export H5 to MAT in Python** (RetinAnalysis pipeline)
-   ```python
-   export_to_epictree('experiment.h5', 'experiment.mat')
-   ```
-
-2. **User loads MAT in MATLAB GUI, makes selections, saves .ugm**
-   ```matlab
-   tree = epicTreeTools(loadEpicTreeData('experiment.mat'));
-   gui = epicTreeGUI(tree);
-   % User makes selections...
-   % File → Save Epoch Mask → creates experiment_2026-02-16_10-00-00.ugm
-   ```
-
-3. **Python reads MAT + .ugm, filters epochs, exports to database**
-   ```python
-   ugm_file = find_latest_ugm('experiment.mat')
-   export_with_selection_mask('experiment.mat', ugm_file)
-   ```
-
-4. **Database contains only user-selected epochs**
-
-**Note:** The .ugm file is optional. If not present, all epochs are considered selected.
-
-### Example: RetinAnalysis Integration
-
-```python
-# In your analysis pipeline:
-
-import scipy.io
-import numpy as np
-from pathlib import Path
-
-def load_epochs_with_selection(mat_path):
-    """Load epochs from .mat file, applying .ugm selection if exists"""
-    # Load experiment data
-    mat_data = scipy.io.loadmat(mat_path)
-    epochs = extract_epochs_from_mat(mat_data)
-
-    # Check for latest .ugm file
-    ugm_path = find_latest_ugm(mat_path)
-
-    if ugm_path:
-        print(f"Found selection mask: {Path(ugm_path).name}")
-
-        # Load mask
-        ugm = scipy.io.loadmat(ugm_path)
-        mask = ugm['ugm'][0, 0]['selection_mask'].flatten()
-
-        # Validate
-        if len(mask) == len(epochs):
-            n_selected = np.sum(mask)
-            n_total = len(mask)
-            print(f"Applying selection: {n_selected}/{n_total} epochs ({100*n_selected/n_total:.1f}%)")
-            epochs = [e for i, e in enumerate(epochs) if mask[i]]
-        else:
-            print(f"Warning: Mask size mismatch ({len(mask)} vs {len(epochs)}), ignoring mask")
-    else:
-        print("No selection mask found, using all epochs")
-
-    return epochs
-
-# Usage in analysis scripts:
-epochs = load_epochs_with_selection('experiment_2025-12-02_F.mat')
-# epochs now contains only user-selected data
 ```
+experiment.mat                  Raw epoch data (from Python/DataJoint)
+experiment_2026-02-16_*.ugm     Selection masks (from MATLAB)
+DataJoint Tags table            Persistent tags (from .ugm import)
+```
+
+1. **Export** → `.mat` with h5_uuids
+2. **MATLAB** → load `.mat`, build tree, select/deselect, save `.ugm`
+3. **Import** → read `.ugm`, push excluded tags to DataJoint by h5_uuid
+4. **Re-export** → Tags appear in next `.mat` export at all hierarchy levels
 
 ---
 

@@ -161,8 +161,13 @@ Plans:
 - Added H5 path validation with clear error messages in get_trace_binary(), get_data_generic()
 - Changes in datajoint repo: `next-app/api/helpers/utils.py`, `next-app/api/helpers/query.py`
 
-**UGM mask round-trip design** (2026-02-16):
-- .ugm files already readable in Python via scipy.io.loadmat (documented in SELECTION_STATE_ARCHITECTURE.md)
-- Round-trip: MATLAB saves .ugm → Python reads mask → filters epochs for DataJoint export
-- Future: DataJoint Tags table could store per-epoch selection state, but current .ugm file approach is simpler and already works
-- Import path: DataJoint export .mat → MATLAB loads + .ugm → analysis → save .ugm → Python reads .ugm for filtered re-export
+**UGM mask round-trip implementation** (2026-02-16):
+- Full h5_uuid chain: Python export → .mat epochs → MATLAB .ugm v1.1 → Python import_ugm.py → DataJoint Tags
+- h5_uuid (stable H5 file identifier) used instead of DB auto-increment IDs (survives DB repopulation)
+- .ugm saved with MATLAB's -v7.3 flag (HDF5 format) — Python reads via h5py (NOT scipy.io.loadmat)
+- import_ugm_tags() is idempotent: clears existing "excluded" tags before re-inserting
+- UI: "Import Mask" button (orange) in ResultsViewer.js with .ugm file picker and snackbar feedback
+- MATLAB epicTreeTools.saveUserMetadata now saves epoch_h5_uuids in .ugm v1.1 format
+- MATLAB epicTreeTools.extractAllEpochs now propagates h5_uuid to cellInfo/groupInfo/blockInfo/expInfo
+- Commits: ae7d33c (epicTreeGUI), b3f41bc (datajoint)
+- All 24 existing tests pass (8 selection_navigation_auto + 16 comprehensive_functions)

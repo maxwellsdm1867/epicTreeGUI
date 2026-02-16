@@ -13,7 +13,8 @@ EpicTreeGUI provides hierarchical organization and analysis of neurophysiology e
 - Dynamic tree organization with 22+ built-in splitter functions
 - Interactive GUI with checkbox-based epoch selection
 - Programmatic API for scripted analysis workflows
-- Selection state persistence (.ugm files)
+- Selection state persistence (.ugm files) with UUID-based matching
+- DataJoint round-trip: export selections back as epoch tags via h5_uuid
 - Lazy loading from H5 data files
 - Compatible with RetinAnalysis Python export pipeline
 - Pre-built tree pattern for reproducible analysis hierarchies
@@ -85,6 +86,100 @@ title(sprintf('Mean Response (n=%d epochs)', size(dataMatrix, 1)));
 ```
 
 See `examples/quickstart.m` for a complete working example using bundled sample data.
+
+## Data Framework
+
+### Three-File Architecture
+
+epicTreeGUI uses three file types to keep raw data, user selections, and analysis separate:
+
+```
+experiment_2025-12-02.mat          Raw epoch data (never modified by GUI)
+experiment_2025-12-02_*.ugm        User selection masks (timestamped versions)
+workspace.mat                      Active MATLAB session (transient)
+```
+
+- **`.mat` file**: Exported from the RetinAnalysis Python pipeline or DataJoint. Contains the full epoch hierarchy (experiments, cells, epoch groups, blocks, epochs) with stimulus parameters, response data references, and metadata.
+- **`.ugm` file**: User-Generated Metadata. Stores which epochs are selected/deselected. Saved separately so raw data stays pristine. Multiple versions can coexist (timestamped). The latest is auto-loaded by default.
+- **Workspace**: During a MATLAB session, `epoch.isSelected` flags are the source of truth. Masks are built only on save, applied only on load.
+
+### Epoch Identity: h5_uuid
+
+Every epoch has a stable identifier (`h5_uuid`) derived from its H5 source file. This UUID:
+
+- Survives database repopulation (unlike auto-increment IDs)
+- Enables reliable matching between .ugm masks and epoch data
+- Links MATLAB selections back to DataJoint records
+
+When loading a .ugm file, epochs are matched **by h5_uuid** (not by position). This means:
+
+- Reordering epochs between exports won't corrupt your selections
+- Adding/removing epochs keeps existing selections intact
+- Database repopulation doesn't break saved masks
+
+### Selection State Persistence
+
+```matlab
+% Save current selection (builds mask + UUIDs one-time)
+filepath = epicTreeTools.generateUGMFilename(tree.sourceFile);
+tree.saveUserMetadata(filepath);
+
+% Load selection (matches by h5_uuid, applies mask one-time)
+tree.loadUserMetadata(filepath);
+
+% Auto-load latest .ugm on construction (default behavior)
+tree = epicTreeTools(data);                              % Auto-loads if .ugm exists
+tree = epicTreeTools(data, 'LoadUserMetadata', 'none');  % Start fresh
+tree = epicTreeTools(data, 'LoadUserMetadata', 'latest');% Error if no .ugm
+```
+
+The GUI close handler detects if selections changed and prompts to save.
+
+### Configuring the UGM Directory
+
+By default, `.ugm` files are saved next to the `.mat` file. Set `ugm_dir` to use a shared directory (useful when DataJoint or other tools need to find them):
+
+```matlab
+% Point all .ugm files to a shared directory
+epicTreeConfig('ugm_dir', '/Volumes/rieke-nas/analysis/ugm');
+
+% Now save/load automatically uses that directory
+tree.saveUserMetadata(epicTreeTools.generateUGMFilename(tree.sourceFile));
+% Saves to: /Volumes/rieke-nas/analysis/ugm/experiment_2026-02-16_10-00-00.ugm
+
+% findLatestUGM checks ugm_dir first, then falls back to .mat directory
+ugm = epicTreeTools.findLatestUGM('/local/path/experiment.mat');
+% Finds .ugm in ugm_dir even though .mat is elsewhere
+```
+
+### DataJoint Round-Trip
+
+Selection masks can be **manually** pushed back to DataJoint as epoch tags. The DataJoint web app never auto-loads `.ugm` files — import only happens when the user explicitly clicks "Import Mask" and selects a file.
+
+```
+DataJoint ──export──> .mat ──MATLAB──> .ugm ──import──> DataJoint Tags
+```
+
+1. **Export**: DataJoint web app exports query results as `.mat` with `h5_uuid` on every epoch
+2. **Analyze in MATLAB**: Load `.mat`, build tree, select/deselect epochs, save `.ugm`
+3. **Import mask**: Upload `.ugm` via the DataJoint web app "Import Mask" button
+4. **Result**: Deselected epochs get tagged as `"excluded"` in the DataJoint Tags table, keyed by `h5_uuid`
+
+The import is idempotent — re-importing the same `.ugm` produces identical tags.
+
+**Python module** (`python/import_ugm.py`): Reads `.ugm` files via `h5py` and returns excluded/selected UUID lists:
+
+```python
+from import_ugm import read_ugm
+
+ugm_data = read_ugm('/path/to/file.ugm')
+# ugm_data['excluded_uuids']  -> list of h5_uuids for deselected epochs
+# ugm_data['selected_uuids']  -> list of h5_uuids for selected epochs
+```
+
+> **Note**: `.ugm` files are saved in MATLAB's HDF5 format (`-v7.3`). Use `h5py` to read them in Python, not `scipy.io.loadmat`.
+
+See `docs/SELECTION_STATE_ARCHITECTURE.md` for the full technical specification.
 
 ## Citation
 

@@ -12,6 +12,7 @@ function value = epicTreeConfig(key, newValue)
 % Configuration Keys:
 %   h5_dir      - Directory containing H5 files (default: derived from mat file)
 %   analysis_dir - Directory for analysis .mat files
+%   ugm_dir     - Directory for .ugm selection mask files (default: same as .mat file)
 %   user        - Username for exports
 %
 % The configuration is stored persistently using persistent variables.
@@ -104,6 +105,11 @@ config.h5_dir = '';
 
 % Analysis directory - where exported .mat files are stored
 config.analysis_dir = '';
+
+% UGM directory - where .ugm selection mask files are saved/loaded
+% Default: empty (saves next to .mat file). When set, all .ugm files
+% go to this directory, making them discoverable by other tools (e.g. DataJoint).
+config.ugm_dir = '';
 
 % User name for exports
 config.user = getenv('USER');

@@ -69,6 +69,15 @@ def read_ugm(filepath):
                 f"Mask length ({len(selection_mask)}) != UUID count ({len(epoch_h5_uuids)})"
             )
 
+        # Check that UUIDs are not all empty (non-DataJoint data)
+        non_empty_count = sum(1 for u in epoch_h5_uuids if u)
+        if non_empty_count == 0:
+            raise ValueError(
+                "This .ugm file has no h5_uuids (all empty). "
+                "It was saved from non-DataJoint data. "
+                "Re-export from DataJoint first, then save a new .ugm."
+            )
+
         # Build excluded/selected lists
         excluded_uuids = []
         selected_uuids = []

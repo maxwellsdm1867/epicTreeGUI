@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 05 (DataJoint Integration - Export .mat from DataJoint Query Results)
-Plan: 02 of 2 COMPLETE
-Status: Phase 05 complete (pending human verification); epicAnalysis class ported; DataJoint trace display fixed
-Last activity: 2026-02-16 - Completed Flask endpoint, UI button, tags in export; human verification pending
+Plan: 02 of 2 COMPLETE + UGM round-trip COMPLETE
+Status: Phase 05 complete with full UGM↔DataJoint round-trip via h5_uuid; epicAnalysis class ported; DataJoint trace display fixed
+Last activity: 2026-02-16 - UGM mask round-trip implemented: h5_uuid chain, import_ugm.py, Flask endpoint, UI button; all 24 tests pass
 
 Progress: [███████░░░] ~70% (Phase 0, 00.1, 01, 05 complete; epicAnalysis ported; DJ trace fix)
 
@@ -141,6 +141,13 @@ Recent decisions affecting current work:
 - Plot color wrapping via `mod()` for >8 conditions
 - 10 tests passing with real ExpandingSpots data (13 spot sizes, CenterSize=162.2)
 
+**From UGM round-trip (2026-02-16):**
+- h5_uuid (not DB ID) for mask round-trip: DB repopulation changes auto-increment IDs but h5_uuid is stable
+- .ugm v1.1 format: includes epoch_h5_uuids cell array alongside selection_mask
+- HDF5 format (.ugm saved with -v7.3): Python must use h5py, not scipy.io.loadmat
+- Idempotent tag import: clear existing "excluded" tags before re-inserting (re-import same .ugm = same result)
+- h5_uuid propagated to all info structs (expInfo, cellInfo, groupInfo, blockInfo) in extractAllEpochs
+
 **From DataJoint trace display fix (2026-02-16):**
 - NAS_DATA_DIR and NAS_ANALYSIS_DIR now configurable via env vars (fallback to original hardcoded paths)
 - Added path existence validation in get_trace_binary() and get_data_generic() with clear FileNotFoundError
@@ -155,9 +162,9 @@ Recent decisions affecting current work:
 - Add test results to TESTING_REPORT.md
 
 **DataJoint Integration:**
-- Verify end-to-end export in browser (human gate — Task 3 of 05-02)
-- Design UGM mask import endpoint for DataJoint (send selection state back)
+- UGM mask round-trip COMPLETE: .ugm → DataJoint Tags via h5_uuid
 - Consider splitOnTag splitter for filtering epochs by DataJoint tags
+- Re-export .mat from DataJoint to get h5_uuid fields on epochs (old exports lack h5_uuid)
 
 ### Blockers/Concerns
 
@@ -180,17 +187,25 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: Phase 05 complete (all code done, human verification pending)
+Stopped at: Phase 05 + UGM round-trip fully implemented and verified
 Resume file: None
 Next steps:
-- Human verification: Start DataJoint app, run query, click "Export to epicTree", load in MATLAB
-- Continue to Phase 2 (User Onboarding) after verification
-- Design UGM mask import endpoint for DataJoint Tags table
+- Re-export from DataJoint to get .mat with h5_uuid fields (old downloads lack them)
+- Continue to Phase 2 (User Onboarding) or next planned phase
+- Consider splitOnTag splitter for filtering by DataJoint tags in epicTreeGUI
 
 ### New Files Created This Session
 - `src/analysis/epicAnalysis.m` — Static class with RFAnalysis, detectSpikes, baselineCorrect, DOG/Gaussian fitting, halfMaxSize
 - `tests/test_epicAnalysis.m` — 10 tests, all passing with real H5 data
+- `python/import_ugm.py` — Read .ugm files via h5py (HDF5 format), extract epoch_h5_uuids + selection_mask
+
+### Files Modified This Session (epicTreeGUI repo)
+- `python/field_mapper.py` — Added h5_uuid to all 7 extract_*_fields functions
+- `python/export_mat.py` — Added h5_uuid to all build_* functions, added extract_tags() helper
+- `src/tree/epicTreeTools.m` — saveUserMetadata now saves epoch_h5_uuids in .ugm v1.1; extractAllEpochs propagates h5_uuid to cellInfo/groupInfo/blockInfo/expInfo
 
 ### Files Modified This Session (DataJoint repo)
 - `datajoint/next-app/api/helpers/utils.py` — NAS_DATA_DIR/NAS_ANALYSIS_DIR configurable via env vars
-- `datajoint/next-app/api/helpers/query.py` — Path validation in get_trace_binary() and get_data_generic()
+- `datajoint/next-app/api/helpers/query.py` — Path validation in get_trace_binary() and get_data_generic(); added import_ugm_tags() function
+- `datajoint/next-app/api/app.py` — Added /results/import-ugm endpoint with file upload
+- `datajoint/next-app/src/app/components/ResultsViewer.js` — Added Import Mask button with file picker
