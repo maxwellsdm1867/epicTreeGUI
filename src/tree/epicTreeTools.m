@@ -1037,6 +1037,156 @@ classdef epicTreeTools < handle
             epochs = obj.getAllEpochs(true);
             count = length(epochs);
         end
+
+        function saveUserMetadata(obj, filepath)
+            % SAVEUSERMETA Save selection state to .ugm file
+            %
+            % Usage:
+            %   tree.saveUserMetadata('/path/to/file.ugm')
+            %
+            % Saves selection state to .ugm file with metadata.
+            % Builds selection mask from epoch isSelected flags (one-time on save).
+
+            % Get root node to access all epochs
+            root = obj.getRoot();
+            allEps = root.getAllEpochs(false);
+
+            % Build mask from isSelected flags (ONE-TIME on save)
+            mask = false(length(allEps), 1);
+            for i = 1:length(allEps)
+                if isfield(allEps{i}, 'isSelected') && allEps{i}.isSelected
+                    mask(i) = true;
+                end
+            end
+
+            % Extract basename for .ugm file metadata
+            if ~isempty(root.sourceFile)
+                [~, basename, ~] = fileparts(root.sourceFile);
+            else
+                [~, basename, ~] = fileparts(filepath);
+            end
+
+            % Build ugm struct
+            ugm = struct();
+            ugm.version = '1.0';
+            ugm.created = datetime('now');
+            ugm.epoch_count = length(allEps);
+            ugm.mat_file_basename = basename;
+            ugm.selection_mask = mask;
+
+            % Save to file
+            save(filepath, 'ugm', '-v7.3');
+
+            % Print command window message
+            fprintf('Saved selection mask to: %s\n  %d of %d epochs selected (%.1f%%)\n', ...
+                filepath, sum(mask), length(mask), 100*sum(mask)/length(mask));
+        end
+
+        function success = loadUserMetadata(obj, filepath)
+            % LOADUSERMETADATA Load selection state from .ugm file
+            %
+            % Usage:
+            %   success = tree.loadUserMetadata('/path/to/file.ugm')
+            %
+            % Returns:
+            %   success - true if loaded successfully, false otherwise
+            %
+            % Loads selection state from .ugm file and applies to epochs.
+            % Copies mask to isSelected flags (one-time on load).
+            % Prints command window warning showing excluded epoch count.
+
+            success = false;
+
+            % Check file exists
+            if ~exist(filepath, 'file')
+                warning('epicTreeTools:FileNotFound', 'File not found: %s', filepath);
+                return;
+            end
+
+            % Try loading
+            try
+                loaded = load(filepath);
+            catch ME
+                warning('epicTreeTools:LoadFailed', 'Failed to load %s: %s', filepath, ME.message);
+                return;
+            end
+
+            % Validate struct
+            if ~isfield(loaded, 'ugm')
+                warning('epicTreeTools:InvalidFormat', 'File does not contain ugm struct: %s', filepath);
+                return;
+            end
+
+            ugm = loaded.ugm;
+
+            if ~isfield(ugm, 'selection_mask') || ~isfield(ugm, 'epoch_count')
+                warning('epicTreeTools:InvalidFormat', 'ugm struct missing required fields');
+                return;
+            end
+
+            % Get root node to access all epochs
+            root = obj.getRoot();
+            allEps = root.getAllEpochs(false);
+
+            % Validate epoch count matches
+            if ugm.epoch_count ~= length(allEps)
+                warning('epicTreeTools:EpochCountMismatch', ...
+                    'Epoch count mismatch: .ugm has %d, tree has %d', ...
+                    ugm.epoch_count, length(allEps));
+                return;
+            end
+
+            % Copy mask to isSelected flags (ONE-TIME on load)
+            for i = 1:length(allEps)
+                if i <= length(ugm.selection_mask)
+                    allEps{i}.isSelected = ugm.selection_mask(i);
+                else
+                    allEps{i}.isSelected = true;  % Default for new epochs
+                end
+            end
+
+            % Refresh node selection state cache
+            root.refreshNodeSelectionState();
+
+            % Print command window warning
+            excluded = ugm.epoch_count - sum(ugm.selection_mask);
+            fprintf('Selection mask loaded: %s\n  %d of %d epochs excluded (%.1f%%)\n', ...
+                filepath, excluded, ugm.epoch_count, 100*excluded/ugm.epoch_count);
+
+            success = true;
+        end
+
+        function refreshNodeSelectionState(obj)
+            % REFRESHNODESELECTIONSTATE Sync node.custom.isSelected with epoch states
+            %
+            % Usage:
+            %   tree.refreshNodeSelectionState()
+            %
+            % Walks tree and updates node.custom.isSelected based on actual
+            % epoch isSelected flags. Call after loading .ugm files.
+
+            if obj.isLeaf
+                % Check if any epoch is selected
+                anySelected = false;
+                for i = 1:length(obj.epochList)
+                    if isfield(obj.epochList{i}, 'isSelected') && obj.epochList{i}.isSelected
+                        anySelected = true;
+                        break;
+                    end
+                end
+                obj.custom.isSelected = anySelected;
+            else
+                % Recurse to children
+                anyChildSelected = false;
+                for i = 1:length(obj.children)
+                    obj.children{i}.refreshNodeSelectionState();
+                    if obj.children{i}.custom.isSelected
+                        anyChildSelected = true;
+                    end
+                end
+                obj.custom.isSelected = anyChildSelected;
+            end
+        end
     end
 
     methods (Access = private)
@@ -2062,6 +2212,67 @@ classdef epicTreeTools < handle
             elseif contains(keywords, 'offm')
                 cellType = 'OffM';
             end
+        end
+
+        function filepath = findLatestUGM(matFilePath)
+            % FINDLATESTUGM Find most recent .ugm file for a .mat file
+            %
+            % Usage:
+            %   ugmPath = epicTreeTools.findLatestUGM('/path/to/data.mat')
+            %
+            % Returns:
+            %   filepath - Path to most recent .ugm file, or '' if none found
+            %
+            % Searches for .ugm files with pattern: basename_*.ugm
+            % Sorts by filename (ISO 8601 timestamps sort lexicographically)
+
+            filepath = '';
+
+            if isempty(matFilePath)
+                return;
+            end
+
+            % Extract directory and basename
+            [directory, basename, ~] = fileparts(matFilePath);
+
+            % Find matching .ugm files
+            pattern = fullfile(directory, [basename '_*.ugm']);
+            files = dir(pattern);
+
+            if isempty(files)
+                return;
+            end
+
+            % Sort descending (most recent first)
+            [~, idx] = sort({files.name}, 'descend');
+
+            % Return most recent
+            filepath = fullfile(directory, files(idx(1)).name);
+        end
+
+        function filepath = generateUGMFilename(matFilePath)
+            % GENERATEUGMFILENAME Generate timestamped .ugm filename
+            %
+            % Usage:
+            %   ugmPath = epicTreeTools.generateUGMFilename('/path/to/data.mat')
+            %
+            % Returns:
+            %   filepath - Generated .ugm filepath with timestamp
+            %
+            % Format: basename_YYYY-MM-DD_HH-mm-ss.ugm
+
+            if isempty(matFilePath)
+                error('epicTreeTools:EmptyPath', 'matFilePath cannot be empty');
+            end
+
+            % Extract directory and basename
+            [directory, basename, ~] = fileparts(matFilePath);
+
+            % Generate timestamp
+            timestamp = string(datetime('now'), 'uuuu-MM-dd_HH-mm-ss');
+
+            % Build filepath
+            filepath = fullfile(directory, sprintf('%s_%s.ugm', basename, timestamp));
         end
     end
 end
