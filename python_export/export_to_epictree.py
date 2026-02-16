@@ -34,6 +34,14 @@ except ImportError as e:
     print("  pip install datajoint h5py scipy")
     sys.exit(1)
 
+# Import cell type name mapping
+try:
+    from cell_type_names import get_full_cell_type_name
+except ImportError:
+    # Fallback if file not found
+    def get_full_cell_type_name(shorthand, prefix_rgc=True):
+        return shorthand
+
 
 class EpicTreeExporter:
     """Export DataJoint query results to EpicTreeGUI standard format."""
@@ -169,10 +177,14 @@ class EpicTreeExporter:
         """Build cell structure from tree node."""
         cell_obj = cell_node['object'][0] if 'object' in cell_node else {}
 
+        # Get cell type and convert shorthand to full name
+        cell_type_raw = str(cell_obj.get('type', ''))
+        cell_type_full = get_full_cell_type_name(cell_type_raw, prefix_rgc=True)
+
         cell = {
             'id': int(cell_node['id']),
             'label': str(cell_node.get('label', '')),
-            'type': str(cell_obj.get('type', '')),
+            'type': cell_type_full,  # Use full name instead of shorthand
             'properties': cell_obj.get('properties', {}),
             'noise_id': 0,  # TODO: Get from matching
             'rf_params': {},  # TODO: Get from analysis

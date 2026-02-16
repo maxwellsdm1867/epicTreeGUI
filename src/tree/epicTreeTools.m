@@ -134,6 +134,13 @@ classdef epicTreeTools < handle
                 % Creating root from data
                 obj.treeData = dataOrParent;
                 obj.allEpochs = obj.extractAllEpochs(dataOrParent);
+
+                % Tag each epoch with unique index for tracking across tree structure
+                % This allows setSelected to efficiently update epochs in root.allEpochs
+                for i = 1:length(obj.allEpochs)
+                    obj.allEpochs{i}._epochIndex = i;
+                end
+
                 obj.epochList = obj.allEpochs;
                 obj.isLeaf = true;  % Until buildTree is called
 
@@ -1044,7 +1051,7 @@ classdef epicTreeTools < handle
             %   node.setSelected(true)           % Select this node only
             %   node.setSelected(true, true)     % Select this node and all descendants
             %
-            % Also updates isSelected flag on epochs in leaf nodes.
+            % Also updates isSelected flag on epochs in leaf nodes AND root.allEpochs.
 
             if nargin < 3
                 recursive = false;
@@ -1053,10 +1060,21 @@ classdef epicTreeTools < handle
             % Set node's custom.isSelected
             obj.custom.isSelected = isSelected;
 
-            % If leaf, set isSelected on all epochs
+            % If leaf, set isSelected on epochs in BOTH epochList AND root.allEpochs
             if obj.isLeaf
+                % Get root to access allEpochs
+                root = obj.getRoot();
+
+                % Update epochs using their _epochIndex to directly access root.allEpochs
                 for i = 1:length(obj.epochList)
+                    % Update epoch in epochList
                     obj.epochList{i}.isSelected = isSelected;
+
+                    % Also update the SAME epoch in root.allEpochs using _epochIndex
+                    if isfield(obj.epochList{i}, '_epochIndex')
+                        idx = obj.epochList{i}._epochIndex;
+                        root.allEpochs{idx}.isSelected = isSelected;
+                    end
                 end
             end
 

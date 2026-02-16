@@ -1,27 +1,10 @@
-# EpicTreeGUI Usage Patterns
+# EpicTreeGUI Usage Pattern
 
-There are **two ways** to use epicTreeGUI, depending on your workflow:
+The epicTreeGUI uses a **pre-built tree pattern** matching the legacy `epochTreeGUI` behavior.
 
-## Pattern 1: Simple File Loading (Dynamic Splits)
+## Pre-Built Tree Pattern
 
-Use this for **quick exploration** where you want to try different split configurations interactively.
-
-```matlab
-% Just pass a file path - GUI will have a dropdown to change splits
-gui = epicTreeGUI('data.mat');
-```
-
-**Features:**
-- Split dropdown menu in GUI
-- Can dynamically reorganize tree using different splitters
-- Good for initial data exploration
-- Limited to built-in splitter combinations
-
----
-
-## Pattern 2: Pre-Built Tree (Legacy Pattern)
-
-Use this for **production analysis** where you know exactly how to organize your data. This matches the legacy `epochTreeGUI` behavior.
+Build your tree structure in code before launching the GUI. This gives you full control over the hierarchy and supports custom splitter functions.
 
 ```matlab
 % 1. Load data
@@ -41,11 +24,22 @@ gui = epicTreeGUI(tree);
 ```
 
 **Features:**
-- **NO split dropdown** - tree structure is fixed
+- Tree structure is **fixed** - no dropdown menu
 - Full control over split hierarchy in code
 - Supports custom splitter functions
+- Supports mixing key paths ('cellInfo.type') and function handles (@epicTreeTools.splitOnCellType)
 - Reproducible analysis workflows
 - Matches legacy epochTreeGUI pattern exactly
+
+---
+
+## Why This Pattern?
+
+This approach:
+1. **Makes hierarchies explicit** - you see exactly how data is organized in your code
+2. **Supports custom logic** - write any splitter function you need
+3. **Matches legacy workflows** - drop-in replacement for old epochTreeGUI scripts
+4. **Ensures reproducibility** - same code = same tree structure every time
 
 ---
 
@@ -128,22 +122,8 @@ tree.buildTreeWithSplitters({
 
 ---
 
-## When to Use Each Pattern
-
-| Scenario | Pattern |
-|----------|---------|
-| Quick data exploration | Pattern 1 (file path) |
-| Trying different groupings | Pattern 1 (file path) |
-| Production analysis pipeline | Pattern 2 (pre-built tree) |
-| Custom splitter functions | Pattern 2 (pre-built tree) |
-| Reproducible workflows | Pattern 2 (pre-built tree) |
-| Matching legacy scripts | Pattern 2 (pre-built tree) |
-
----
-
 ## Examples
 
 See these test scripts for working examples:
-- `test_launch.m` - Pattern 1 (simple file loading)
-- `test_legacy_pattern.m` - Pattern 2 (pre-built tree)
-- `test_exact_legacy_pattern.m` - Pattern 2 (matches legacy code exactly)
+- `tests/test_legacy_pattern.m` - Pre-built tree with 4-level hierarchy
+- `tests/test_exact_legacy_pattern.m` - Matches legacy code exactly with 7-level hierarchy
