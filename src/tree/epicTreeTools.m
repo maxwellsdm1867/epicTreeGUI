@@ -104,20 +104,31 @@ classdef epicTreeTools < handle
     end
 
     methods
-        function obj = epicTreeTools(dataOrParent)
+        function obj = epicTreeTools(dataOrParent, varargin)
             % Constructor - create epicTreeTools from data or as child node
             %
             % Usage:
             %   tree = epicTreeTools(treeData)  % Create root from loaded data
             %   tree = epicTreeTools(parent)    % Create child node
             %   tree = epicTreeTools()          % Create empty node
+            %   tree = epicTreeTools(treeData, 'LoadUserMetadata', 'auto')
+            %   tree = epicTreeTools(treeData, 'LoadUserMetadata', 'latest')
+            %   tree = epicTreeTools(treeData, 'LoadUserMetadata', 'none')
+            %   tree = epicTreeTools(treeData, 'LoadUserMetadata', '/path/to/file.ugm')
+            %
+            % Name-Value Arguments:
+            %   LoadUserMetadata - Controls .ugm file loading:
+            %     'auto' (default) - Auto-load latest .ugm if exists (silent if not found)
+            %     'latest'         - Load latest .ugm, error if none exists
+            %     'none'           - Skip loading (all epochs selected)
+            %     '/path/file.ugm' - Load specific .ugm file
 
             if nargin == 0
                 return;
             end
 
             if isa(dataOrParent, 'epicTreeTools')
-                % Creating child node
+                % Creating child node - don't parse varargin for LoadUserMetadata
                 obj.parent = dataOrParent;
             elseif isstruct(dataOrParent)
                 % Creating root from data
@@ -129,6 +140,45 @@ classdef epicTreeTools < handle
                 % Capture source file path if available in data
                 if isfield(dataOrParent, 'source_file')
                     obj.sourceFile = dataOrParent.source_file;
+                end
+
+                % Parse optional arguments
+                p = inputParser;
+                p.KeepUnmatched = true;  % Allow unknown params
+                addParameter(p, 'LoadUserMetadata', 'auto', @(x) ischar(x) || isstring(x));
+                parse(p, varargin{:});
+
+                loadOption = char(p.Results.LoadUserMetadata);
+
+                if strcmp(loadOption, 'auto')
+                    % Auto-load latest .ugm if exists (silent if none found)
+                    if ~isempty(obj.sourceFile)
+                        ugmFile = epicTreeTools.findLatestUGM(obj.sourceFile);
+                        if ~isempty(ugmFile)
+                            fprintf('Auto-loading selection mask: %s\n', ugmFile);
+                            obj.loadUserMetadata(ugmFile);  % This prints its own warning
+                        end
+                    end
+                elseif strcmp(loadOption, 'latest')
+                    % Load latest, error if none exists
+                    if isempty(obj.sourceFile)
+                        error('epicTreeTools:NoSourceFile', ...
+                            'Cannot find .ugm files: sourceFile not set. Set sourceFile property or pass data with source_file field.');
+                    end
+                    ugmFile = epicTreeTools.findLatestUGM(obj.sourceFile);
+                    if isempty(ugmFile)
+                        error('epicTreeTools:NoUGMFiles', ...
+                            'No .ugm files found for: %s', obj.sourceFile);
+                    end
+                    obj.loadUserMetadata(ugmFile);
+                elseif strcmp(loadOption, 'none')
+                    % Skip loading, all epochs selected by default (already the case)
+                else
+                    % Assume it's a filename path
+                    if ~obj.loadUserMetadata(loadOption)
+                        warning('epicTreeTools:UGMLoadFailed', ...
+                            'Failed to load user metadata from: %s', loadOption);
+                    end
                 end
             end
         end
