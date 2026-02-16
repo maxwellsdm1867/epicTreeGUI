@@ -4,7 +4,7 @@
 %
 % Prerequisites: Run install.m from repository root
 %
-% This example uses bundled sample data (24 epochs, 2 cell types, 2 protocols)
+% This example uses bundled sample data (20 epochs, 2 cell types, 2 protocols)
 
 %% Setup and Path Check
 
@@ -39,7 +39,7 @@ fprintf('Loaded %d epochs\n', length(epochs));
 %% Build Tree Structure
 
 % Create tree and organize by cell type, then protocol
-tree = epicTreeTools(epochs);
+tree = epicTreeTools(epochs, 'LoadUserMetadata', 'none');
 tree.buildTreeWithSplitters({
     @epicTreeTools.splitOnCellType,    % Level 1: Cell type
     @epicTreeTools.splitOnProtocol     % Level 2: Protocol name
