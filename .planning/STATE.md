@@ -140,6 +140,10 @@ Recent decisions affecting current work:
   - Reason: Phase 0 testing discovered BUG-001 that breaks core filtering functionality
   - Impact: Must fix before documentation phase (Phase 1) since docs would describe broken behavior
   - Status: COMPLETE - All 4 plans finished 2026-02-16 (verification, GUI integration, tests, docs)
+- **Phase 5 added:** DataJoint integration — export .mat from DataJoint query results
+  - Reason: Need intermediate layer to export DataJoint query results to epicTreeGUI standard .mat format
+  - Approach: Add Flask endpoint (/results/export-mat) to SamarjitK/datajoint web app
+  - DataJoint repo cloned at /Users/maxwellsdm/Documents/GitHub/datajoint, deps installed
 
 ## Session Continuity
 
