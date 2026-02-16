@@ -27,6 +27,26 @@ from field_mapper import (
 )
 
 
+def extract_tags(node):
+    """
+    Extract tags from a generate_tree() node into a MATLAB-friendly format.
+
+    Tags in generate_tree() output are: [{'user': 'alice', 'tag': 'important'}, ...]
+    We convert to: [{'user': 'alice', 'tag': 'important'}, ...] (same structure,
+    but strip extra fields like tag_id, table_name, table_id, experiment_id, h5_uuid).
+
+    Args:
+        node: A node dict from generate_tree() output
+
+    Returns:
+        list: List of {'user': str, 'tag': str} dicts, or empty list if no tags
+    """
+    raw_tags = node.get('tags', [])
+    if not raw_tags:
+        return []
+    return [{'user': t.get('user', ''), 'tag': t.get('tag', '')} for t in raw_tags]
+
+
 def export_to_mat(tree_data, username, download_dir, h5_file_path=None):
     """
     Export DataJoint tree structure to epicTreeGUI .mat format.
@@ -107,6 +127,7 @@ def build_experiment(exp_node, h5_file_path):
 
     # Extract experiment fields
     experiment = extract_experiment_fields(exp_data)
+    experiment['tags'] = extract_tags(exp_node)
     experiment['cells'] = []
 
     # Get H5 file path from experiment data_file if not provided
@@ -151,6 +172,7 @@ def build_cell(cell_node, animal_meta, prep_meta, h5_file):
         'id': cell_fields['id'],
         'label': cell_fields['label'],
         'type': cell_fields['type'],
+        'tags': extract_tags(cell_node),
         'properties': {
             # Animal metadata
             'species': animal_meta.get('species', ''),
@@ -192,6 +214,7 @@ def build_epoch_group(eg_node, h5_file):
         'protocol_id': eg_fields['protocol_id'],
         'start_time': eg_fields['start_time'],
         'end_time': eg_fields['end_time'],
+        'tags': extract_tags(eg_node),
         'epoch_blocks': []
     }
 
@@ -229,6 +252,7 @@ def build_epoch_block(eb_node, h5_file):
         'start_time': eb_fields['start_time'],
         'end_time': eb_fields['end_time'],
         'parameters': flat_params,
+        'tags': extract_tags(eb_node),
         'epochs': []
     }
 
@@ -264,6 +288,7 @@ def build_epoch(epoch_node, h5_file):
         'start_time': epoch_fields['start_time'],
         'end_time': epoch_fields['end_time'],
         'parameters': flat_params,
+        'tags': extract_tags(epoch_node),
         'responses': [],
         'stimuli': []
     }

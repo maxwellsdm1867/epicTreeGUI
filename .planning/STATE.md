@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 ## Current Position
 
 Phase: 05 (DataJoint Integration - Export .mat from DataJoint Query Results)
-Plan: 01 of 3 COMPLETE
-Status: Phase 05 in progress; epicAnalysis class ported; DataJoint trace display fixed
-Last activity: 2026-02-16 - Ported legacy RFAnalysis to epicAnalysis class, fixed DataJoint trace display path config
+Plan: 02 of 2 COMPLETE
+Status: Phase 05 complete (pending human verification); epicAnalysis class ported; DataJoint trace display fixed
+Last activity: 2026-02-16 - Completed Flask endpoint, UI button, tags in export; human verification pending
 
-Progress: [██████░░░░] ~65% (Phase 0, 00.1, 01, 05-01 complete; epicAnalysis ported; DJ trace fix)
+Progress: [███████░░░] ~70% (Phase 0, 00.1, 01, 05 complete; epicAnalysis ported; DJ trace fix)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
-- Average duration: 6.0 min
-- Total execution time: 1.78 hours
+- Total plans completed: 14
+- Average duration: 5.8 min
+- Total execution time: 1.86 hours
 
 **By Phase:**
 
@@ -30,12 +30,12 @@ Progress: [██████░░░░] ~65% (Phase 0, 00.1, 01, 05-01 comple
 | 0 (Testing) | 5 | 58min | 12min |
 | 00.1 (Bug Fixes) | 4 | 12min | 3min |
 | 01 (Foundation) | 3 | 10min | 3.3min |
-| 05 (DataJoint) | 1 | 4min | 4min |
+| 05 (DataJoint) | 2 | 9min | 4.5min |
 
 **Recent Trend:**
-- Last 5 plans: 00.1-04 (4min), 01-01 (3min), 01-02 (2min), 01-03 (5min), 05-01 (4min)
-- Trend: TDD execution efficient (4min for 33 tests + 2 modules)
-- Phase 05 started: Plan 01 complete (Python export module)
+- Last 5 plans: 01-01 (3min), 01-02 (2min), 01-03 (5min), 05-01 (4min), 05-02 (5min)
+- Trend: Integration plans (endpoint + UI + tags) efficient at 5min
+- Phase 05 complete: Both plans done, pending human verification
 
 *Updated after each plan completion*
 
@@ -128,6 +128,12 @@ Recent decisions affecting current work:
 - Animal/Preparation metadata merged into cell properties (9-to-5 level flattening)
 - TDD RED-GREEN-REFACTOR cycle with 33 tests (26 unit + 7 integration)
 
+**From 05-02:**
+- Tags extracted at every hierarchy level using extract_tags() helper (strips DB-internal fields)
+- Tags stored as [{user, tag}] in .mat file at experiment, cell, epoch_group, epoch_block, epoch levels
+- Lazy import of export_mat inside Flask handler (doesn't need to be present at Flask startup)
+- Blob responseType for axios binary .mat download (with blob-to-text error parsing)
+
 **From epicAnalysis porting (2026-02-16):**
 - Merged RFAnalysis + RFAnalysis2 into single `epicAnalysis.RFAnalysis()` with per-epoch statistics
 - Ported 7 legacy functions: RFAnalysis, detectSpikes, baselineCorrect, differenceOfGaussians, singleGaussian, halfMaxSize, defaultParams
@@ -149,9 +155,9 @@ Recent decisions affecting current work:
 - Add test results to TESTING_REPORT.md
 
 **DataJoint Integration:**
-- Execute Phase 05-02: Flask endpoint + UI button (plan ready)
-- Verify end-to-end export in browser (human gate)
+- Verify end-to-end export in browser (human gate — Task 3 of 05-02)
 - Design UGM mask import endpoint for DataJoint (send selection state back)
+- Consider splitOnTag splitter for filtering epochs by DataJoint tags
 
 ### Blockers/Concerns
 
@@ -174,12 +180,12 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-16
-Stopped at: Ported epicAnalysis class, fixed DataJoint trace display, updated docs
+Stopped at: Phase 05 complete (all code done, human verification pending)
 Resume file: None
 Next steps:
-- Execute Phase 05-02 (Flask endpoint + UI button) — plan is ready
+- Human verification: Start DataJoint app, run query, click "Export to epicTree", load in MATLAB
+- Continue to Phase 2 (User Onboarding) after verification
 - Design UGM mask import endpoint for DataJoint Tags table
-- Continue to Phase 2 (User Onboarding) after Phase 05 complete
 
 ### New Files Created This Session
 - `src/analysis/epicAnalysis.m` — Static class with RFAnalysis, detectSpikes, baselineCorrect, DOG/Gaussian fitting, halfMaxSize

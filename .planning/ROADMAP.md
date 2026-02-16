@@ -146,7 +146,7 @@ Phases execute in numeric order: 0 → 0.1 → 1 → 2 → 3 → 4
 
 Plans:
 - [x] 05-01-PLAN.md — Python export module (export_mat.py, field_mapper.py, tests) - TDD
-- [ ] 05-02-PLAN.md — Flask endpoint + UI button + end-to-end verification
+- [x] 05-02-PLAN.md — Flask endpoint + UI button + tags in export + end-to-end verification
 
 ### Additional Work (Outside Phases)
 
