@@ -9,30 +9,31 @@ See: .planning/PROJECT.md (updated 2026-02-06)
 
 ## Current Position
 
-Phase: 0 of 4 (Testing & Validation)
-Plan: 5 of 5 in current phase
-Status: Phase complete
-Last activity: 2026-02-08 - Completed 00-05-PLAN.md (end-to-end workflow testing and report finalization)
+Phase: 00.1 of 4 (Critical Bug Fixes - Selection State)
+Plan: 1 of 1 in current phase
+Status: Phase 00.1 complete
+Last activity: 2026-02-15 - Completed 00.1-01-PLAN.md (selection state bug fix and .ugm persistence)
 
-Progress: [████░░░░░░] ~40% (Phase 0 complete, ready for Phase 1)
+Progress: [████░░░░░░] ~42% (Phase 0 complete, Phase 00.1 complete, ready for Phase 1)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: 12 min
-- Total execution time: 0.97 hours
+- Total plans completed: 6
+- Average duration: 10 min
+- Total execution time: 1.02 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 0 (Testing) | 5 | 58min | 12min |
+| 00.1 (Bug Fixes) | 1 | 3min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: 00-01 (2min), 00-02 (36min), 00-03 (4min), 00-04 (15min), 00-05 (1min)
-- Trend: Variable 1-36min per plan depending on complexity
-- Phase 0 complete with average 12min/plan
+- Last 5 plans: 00-02 (36min), 00-03 (4min), 00-04 (15min), 00-05 (1min), 00.1-01 (3min)
+- Trend: Fast execution on focused plans (1-4min), longer on complex testing (15-36min)
+- Phase 00.1 complete with 3min total
 
 *Updated after each plan completion*
 
@@ -77,26 +78,33 @@ Recent decisions affecting current work:
 - TESTING_REPORT.md serves as Phase 0's primary deliverable
 - Test suite ready for execution but not yet run (requires MATLAB environment)
 
+**From 00.1-01:**
+- Simplified .ugm architecture: isSelected flags on epochs are source of truth (mask built only on save/load)
+- Auto-load default for LoadUserMetadata: silent if no .ugm exists, prints message when found
+- Command window warnings show selection counts to prevent silent data exclusion
+- Three-file architecture: .mat (raw data), .ugm (selection state), workspace (active tree)
+
 ### Pending Todos
 
-None - Phase 0 complete.
+None - Phase 00.1 complete.
 
 ### Blockers/Concerns
 
-**BUG-001 (CRITICAL):** Selection state not persisting/propagating
-- Phase 0.1 inserted to fix before proceeding to documentation
-- See BUGS_FOUND_PHASE0.md for full analysis
+**BUG-001 (RESOLVED):** Selection state not persisting/propagating
+- Root cause: Not a bug in epicTreeTools - test code was modifying returned copies instead of using setSelected() API
+- Resolution: Verified correct implementation, added .ugm persistence system
+- Completed: 2026-02-15 via Phase 00.1 Plan 01
 
 ### Roadmap Evolution
 
 - **Phase 0.1 inserted after Phase 0:** Critical Bug Fixes - Selection State (URGENT)
   - Reason: Phase 0 testing discovered BUG-001 that breaks core filtering functionality
   - Impact: Must fix before documentation phase (Phase 1) since docs would describe broken behavior
-  - Status: Not planned yet
+  - Status: COMPLETE - Plan 00.1-01 finished 2026-02-15
 
 ## Session Continuity
 
-Last session: 2026-02-08
-Stopped at: Completed 00-05-PLAN.md (end-to-end workflow testing and TESTING_REPORT.md finalization)
+Last session: 2026-02-15
+Stopped at: Completed 00.1-01-PLAN.md (selection state bug fix and .ugm persistence)
 Resume file: None
-Next: Phase 0 complete - ready to begin Phase 1 (Documentation & Core Examples)
+Next: Phase 00.1 complete - ready to begin Phase 1 (Documentation & Core Examples)
