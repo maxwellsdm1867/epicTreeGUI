@@ -157,7 +157,7 @@ end
 % Baseline subtract if requested
 if baselineSubtract
     baselinePoints = max(1, round(preTime * sampleRate));
-    baselines = mean(dataMatrix(:, 1:baselinePoints), 2);
+    baselines = mean(dataMatrix(:, 1:baselinePoints), 2, 'omitnan');
     dataMatrix = dataMatrix - baselines;
 end
 
@@ -227,9 +227,10 @@ if isempty(allCycles)
 end
 
 % Compute cycle average statistics
-result.cycleAverage = mean(allCycles, 1);
-result.cycleStd = std(allCycles, [], 1);
-result.cycleSEM = result.cycleStd / sqrt(size(allCycles, 1));
+result.cycleAverage = mean(allCycles, 1, 'omitnan');
+result.cycleStd = std(allCycles, 0, 1, 'omitnan');
+nValidCycles = sum(~all(isnan(allCycles), 2));
+result.cycleSEM = result.cycleStd / sqrt(max(nValidCycles, 1));
 
 % Compute Fourier components
 result.DC = mean(result.cycleAverage);

@@ -171,7 +171,7 @@ switch recordingType
 end
 
 % Compute baseline for each epoch
-stats.baseline = mean(dataMatrix(:, baselineIdx), 2);
+stats.baseline = mean(dataMatrix(:, baselineIdx), 2, 'omitnan');
 
 % Baseline subtract
 dataSubtracted = dataMatrix - stats.baseline;

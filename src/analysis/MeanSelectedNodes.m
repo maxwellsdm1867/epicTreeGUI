@@ -155,13 +155,14 @@ for i = 1:nNodes
 
     % Baseline correction
     if opts.BaselineCorrect && prePts > 1
-        baselines = mean(dataMatrix(:, 1:prePts), 2);
+        baselines = mean(dataMatrix(:, 1:prePts), 2, 'omitnan');
         dataMatrix = dataMatrix - baselines;
     end
 
-    % Compute mean and SEM
-    meanTrace = mean(dataMatrix, 1);
-    semTrace = std(dataMatrix, [], 1) / sqrt(size(dataMatrix, 1));
+    % Compute mean and SEM (NaN-safe for padded rows)
+    meanTrace = mean(dataMatrix, 1, 'omitnan');
+    nValidRows = sum(~all(isnan(dataMatrix), 2));
+    semTrace = std(dataMatrix, 0, 1, 'omitnan') / sqrt(max(nValidRows, 1));
 
     % Smooth if requested
     if opts.SmoothPts > 1

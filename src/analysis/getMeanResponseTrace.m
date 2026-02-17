@@ -166,9 +166,9 @@ switch recordingType
 
         if baselineSubtract && baselinePoints > 1
             % Baseline subtract each trace
-            baselines = mean(dataMatrix(:, 1:baselinePoints), 2);
+            baselines = mean(dataMatrix(:, 1:baselinePoints), 2, 'omitnan');
             dataMatrix = dataMatrix - baselines;
-            response.baseline = mean(baselines);
+            response.baseline = mean(baselines, 'omitnan');
         else
             response.baseline = [];
         end
@@ -178,9 +178,9 @@ switch recordingType
         response.units = 'mV';
 
         if baselineSubtract && baselinePoints > 1
-            baselines = mean(dataMatrix(:, 1:baselinePoints), 2);
+            baselines = mean(dataMatrix(:, 1:baselinePoints), 2, 'omitnan');
             dataMatrix = dataMatrix - baselines;
-            response.baseline = mean(baselines);
+            response.baseline = mean(baselines, 'omitnan');
         else
             response.baseline = [];
         end
@@ -190,10 +190,11 @@ switch recordingType
         response.baseline = [];
 end
 
-% Compute statistics
-response.mean = mean(dataMatrix, 1);
-response.stdev = std(dataMatrix, [], 1);
-response.SEM = response.stdev / sqrt(response.n);
+% Compute statistics (NaN-safe for padded rows)
+response.mean = mean(dataMatrix, 1, 'omitnan');
+response.stdev = std(dataMatrix, 0, 1, 'omitnan');
+nValidRows = sum(~all(isnan(dataMatrix), 2));
+response.SEM = response.stdev / sqrt(max(nValidRows, 1));
 
 end
 

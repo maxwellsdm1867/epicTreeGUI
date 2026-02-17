@@ -409,48 +409,52 @@ classdef epicTreeGUI < handle
     methods (Access = private)
         function onClose(self)
             % Close handler: compare current selection to loaded mask, prompt to save changes
+            try
+                % Build current mask from isSelected flags (one-time)
+                currentMask = self.buildCurrentMask();
 
-            % Build current mask from isSelected flags (one-time)
-            currentMask = self.buildCurrentMask();
+                % Compare to loaded mask
+                if ~isempty(self.loadedMask) && ~isempty(currentMask)
+                    % Check if masks differ
+                    if length(currentMask) == length(self.loadedMask)
+                        if ~isequal(currentMask, self.loadedMask)
+                            % Selection changed - prompt user
+                            choice = questdlg(...
+                                'Selection state has changed since loading. Update mask with session changes?', ...
+                                'Save Changes?', ...
+                                'Update Mask', 'Discard Changes', 'Cancel', ...
+                                'Update Mask');
 
-            % Compare to loaded mask
-            if ~isempty(self.loadedMask) && ~isempty(currentMask)
-                % Check if masks differ
-                if length(currentMask) == length(self.loadedMask)
-                    if ~isequal(currentMask, self.loadedMask)
-                        % Selection changed - prompt user
-                        choice = questdlg(...
-                            'Selection state has changed since loading. Update mask with session changes?', ...
-                            'Save Changes?', ...
-                            'Update Mask', 'Discard Changes', 'Cancel', ...
-                            'Update Mask');
-
-                        switch choice
-                            case 'Update Mask'
-                                % Save to latest .ugm or create new if none exists
-                                if ~isempty(self.matFilePath)
-                                    latestUGM = epicTreeTools.findLatestUGM(self.matFilePath);
-                                    if isempty(latestUGM)
-                                        % Create new
-                                        filepath = epicTreeTools.generateUGMFilename(self.matFilePath);
-                                        self.tree.saveUserMetadata(filepath);
-                                    else
-                                        % Update latest
-                                        self.tree.saveUserMetadata(latestUGM);
+                            switch choice
+                                case 'Update Mask'
+                                    % Save to latest .ugm or create new if none exists
+                                    if ~isempty(self.matFilePath)
+                                        latestUGM = epicTreeTools.findLatestUGM(self.matFilePath);
+                                        if isempty(latestUGM)
+                                            % Create new
+                                            filepath = epicTreeTools.generateUGMFilename(self.matFilePath);
+                                            self.tree.saveUserMetadata(filepath);
+                                        else
+                                            % Update latest
+                                            self.tree.saveUserMetadata(latestUGM);
+                                        end
                                     end
-                                end
-                                % Continue closing
-                            case 'Discard Changes'
-                                % Continue closing without saving
-                            case 'Cancel'
-                                % Don't close
-                                return;
+                                    % Continue closing
+                                case 'Discard Changes'
+                                    % Continue closing without saving
+                                case 'Cancel'
+                                    % Don't close
+                                    return;
+                            end
                         end
                     end
                 end
+            catch ME
+                warning('epicTreeGUI:onClose', ...
+                    'Error during close handler: %s. Closing without saving.', ME.message);
             end
 
-            % Existing close logic (close figure)
+            % Always close figure, even if save logic failed
             delete(self.figure);
         end
 
@@ -941,7 +945,7 @@ classdef epicTreeGUI < handle
                 return;
             end
 
-            allEps = self.tree.getAllEpochs(false);
+            allEps = self.tree.allEpochs;
             mask = false(length(allEps), 1);
             for i = 1:length(allEps)
                 if isfield(allEps{i}, 'isSelected') && allEps{i}.isSelected
