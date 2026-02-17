@@ -178,6 +178,34 @@ Plans:
 - All 32 script-based tests pass (8 selection_navigation_auto + 16 comprehensive_functions + 8 tree_navigation)
 - Replaced `addpath(genpath(...))` with explicit `addpath()` in test files
 
+**Stimulus waveform reconstruction system** (2026-02-17):
+- Created `src/stimuli/epicStimulusGenerators.m`: pure MATLAB static class with 11 Symphony generator ports + dispatcher
+- Generators: pulse, repeatingPulse, pulseTrain, sine, square, ramp, directCurrent, gaussianNoise, gaussianNoiseV2, binaryNoise, sumGenerator
+- Dispatcher `generateStimulus(stimulusID, params)` maps fully-qualified class names to generators
+- Seeded RNG (`RandStream('mt19937ar', 'Seed', seed)`) for bit-exact noise reproducibility
+- epicTreeTools integration:
+  - `getStimulusByName()` auto-reconstructs when `.data` is empty but `stimulus_id` is present
+  - New static methods: `getStimulusFromEpoch()`, `getStimulusMatrix()` (mirrors response equivalents)
+  - `getLinearFilterAndPrediction()` now uses `getStimulusMatrix()` instead of broken manual loop
+  - Fixed `stimuliByStreamName()` empty data check
+- Python export (`python/field_mapper.py`): `build_stimulus_struct()` now includes `stimulus_id` and `stimulus_parameters`
+- Updated `docs/dev/DATA_FORMAT_SPECIFICATION.md` with stimulus reconstruction documentation
+- 19 new tests in `tests/test_stimulus_generators.m` — all passing
+- Commit: ffa41f9 (epicTreeGUI)
+
+**DataJoint stimulus pipeline fix** (2026-02-17):
+- Problem: DataJoint `Stimulus` table only stored `(h5_uuid, device_name, h5path)`, losing stimulus metadata from JSON
+- JSON metadata already contained `stimulusID`, `sampleRate`, `sampleRateUnits`, `durationSeconds`, `units` — just ignored by `append_stimulus()`
+- Fix (3 files in datajoint repo):
+  - `schema.py`: Added 5 nullable varchar columns to Stimulus table (stimulus_id, sample_rate, sample_rate_units, duration_seconds, units)
+  - `utils.py`: Added `'stimulus'` field mapping to `fields` dict (maps JSON keys to DB columns)
+  - `pop.py`: Refactored `append_stimulus()` to use `build_tuple()` pattern (matching Response pattern)
+- Schema migration tested: ALTER TABLE adds columns non-destructively, existing rows preserved
+- Backfill tested: All 1915 existing stimulus rows updated from JSON metadata (0 NULLs remaining)
+- Fresh insert tested: `append_stimulus()` correctly populates all 6 mapped fields via `build_tuple()`
+- Stage-based stimuli handled: NULL-able `stimulus_id` — reconstruction only triggers when generator class is present
+- Test data distribution: 1640 `GaussianNoiseGeneratorV2` + 275 `DirectCurrentGenerator`
+
 ## Known Issues
 
 **CLASS-BASED TESTS STALL VIA MCP** (HIGH priority — blocks CI/automated verification):

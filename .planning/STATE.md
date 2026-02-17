@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-06)
 
 **Core value:** Researchers should be able to discover, install, understand, and use epicTreeGUI without prior knowledge of the Rieke Lab system or legacy epoch tree tools.
-**Current focus:** Phase 05 - DataJoint Integration + Analysis Porting
+**Current focus:** Stimulus reconstruction + DataJoint pipeline integration
 
 ## Current Position
 
-Phase: 05 (DataJoint Integration - Export .mat from DataJoint Query Results)
-Plan: 02 of 2 COMPLETE + UGM round-trip COMPLETE
-Status: Phase 05 complete with full UGM↔DataJoint round-trip via h5_uuid; epicAnalysis class ported; DataJoint trace display fixed
-Last activity: 2026-02-16 - UGM mask round-trip implemented: h5_uuid chain, import_ugm.py, Flask endpoint, UI button; all 24 tests pass
+Phase: 05 (DataJoint Integration) + Stimulus Reconstruction
+Plan: All Phase 05 plans COMPLETE + Stimulus system COMPLETE + DJ pipeline fix COMPLETE
+Status: Stimulus waveform reconstruction fully implemented; DataJoint pipeline fixed to preserve stimulus metadata; all tests passing
+Last activity: 2026-02-17 - Stimulus reconstruction (11 generators, 19 tests), DataJoint pipeline fix (schema + pop.py + utils.py), end-to-end tested
 
-Progress: [███████░░░] ~70% (Phase 0, 00.1, 01, 05 complete; epicAnalysis ported; DJ trace fix)
+Progress: [████████░░] ~80% (Phase 0, 00.1, 01, 05 complete; epicAnalysis ported; stimulus reconstruction; DJ pipeline fix)
 
 ## Performance Metrics
 
@@ -153,6 +153,22 @@ Recent decisions affecting current work:
 - Added path existence validation in get_trace_binary() and get_data_generic() with clear FileNotFoundError
 - Added h5_path validation before dataset access (KeyError with descriptive message)
 
+**From stimulus reconstruction (2026-02-17):**
+- 11 Symphony generators ported to pure MATLAB in `epicStimulusGenerators.m` (static class, no .NET dependency)
+- Seeded RNG for bit-exact noise reproducibility across MATLAB sessions
+- Auto-reconstruction: `getStimulusByName()` transparently reconstructs when `data` is empty
+- New methods: `getStimulusFromEpoch()`, `getStimulusMatrix()` mirror response equivalents
+- Fixed `getLinearFilterAndPrediction()` — was getting all-zero stimulus matrix
+- Fixed `stimuliByStreamName()` — empty data check was wrong
+- Two classes of stimuli: waveform (LED noise — reconstructed) vs parametric (Stage — no generator, handled by NULL stimulus_id)
+
+**From DataJoint pipeline fix (2026-02-17):**
+- DataJoint Stimulus table extended: 5 new nullable columns (stimulus_id, sample_rate, sample_rate_units, duration_seconds, units)
+- `append_stimulus()` refactored to use `build_tuple()` pattern (matches Response/Epoch/etc.)
+- JSON metadata already contained all stimulus fields — were just ignored; now mapped via `utils.fields['stimulus']`
+- Schema migration non-destructive: existing rows preserved, backfill from JSON metadata verified
+- End-to-end tested: fresh insert via `append_stimulus()` populates all 6 mapped fields correctly
+
 ### Pending Todos
 
 **Test Execution:**
@@ -163,8 +179,11 @@ Recent decisions affecting current work:
 
 **DataJoint Integration:**
 - UGM mask round-trip COMPLETE: .ugm → DataJoint Tags via h5_uuid
+- Stimulus pipeline fix COMPLETE: stimulus_id flows H5 → JSON → DataJoint DB → Python export → MATLAB
 - Consider splitOnTag splitter for filtering epochs by DataJoint tags
 - Re-export .mat from DataJoint to get h5_uuid fields on epochs (old exports lack h5_uuid)
+- Commit DataJoint repo changes (schema.py, utils.py, pop.py) — currently uncommitted
+- Future: Add `stimulus_parameters` (generator-specific params like seed, freqCutoff) to DataJoint Stimulus table — currently only in H5 `parameters` sub-group, not in JSON metadata
 
 ### Blockers/Concerns
 
@@ -186,26 +205,25 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-16
-Stopped at: Phase 05 + UGM round-trip fully implemented and verified
+Last session: 2026-02-17
+Stopped at: Stimulus reconstruction + DataJoint pipeline fix complete and end-to-end tested
 Resume file: None
 Next steps:
-- Re-export from DataJoint to get .mat with h5_uuid fields (old downloads lack them)
+- Commit DataJoint repo changes (3 files: schema.py, utils.py, pop.py)
+- Re-export from DataJoint to get .mat with h5_uuid + stimulus_id fields
+- Future: Add `stimulus_parameters` to DataJoint (currently only stimulus_id/sampleRate/etc., not seed/freqCutoff)
 - Continue to Phase 2 (User Onboarding) or next planned phase
 - Consider splitOnTag splitter for filtering by DataJoint tags in epicTreeGUI
 
-### New Files Created This Session
-- `src/analysis/epicAnalysis.m` — Static class with RFAnalysis, detectSpikes, baselineCorrect, DOG/Gaussian fitting, halfMaxSize
-- `tests/test_epicAnalysis.m` — 10 tests, all passing with real H5 data
-- `python/import_ugm.py` — Read .ugm files via h5py (HDF5 format), extract epoch_h5_uuids + selection_mask
+### New Files Created This Session (2026-02-17)
+- `src/stimuli/epicStimulusGenerators.m` — 11 Symphony generators ported to pure MATLAB + dispatcher
+- `tests/test_stimulus_generators.m` — 19 tests, all passing
 
-### Files Modified This Session (epicTreeGUI repo)
-- `python/field_mapper.py` — Added h5_uuid to all 7 extract_*_fields functions
-- `python/export_mat.py` — Added h5_uuid to all build_* functions, added extract_tags() helper
-- `src/tree/epicTreeTools.m` — saveUserMetadata now saves epoch_h5_uuids in .ugm v1.1; extractAllEpochs propagates h5_uuid to cellInfo/groupInfo/blockInfo/expInfo
+### Files Modified This Session (epicTreeGUI repo, 2026-02-17)
+- `src/tree/epicTreeTools.m` — getStimulusByName auto-reconstruction, getStimulusFromEpoch (new), getStimulusMatrix (new), getLinearFilterAndPrediction fix, stimuliByStreamName fix
+- `python/field_mapper.py` — build_stimulus_struct() now includes stimulus_id + stimulus_parameters
 
-### Files Modified This Session (DataJoint repo)
-- `datajoint/next-app/api/helpers/utils.py` — NAS_DATA_DIR/NAS_ANALYSIS_DIR configurable via env vars
-- `datajoint/next-app/api/helpers/query.py` — Path validation in get_trace_binary() and get_data_generic(); added import_ugm_tags() function
-- `datajoint/next-app/api/app.py` — Added /results/import-ugm endpoint with file upload
-- `datajoint/next-app/src/app/components/ResultsViewer.js` — Added Import Mask button with file picker
+### Files Modified This Session (DataJoint repo, 2026-02-17)
+- `datajoint/next-app/api/schema.py` — 5 new nullable columns on Stimulus table
+- `datajoint/next-app/api/helpers/utils.py` — New 'stimulus' field mapping entry
+- `datajoint/next-app/api/helpers/pop.py` — append_stimulus() refactored to use build_tuple() pattern

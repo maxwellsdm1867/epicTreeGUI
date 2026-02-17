@@ -9,13 +9,17 @@ This document defines the **standard data format** that acts as an interface bet
 │              DATA PACKAGING LAYER (Flexible)                │
 │  Can be replaced without affecting visualization/analysis   │
 ├─────────────────────────────────────────────────────────────┤
-│  Current Implementation: DataJoint + H5 Parsing             │
-│  - Query database for experiments, cells, epochs            │
-│  - Parse H5 files to extract spike times, stimuli          │
-│  - Package into standard format                             │
+│  Current Implementation: DataJoint Flask Web App            │
+│  - Flask backend (Python) + Next.js frontend (React)        │
+│  - MySQL 5.7 in Docker (DataJoint ORM)                     │
+│  - Ingests H5 files + JSON metadata via /pop/add-data      │
+│  - Exports to .mat via /results/export-mat                  │
+│  - Imports .ugm masks via /results/import-ugm              │
+│                                                              │
+│  Alternative: RetinAnalysis Python Pipeline                  │
+│  - Direct H5 parsing without database                       │
 │                                                              │
 │  Future Implementations: Could be anything!                  │
-│  - Direct Symphony H5 reading                               │
 │  - Cloud-based data storage                                 │
 │  - Different experiment management systems                   │
 └──────────────────┬──────────────────────────────────────────┘
@@ -327,6 +331,50 @@ This is transparent to callers — they always get a populated `data` field back
 **Note:** `stimulus_id` is the Symphony generator class name (e.g.,
 `edu.washington.riekelab.stimuli.GaussianNoiseGeneratorV2`), NOT the protocol
 name. The protocol name (e.g., `VariableMeanNoise`) is stored in `epoch_block.protocol_name`.
+
+## DataJoint Database Schema (Stimulus Table)
+
+The DataJoint `Stimulus` table stores metadata needed for waveform reconstruction:
+
+```sql
+CREATE TABLE stimulus (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    h5_uuid         VARCHAR(255) NOT NULL,
+    parent_id       INT NOT NULL,           -- FK to epoch.id
+    device_name     VARCHAR(255) NOT NULL,
+    h5path          VARCHAR(511) NOT NULL,
+    stimulus_id     VARCHAR(255) DEFAULT NULL,   -- Symphony generator class name
+    sample_rate     VARCHAR(255) DEFAULT NULL,   -- e.g. '10000.0'
+    sample_rate_units VARCHAR(255) DEFAULT NULL, -- e.g. 'Hz'
+    duration_seconds VARCHAR(255) DEFAULT NULL,  -- e.g. '0.75'
+    units           VARCHAR(255) DEFAULT NULL    -- e.g. 'A', 'V'
+);
+```
+
+**Field mapping** (JSON metadata key → DB column):
+
+| DB Column | JSON Key | Example Value |
+|-----------|----------|---------------|
+| `h5_uuid` | `uuid` | `db89fd05-2b19-4e28-95b6-40978a026f2f` |
+| `stimulus_id` | `stimulusID` | `symphonyui.builtin.stimuli.DirectCurrentGenerator` |
+| `sample_rate` | `sampleRate` | `10000.0` |
+| `sample_rate_units` | `sampleRateUnits` | `Hz` |
+| `duration_seconds` | `durationSeconds` | `0.75` |
+| `units` | `units` | `A` |
+
+The `stimulus_id` column is nullable — Stage-based spatial stimuli have no generator class.
+
+**Data flow:**
+
+```
+H5 file attributes (stimulusID, parameters/*)
+  → RetinAnalysis JSON metadata (stimulusID, sampleRate, sampleRateUnits, durationSeconds, units)
+    → DataJoint Stimulus table (stimulus_id, sample_rate, etc.) via append_stimulus() + build_tuple()
+      → Python export (stimulus_id + stimulus_parameters in .mat) via build_stimulus_struct()
+        → MATLAB auto-reconstruction (epicStimulusGenerators.generateStimulus())
+```
+
+**Note:** `stimulus_parameters` (generator-specific params like `seed`, `freqCutoff`, `numFilters` for noise generators) come from the H5 `parameters` sub-group. These are included in the `.mat` export via `build_stimulus_struct()` but are NOT currently stored in the DataJoint Stimulus table (which only has the 5 metadata columns above). Full noise reconstruction via the DataJoint path requires the `.mat` export to include these parameters from the H5 file.
 
 ## Example: Loading in EpicTreeGUI Backend
 

@@ -4,9 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-EpicTreeGUI is a pure MATLAB replacement for the legacy Rieke Lab Java-based epochtree system. It provides a hierarchical browser for neurophysiology data exported from the RetinAnalysis Python pipeline. The tree is NOT just visualization—it's a **powerful filtering and organization system** that dynamically reorganizes data based on different splitting criteria.
+EpicTreeGUI is a pure MATLAB replacement for the legacy Rieke Lab Java-based epochtree system. It provides a hierarchical browser for neurophysiology data exported from the RetinAnalysis Python pipeline or the DataJoint Flask web app. The tree is NOT just visualization—it's a **powerful filtering and organization system** that dynamically reorganizes data based on different splitting criteria.
 
 **Key Concept:** The tree structure is built dynamically using splitter functions. Instead of a static hierarchy, the tree reorganizes the entire dataset based on selected parameters (e.g., by cell type, stimulus parameter, date).
+
+**Stimulus Reconstruction:** Symphony stores stimuli parametrically (generator class + parameters, no waveform data). `epicStimulusGenerators.m` contains pure MATLAB ports of 11 Symphony generators. `getStimulusByName()` auto-reconstructs when `.data` is empty but `stimulus_id` is present.
+
+**DataJoint Integration:** A Flask/Next.js web app backed by MySQL (DataJoint ORM) manages experiment metadata. The DataJoint repo lives at `/Users/maxwellsdm/Documents/GitHub/datajoint/`. Key files: `next-app/api/app.py` (Flask), `next-app/api/schema.py` (tables), `next-app/api/helpers/pop.py` (ingestion), `next-app/api/helpers/query.py` (queries + export).
 
 ## Running and Testing
 
@@ -37,6 +41,7 @@ The tree structure is **fixed** when the GUI launches - no dropdown menu. To cha
 % Core automated tests (no GUI needed, real H5 data)
 run tests/test_selection_navigation_auto.m   % 8 tests: build, navigate, select, extract
 run tests/test_comprehensive_functions.m     % 16 tests: full scientific workflow + benchmarks
+run tests/test_stimulus_generators.m         % 19 tests: all 11 generators + integration
 
 % Legacy-style pattern examples
 run tests/test_legacy_pattern.m
@@ -50,6 +55,18 @@ run tests/test_tree_navigation.m
 run tests/test_gui_display_data.m
 run tests/test_tree_navigation_realdata.m
 ```
+
+### MANDATORY Post-Commit Regression Tests
+
+**IMPORTANT: After EVERY commit, run these 3 test suites via MCP to verify no regressions:**
+
+1. `tests/test_selection_navigation_auto.m` — 8 tests: tree build, navigate, select/deselect, H5 data extraction from all leaves, rebuild + re-extract, navigate up. Verifies core tree operations and that waveform data can be extracted and plotted.
+2. `tests/test_comprehensive_functions.m` — 16 tests: data loading, tree construction performance, epoch count consistency, metadata completeness, date/time ordering, selection management, H5 extraction from all leaves, scientific analysis patterns (peak, baseline, SNR), tree rebuild integrity, navigation consistency, getSelectedData with selection, split on every key path, protocol-specific splits, multi-level end-to-end, waveform quality, rebuild benchmark.
+3. `tests/test_stimulus_generators.m` — 19 tests: all 11 generators, dispatcher mapping, unknown ID error, reconstruction integration (getStimulusByName, getStimulusFromEpoch, getStimulusMatrix).
+
+**Expected results: 43 total tests, 0 failures.** If any test fails after a commit, the commit has introduced a regression and must be fixed before proceeding.
+
+Run all three in parallel using `mcp__matlab__run_matlab_test_file` with absolute paths.
 
 ### Test Standards
 
@@ -350,6 +367,10 @@ delete(self.figure);
 - `epicTreeTools.getSelectedData(nodeOrEpochs, streamName)` - **Use this for all analysis**
 - `epicTreeTools.getNestedValue(obj, keyPath)` - Access nested struct fields
 - `epicTreeTools.getResponseData(epoch, deviceName)` - Low-level response access
+- `epicTreeTools.getStimulusByName(epoch, deviceName)` - Get stimulus struct (auto-reconstructs if data is empty)
+- `epicTreeTools.getStimulusFromEpoch(epoch, deviceName)` - Returns [data, sampleRate]
+- `epicTreeTools.getStimulusMatrix(epochs, deviceName)` - Returns [nEpochs x nSamples] matrix
+- `epicStimulusGenerators.generateStimulus(stimulusID, params)` - Direct generator dispatch
 - `epicTreeTools.saveUserMetadata(filepath)` - Save selection state to .ugm file (builds mask from isSelected one-time)
 - `epicTreeTools.loadUserMetadata(filepath)` - Load selection state from .ugm file (copies mask to isSelected one-time)
 - `epicTreeTools.findLatestUGM(matFilePath)` - Find newest .ugm file (static)
@@ -375,18 +396,27 @@ epicTreeGUI/
 │   ├── loadEpicTreeData.m     # Load .mat files
 │   ├── getResponseMatrix.m    # Low-level data matrix builder
 │   ├── tree/
-│   │   ├── epicTreeTools.m    # Core tree class
+│   │   ├── epicTreeTools.m    # Core tree class (getStimulusByName, getStimulusFromEpoch, getStimulusMatrix, etc.)
 │   │   ├── README.md          # Tree usage guide
 │   │   └── graphicalTree/     # Visual tree system
+│   ├── stimuli/
+│   │   └── epicStimulusGenerators.m  # 11 Symphony generator ports + dispatcher
 │   ├── splitters/
 │   │   ├── splitOnCellType.m
 │   │   ├── splitOnParameter.m
 │   │   └── ...                # 14+ splitter functions
 │   └── utilities/
 ├── tests/                     # Test scripts (run with 'run tests/test_*.m')
+│   └── test_stimulus_generators.m  # 19 tests for stimulus reconstruction
+├── python/                    # Python export modules
+│   ├── field_mapper.py        # MAT file field mapping (includes stimulus_id + stimulus_parameters)
+│   ├── export_mat.py          # DataJoint → .mat export
+│   └── import_ugm.py          # .ugm → DataJoint Tags import
 ├── old_epochtree/             # Legacy reference code (DO NOT USE - for reference only)
 └── docs/                      # Documentation
     ├── trd                    # Technical specification (2100+ lines)
+    ├── dev/DATA_FORMAT_SPECIFICATION.md  # .mat format contract + DataJoint schema
+    ├── dev/STIMULUS_AND_GAPS_PLAN.md     # Stimulus reconstruction design + status
     ├── MISSING_TOOLS.md       # Implementation checklist
     └── ...
 ```

@@ -13,10 +13,11 @@ EpicTreeGUI provides hierarchical organization and analysis of neurophysiology e
 - Dynamic tree organization with 22+ built-in splitter functions
 - Interactive GUI with checkbox-based epoch selection
 - Programmatic API for scripted analysis workflows
+- Stimulus waveform reconstruction from generator parameters (11 Symphony generators ported)
 - Selection state persistence (.ugm files) with UUID-based matching
 - DataJoint round-trip: export selections back as epoch tags via h5_uuid
 - Lazy loading from H5 data files
-- Compatible with RetinAnalysis Python export pipeline
+- Compatible with RetinAnalysis Python export pipeline and DataJoint Flask web app
 - Pre-built tree pattern for reproducible analysis hierarchies
 
 ## Requirements
@@ -181,6 +182,86 @@ ugm_data = read_ugm('/path/to/file.ugm')
 
 See `docs/SELECTION_STATE_ARCHITECTURE.md` for the full technical specification.
 
+## Stimulus Waveform Reconstruction
+
+Symphony stores stimuli parametrically — only the generator class name and parameters are saved, not the actual waveform. EpicTreeGUI includes pure MATLAB ports of 11 Symphony stimulus generators that reconstruct waveforms on demand.
+
+**Supported generators:**
+
+| Generator | stimulusID | Use Case |
+|-----------|-----------|----------|
+| Pulse | `symphonyui.builtin.stimuli.PulseGenerator` | Step stimuli |
+| Sine | `symphonyui.builtin.stimuli.SineGenerator` | Sinusoidal modulation |
+| Square | `symphonyui.builtin.stimuli.SquareGenerator` | Square wave modulation |
+| Ramp | `symphonyui.builtin.stimuli.RampGenerator` | Linear ramps |
+| Direct Current | `symphonyui.builtin.stimuli.DirectCurrentGenerator` | Constant holding current |
+| Pulse Train | `symphonyui.builtin.stimuli.PulseTrainGenerator` | Repeated pulses |
+| Repeating Pulse | `symphonyui.builtin.stimuli.RepeatingPulseGenerator` | Single-repeat pulse |
+| Sum | `symphonyui.builtin.stimuli.SumGenerator` | Composite (sums sub-generators) |
+| Gaussian Noise | `edu.washington.riekelab.stimuli.GaussianNoiseGenerator` | Filtered Gaussian noise |
+| Gaussian Noise V2 | `edu.washington.riekelab.stimuli.GaussianNoiseGeneratorV2` | Corrected noise filter |
+| Binary Noise | `edu.washington.riekelab.stimuli.BinaryNoiseGenerator` | Binary random segments |
+
+**How it works:** When `epoch.stimuli{i}.data` is empty but `stimulus_id` and `stimulus_parameters` are present, `getStimulusByName()` auto-reconstructs the waveform transparently. Callers don't need to know whether data was pre-computed or reconstructed.
+
+```matlab
+% Get stimulus waveform (auto-reconstructs if needed)
+stim = epicTreeTools.getStimulusByName(epoch, 'UV LED');
+plot(stim.data);  % Reconstructed from parameters
+
+% Get stimulus matrix for multiple epochs
+[stimMatrix, sr] = epicTreeTools.getStimulusMatrix(epochs, 'UV LED');
+```
+
+**Note:** Stage-based spatial stimuli (moving bars, gratings, spots) don't have generator classes — their `stimulus_id` is empty and stimulus shape is defined by protocol parameters instead.
+
+## DataJoint Web App Integration
+
+EpicTreeGUI integrates with a DataJoint-based Flask/Next.js web application for data management.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  DataJoint Web App                               │
+│  Flask backend (Python) + Next.js frontend       │
+│  MySQL 5.7 in Docker                             │
+├─────────────────────────────────────────────────┤
+│  Endpoints:                                      │
+│  - /pop/add-data    Ingest H5 + JSON metadata    │
+│  - /results/export-mat  Export to epicTreeGUI     │
+│  - /results/import-ugm  Import selection masks    │
+└──────────────┬──────────────────────────────────┘
+               │ .mat file
+               ▼
+┌─────────────────────────────────────────────────┐
+│  epicTreeGUI (MATLAB)                            │
+│  Load → Build tree → Analyze → Save .ugm         │
+└──────────────────────────────────────────────────┘
+```
+
+### Data Pipeline
+
+1. **H5 files** contain raw experiment data (Symphony format)
+2. **JSON metadata** parsed from H5 by RetinAnalysis Python pipeline
+3. **DataJoint MySQL** stores structured metadata (experiments, cells, epochs, stimuli, responses)
+4. **Flask export** packages DataJoint query results into epicTreeGUI `.mat` format
+5. **MATLAB** loads `.mat`, reconstructs stimulus waveforms from `stimulus_id` + parameters, analyzes data
+
+### Stimulus Metadata Flow
+
+```
+H5 file (stimulusID attribute)
+  → JSON metadata (stimulusID, sampleRate, sampleRateUnits, durationSeconds, units)
+    → DataJoint Stimulus table (stimulus_id, sample_rate, etc.)
+      → Python export (stimulus_id + stimulus_parameters in .mat)
+        → MATLAB auto-reconstruction (epicStimulusGenerators)
+```
+
+The DataJoint `Stimulus` table stores the generator class name (`stimulus_id`) and metadata. The actual waveform is never stored — it's reconstructed in MATLAB from these parameters.
+
+See `docs/UserGuide.md` for detailed setup and usage instructions.
+
 ## Citation
 
 If you use this software in academic work, please cite:
@@ -200,10 +281,12 @@ See [CITATION.cff](CITATION.cff) for additional citation formats.
 ## Documentation
 
 - **User Guide**: `docs/UserGuide.md` - Comprehensive usage documentation
+- **Data Format**: `docs/dev/DATA_FORMAT_SPECIFICATION.md` - Standard .mat format specification
+- **Stimulus Plan**: `docs/dev/STIMULUS_AND_GAPS_PLAN.md` - Stimulus reconstruction design and status
+- **Selection State**: `docs/SELECTION_STATE_ARCHITECTURE.md` - .ugm file format and selection persistence
 - **Examples**: `examples/` - Sample scripts demonstrating common workflows
 - **Technical Specification**: `docs/trd` - Complete technical reference
 - **API Reference**: `src/tree/README.md` - epicTreeTools class documentation
-- **Developer Guide**: `docs/dev/CLAUDE.md` - Project architecture and patterns
 
 ## License
 

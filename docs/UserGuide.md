@@ -15,7 +15,8 @@ A pure MATLAB GUI for browsing and analyzing epoch data.
 7. [Analysis Functions](#analysis-functions)
 8. [GUI Usage](#gui-usage)
 9. [Common Workflows](#common-workflows)
-10. [DataJoint Export to epicTreeGUI](#datajoint-export-to-epictreegui)
+10. [Stimulus Reconstruction](#stimulus-reconstruction)
+11. [DataJoint Web App Integration](#datajoint-web-app-integration)
 
 ---
 
@@ -519,53 +520,171 @@ end
 
 ---
 
-## DataJoint Export to epicTreeGUI
+## Stimulus Reconstruction
 
-You can export data from the DataJoint web app directly into a `.mat` file that epicTreeGUI understands. This lets you go from database query to MATLAB analysis in one click.
+Symphony stores stimuli parametrically — only the generator class name (`stimulus_id`) and parameters are saved, not the actual waveform data. EpicTreeGUI includes pure MATLAB ports of all 11 Symphony stimulus generators to reconstruct waveforms on demand.
+
+### How It Works
+
+When you access a stimulus via `getStimulusByName()`, it checks:
+1. If `.data` is already populated, return it directly
+2. If `.data` is empty but `.stimulus_id` and `.stimulus_parameters` exist, auto-reconstruct
+3. If neither, return empty
+
+This is transparent — callers always get a populated `data` field back.
+
+### Supported Generators
+
+| Generator | stimulusID | Key Parameters |
+|-----------|-----------|----------------|
+| Pulse | `symphonyui.builtin.stimuli.PulseGenerator` | preTime, stimTime, tailTime, amplitude, mean |
+| Sine | `symphonyui.builtin.stimuli.SineGenerator` | + period, phase |
+| Square | `symphonyui.builtin.stimuli.SquareGenerator` | + period, phase |
+| Ramp | `symphonyui.builtin.stimuli.RampGenerator` | preTime, stimTime, tailTime, amplitude, mean |
+| Direct Current | `symphonyui.builtin.stimuli.DirectCurrentGenerator` | time, offset |
+| Pulse Train | `symphonyui.builtin.stimuli.PulseTrainGenerator` | + numPulses, increments |
+| Repeating Pulse | `symphonyui.builtin.stimuli.RepeatingPulseGenerator` | Same as Pulse |
+| Sum | `symphonyui.builtin.stimuli.SumGenerator` | Composite of sub-generators |
+| Gaussian Noise | `edu.washington.riekelab.stimuli.GaussianNoiseGenerator` | stDev, freqCutoff, numFilters, seed |
+| Gaussian Noise V2 | `edu.washington.riekelab.stimuli.GaussianNoiseGeneratorV2` | Same params, corrected filter |
+| Binary Noise | `edu.washington.riekelab.stimuli.BinaryNoiseGenerator` | segmentTime, amplitude, seed |
+
+### Usage
+
+```matlab
+% Single stimulus waveform
+stim = epicTreeTools.getStimulusByName(epoch, 'UV LED');
+plot(stim.data);
+
+% Single epoch: [data, sampleRate]
+[stimData, sr] = epicTreeTools.getStimulusFromEpoch(epoch, 'UV LED');
+
+% Matrix for multiple epochs: [nEpochs x nSamples]
+[stimMatrix, sr] = epicTreeTools.getStimulusMatrix(epochs, 'UV LED');
+
+% Direct generator call (for testing/exploration)
+params = struct('preTime', 100, 'stimTime', 200, 'tailTime', 100, ...
+    'amplitude', 5, 'mean', 0, 'sampleRate', 10000);
+[data, sr] = epicStimulusGenerators.generateStimulus( ...
+    'symphonyui.builtin.stimuli.PulseGenerator', params);
+```
+
+### Noise Reproducibility
+
+Stochastic generators (gaussianNoise, gaussianNoiseV2, binaryNoise) use seeded RNG via `RandStream('mt19937ar', 'Seed', seed)`. The same seed always produces identical output, matching Symphony's behavior for STA/linear filter analysis.
+
+### Two Classes of Stimuli
+
+**Waveform stimuli** — the generator IS the stimulus:
+- Used by noise protocols (VariableMeanNoise, etc.)
+- `stimulus_id` = `GaussianNoiseGeneratorV2`, device = `UV LED`
+- Must reconstruct for STA/LN analysis
+
+**Parametric stimuli** — the generator is just holding current:
+- Used by spot/grating protocols (SingleSpot, ExpandingSpots, etc.)
+- `stimulus_id` = `DirectCurrentGenerator`, device = `Amp1` (0 pA DC)
+- The actual light stimulus is described by protocol parameters (preTime, spotIntensity, etc.)
+- Stage-based stimuli have no `stimulus_id` at all — `stimulus_id` is empty/NULL
+
+---
+
+## DataJoint Web App Integration
+
+EpicTreeGUI integrates with a DataJoint-based web application for centralized data management. The web app provides a query interface for browsing experiments, exporting to epicTreeGUI `.mat` format, and importing selection masks back.
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────┐
+│  DataJoint Web App                            │
+│                                               │
+│  Frontend: Next.js (React) on port 3000       │
+│  Backend:  Flask (Python) on port 5000        │
+│  Database: MySQL 5.7 in Docker on port 3306   │
+│                                               │
+│  Key endpoints:                               │
+│  POST /pop/add-data     Ingest experiments    │
+│  GET  /results/export-mat  Export to .mat     │
+│  POST /results/import-ugm  Import .ugm mask   │
+│  GET  /pop/clear          Clear database       │
+└──────────────┬───────────────────────────────┘
+               │ .mat / .ugm files
+               ▼
+┌──────────────────────────────────────────────┐
+│  epicTreeGUI (MATLAB)                         │
+│  Load .mat → Build tree → Analyze → Save .ugm │
+└──────────────────────────────────────────────┘
+```
 
 ### Prerequisites
 
-- **Docker Desktop** running (for MySQL + DataJoint containers)
+- **Docker Desktop** running (for MySQL 5.7 container)
 - **Node.js** installed (for the Next.js frontend)
-- **Python 3.9+** with poetry (for the Flask backend)
-- **H5 files** accessible on disk (the export stores paths, not raw waveforms)
+- **Python 3.9+** with Poetry (for the Flask backend)
+- **H5 files** accessible on disk (export stores paths, not raw waveforms)
 
-### Setup (First Time)
+### Setup
 
-1. **Start Docker Desktop** and wait for it to be ready.
-
-2. **Start the DataJoint web app:**
+1. **Start the MySQL database:**
 
 ```bash
-cd /path/to/datajoint/next-app
+cd /path/to/datajoint/databases/single_cell_test
+docker compose up -d
+```
 
-# Start Flask backend (use port 5001 if 5000 is taken by AirPlay on macOS)
-cd api
+2. **Start the Flask backend:**
+
+```bash
+cd /path/to/datajoint/next-app/api
 poetry install
-poetry run flask run --port 5001
+poetry run flask run --port 5000
+# Use port 5001 if 5000 is taken by AirPlay on macOS
+```
 
-# In another terminal, start Next.js frontend
+3. **Start the Next.js frontend** (in a separate terminal):
+
+```bash
 cd /path/to/datajoint/next-app
 npm install
 npm run dev
 ```
 
-3. **Configure the proxy** if using a non-default Flask port. In `next.config.js`, set the destination to match your Flask port:
+4. **Configure the proxy** if using a non-default Flask port. In `next.config.js`:
 
 ```javascript
 destination: 'http://127.0.0.1:5001/:path*'
 ```
 
-4. **Open the app** at `http://localhost:3000`.
+5. **Open the app** at `http://localhost:3000`.
 
-### Adding Data to DataJoint
+### Adding Data
 
-1. **Create a database** in the web app (e.g., `single_cell_test`).
-2. **Add your data directories:**
-   - **H5 directory**: folder containing your `.h5` experiment files
-   - **Meta directory**: folder containing `analysis/*.mat` files (from RetinAnalysis)
-   - **Tags directory**: folder containing `.json` tag files (can be empty `{}` files)
-3. Wait for data ingestion to complete.
+The web app ingests data from three directories:
+
+| Directory | Contents | Purpose |
+|-----------|----------|---------|
+| **H5 directory** | `.h5` experiment files | Raw Symphony data |
+| **Meta directory** | `.json` metadata files | Parsed from H5 by RetinAnalysis |
+| **Tags directory** | `.json` tag files | User annotations (can be empty `{}`) |
+
+Data is ingested via the `/pop/add-data` endpoint. The Flask backend parses JSON metadata and populates 14+ DataJoint tables (Experiment, Animal, Preparation, Cell, EpochGroup, EpochBlock, Epoch, Response, Stimulus, Protocol, Tags, etc.).
+
+### Stimulus Metadata Pipeline
+
+The DataJoint `Stimulus` table stores generator metadata alongside device and path info:
+
+| Column | Source | Example |
+|--------|--------|---------|
+| `h5_uuid` | H5 file UUID | `db89fd05-2b19-...` |
+| `device_name` | Recording device | `Amp1` |
+| `h5path` | Path in H5 file | `/experiment-.../stimuli/Amp1-...` |
+| `stimulus_id` | Generator class name | `symphonyui.builtin.stimuli.DirectCurrentGenerator` |
+| `sample_rate` | Sample rate | `10000.0` |
+| `sample_rate_units` | Units | `Hz` |
+| `duration_seconds` | Duration | `0.75` |
+| `units` | Physical units | `A` |
+
+These fields flow from H5 → JSON metadata → DataJoint DB → Python export → MATLAB reconstruction.
 
 ### Exporting to epicTreeGUI
 
@@ -593,23 +712,37 @@ tree.buildTreeWithSplitters({
     @epicTreeTools.splitOnProtocol
 });
 
-% 4. Navigate and analyze
+% 4. Navigate and analyze — stimulus reconstruction is automatic
 firstCell = tree.childAt(1);
 ssNode = firstCell.childBySplitValue('SingleSpot');
-[data, epochs, fs] = getSelectedData(ssNode, 'Amp1');
+[data, epochs, fs] = epicTreeTools.getSelectedData(ssNode, 'Amp1');
 plot((1:size(data,2))/fs*1000, mean(data,1));
 xlabel('Time (ms)'); ylabel('Response (pA)');
 
-% 5. Launch GUI
+% 5. Get stimulus waveforms (auto-reconstructed from stimulus_id)
+[stimMatrix, sr] = epicTreeTools.getStimulusMatrix(epochs, 'UV LED');
+
+% 6. Launch GUI
 gui = epicTreeGUI(tree);
 ```
+
+### Importing Selection Masks
+
+After analyzing in MATLAB and saving a `.ugm` file, you can push selections back to DataJoint:
+
+1. **Save `.ugm` in MATLAB:** `tree.saveUserMetadata(filepath)`
+2. **Click "Import Mask"** (orange button in the DataJoint results toolbar)
+3. **Select the `.ugm` file** — deselected epochs get tagged as `"excluded"` in DataJoint
+
+The import is idempotent (re-importing produces identical tags) and uses `h5_uuid` for matching (survives database repopulation).
 
 ### Notes
 
 - **Protocol names**: DataJoint exports use full Java package paths (e.g., `edu.washington.riekelab.protocols.SingleSpot`). The `childBySplitValue` method supports substring matching, so `childBySplitValue('SingleSpot')` works.
-- **Epoch ordering**: Epochs are sorted by `start_time` at leaf nodes, so the same data produces identical ordering regardless of whether it came from a RetinAnalysis export or DataJoint export.
+- **Epoch ordering**: Epochs are sorted by `start_time` at leaf nodes, so the same data produces identical ordering regardless of data source.
 - **H5 lazy loading**: The export stores `h5_path` references, not raw waveform data. H5 files must be accessible at the paths recorded in the export.
 - **No MEA support**: The DataJoint export currently supports single-cell patch clamp data only (`is_mea = false`).
+- **Database credentials**: Hardcoded as `root`/`simple` on `127.0.0.1:3306` (local development only).
 
 ---
 
