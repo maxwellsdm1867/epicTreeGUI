@@ -117,7 +117,7 @@ for i = 1:length(leaves2)
     % Just extract first 2 epochs per leaf for speed
     epList = leaf.getAllEpochs(false);
     testEps = epList(1:min(2, length(epList)));
-    [d, ~] = getResponseMatrix(testEps, 'Amp1');
+    [d, ~] = epicTreeTools.getResponseMatrix(testEps, 'Amp1');
     assert(~isempty(d), sprintf('Leaf %d: no data after rebuild', i));
 
     node = leaf;

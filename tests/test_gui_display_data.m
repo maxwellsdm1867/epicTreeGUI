@@ -409,7 +409,7 @@ try
     testEpochs = epochs(1:5);
 
     % Get response matrix
-    [respMatrix, fs] = getResponseMatrix(testEpochs, 'Amp1');
+    [respMatrix, fs] = epicTreeTools.getResponseMatrix(testEpochs, 'Amp1');
 
     assert(size(respMatrix, 1) == 5, 'Should have 5 rows');
     assert(fs == 10000, 'Sample rate should be 10000');

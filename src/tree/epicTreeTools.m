@@ -1070,7 +1070,7 @@ classdef epicTreeTools < handle
 
             % Use getResponseMatrix which handles H5 loading
             h5 = obj.resolveH5File();
-            [dataMatrix, ~] = getResponseMatrix(epochs, streamName, h5);
+            [dataMatrix, ~] = epicTreeTools.getResponseMatrix(epochs, streamName, h5);
         end
 
         function [dataMatrix, sampleRate] = dataMatrix(obj, deviceName)
@@ -1093,7 +1093,7 @@ classdef epicTreeTools < handle
 
             % Use getResponseMatrix which handles H5 loading
             h5 = obj.resolveH5File();
-            [dataMatrix, sampleRate] = getResponseMatrix(epochs, deviceName, h5);
+            [dataMatrix, sampleRate] = epicTreeTools.getResponseMatrix(epochs, deviceName, h5);
         end
 
         function spikesMatrix = spikeTimesMatrix(obj, deviceName)
@@ -2935,7 +2935,7 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            [dataMatrix, sampleRate] = getResponseMatrix(selectedEpochs, streamName, h5_file);
+            [dataMatrix, sampleRate] = epicTreeTools.getResponseMatrix(selectedEpochs, streamName, h5_file);
         end
 
         function epochList = getTreeEpochs(treeNode, onlySelected)
@@ -3234,7 +3234,7 @@ classdef epicTreeTools < handle
 
             result.frequency = stimFreq;
 
-            [dataMatrix, sampleRate] = getResponseMatrix(epochs, streamName);
+            [dataMatrix, sampleRate] = epicTreeTools.getResponseMatrix(epochs, streamName);
 
             if isempty(dataMatrix)
                 result.cycleAverage = [];
@@ -3415,7 +3415,7 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            [respMatrix, sampleRate] = getResponseMatrix(epochs, respStreamName);
+            [respMatrix, sampleRate] = epicTreeTools.getResponseMatrix(epochs, respStreamName);
 
             if isempty(respMatrix)
                 result.filter = [];
@@ -3556,7 +3556,7 @@ classdef epicTreeTools < handle
                 end
             end
 
-            [dataMatrix, sampleRate] = getResponseMatrix(epochs, streamName, h5_file);
+            [dataMatrix, sampleRate] = epicTreeTools.getResponseMatrix(epochs, streamName, h5_file);
 
             if isempty(dataMatrix)
                 response.mean = [];
@@ -3698,7 +3698,7 @@ classdef epicTreeTools < handle
                 return;
             end
 
-            [dataMatrix, sampleRate] = getResponseMatrix(epochs, streamName);
+            [dataMatrix, sampleRate] = epicTreeTools.getResponseMatrix(epochs, streamName);
 
             if isempty(dataMatrix)
                 stats.peakAmplitude = [];
@@ -3870,6 +3870,309 @@ classdef epicTreeTools < handle
 
                 smoothed = conv(spikeTrain, kernel, 'same');
                 psth(i, :) = smoothed;
+            end
+        end
+
+        function [dataMatrix, sampleRate] = getResponseMatrix(epochList, streamName, h5_file)
+            % GETRESPONSEMATRIX Extract response data matrix from epoch list
+            %
+            % THIS IS THE CORE DATA EXTRACTION FUNCTION.
+            % Returns a matrix where each row is one epoch's response data.
+            %
+            % Usage:
+            %   [data, fs] = epicTreeTools.getResponseMatrix(epochs, 'Amp1')
+            %   [data, fs] = epicTreeTools.getResponseMatrix(epochs, 'Amp1', '/path/to/file.h5')
+            %
+            % Inputs:
+            %   epochList  - Cell array of epoch structs
+            %   streamName - Device name (e.g., 'Amp1', 'Amp2', 'Stage')
+            %   h5_file    - (Optional) Path to H5 file for lazy loading
+            %
+            % Outputs:
+            %   dataMatrix - [nEpochs x nSamples] response data matrix
+            %   sampleRate - Sample rate in Hz (from first epoch)
+            %
+            % Note: The legacy Java riekesuite.getResponseMatrix threw an error
+            % on variable-length responses. This version pads shorter epochs
+            % with zeros and truncates longer ones, matching the first epoch's
+            % length. This can silently corrupt analysis — see ROADMAP.md
+            % Known Issues for planned fix.
+            %
+            % See also: epicTreeTools.getSelectedData, epicTreeTools.getResponseFromEpoch
+
+            % Validate input
+            if isempty(epochList)
+                dataMatrix = [];
+                sampleRate = [];
+                return;
+            end
+
+            % Ensure epochList is a cell array
+            if ~iscell(epochList)
+                epochList = {epochList};
+            end
+
+            % Handle optional h5_file parameter
+            if nargin < 3
+                h5_file = '';
+            end
+
+            nEpochs = length(epochList);
+
+            % Get first response to determine size and sample rate
+            [firstData, sampleRate] = epicTreeTools.getResponseFromEpoch(epochList{1}, streamName, h5_file);
+
+            if isempty(firstData)
+                warning('epicTreeTools:getResponseMatrix:StreamNotFound', ...
+                    'Response stream "%s" not found in first epoch', streamName);
+                dataMatrix = [];
+                return;
+            end
+
+            nSamples = length(firstData);
+
+            % Pre-allocate output matrix
+            dataMatrix = zeros(nEpochs, nSamples);
+            dataMatrix(1, :) = firstData;
+
+            % Extract data from remaining epochs
+            for i = 2:nEpochs
+                [data, ~] = epicTreeTools.getResponseFromEpoch(epochList{i}, streamName, h5_file);
+
+                if isempty(data)
+                    % Stream not found - leave as zeros
+                    warning('epicTreeTools:getResponseMatrix:StreamNotFound', ...
+                        'Response stream "%s" not found in epoch %d', streamName, i);
+                    continue;
+                end
+
+                % Handle variable length data
+                if length(data) == nSamples
+                    dataMatrix(i, :) = data;
+                elseif length(data) < nSamples
+                    % Pad with zeros
+                    dataMatrix(i, 1:length(data)) = data;
+                else
+                    % Truncate
+                    dataMatrix(i, :) = data(1:nSamples);
+                end
+            end
+        end
+
+        function [data, sampleRate] = getResponseFromEpoch(epoch, streamName, h5_file)
+            % GETRESPONSEFROMEPOCH Extract response data from a single epoch
+            %
+            % Searches epoch.responses array for matching device_name.
+            % Supports lazy loading from H5 files when data field is empty.
+            %
+            % Inputs:
+            %   epoch      - Epoch struct with responses field
+            %   streamName - Device name to find (e.g., 'Amp1')
+            %   h5_file    - (Optional) Path to H5 file for lazy loading
+
+            data = [];
+            sampleRate = [];
+
+            if nargin < 3
+                h5_file = '';
+            end
+
+            % Check if responses field exists
+            if ~isfield(epoch, 'responses')
+                return;
+            end
+
+            responses = epoch.responses;
+
+            % Find the matching response
+            resp = [];
+            if isstruct(responses)
+                for i = 1:length(responses)
+                    if isfield(responses(i), 'device_name') && strcmp(responses(i).device_name, streamName)
+                        resp = responses(i);
+                        break;
+                    end
+                end
+            elseif iscell(responses)
+                for i = 1:length(responses)
+                    r = responses{i};
+                    if isfield(r, 'device_name') && strcmp(r.device_name, streamName)
+                        resp = r;
+                        break;
+                    end
+                end
+            end
+
+            if isempty(resp)
+                return;
+            end
+
+            % Get sample rate
+            if isfield(resp, 'sample_rate')
+                sampleRate = resp.sample_rate;
+            end
+
+            % Get data - try direct field first, then lazy load from H5
+            if isfield(resp, 'data') && ~isempty(resp.data)
+                data = resp.data(:)';  % Ensure row vector
+            else
+                % Lazy load from H5 file
+                hasH5Path = isfield(resp, 'h5_path') && ~isempty(resp.h5_path);
+
+                % Use h5_file from: 1) parameter, 2) response field, 3) epoch field
+                actualH5File = h5_file;
+                if isempty(actualH5File) && isfield(resp, 'h5_file') && ~isempty(resp.h5_file)
+                    actualH5File = resp.h5_file;
+                end
+                if isempty(actualH5File) && isfield(epoch, 'h5_file') && ~isempty(epoch.h5_file)
+                    actualH5File = epoch.h5_file;
+                end
+
+                if hasH5Path && ~isempty(actualH5File)
+                    try
+                        data = epicTreeTools.loadH5ResponseData(resp, actualH5File);
+                        if ~isempty(data)
+                            data = data(:)';  % Ensure row vector
+                        end
+                    catch ME
+                        warning('epicTreeTools:getResponseFromEpoch:H5LoadFailed', ...
+                            'Failed to load H5 data: %s', ME.message);
+                    end
+                elseif hasH5Path
+                    warning('epicTreeTools:getResponseFromEpoch:noH5File', ...
+                        'Response has h5_path but no h5_file. Set h5_dir using epicTreeConfig.');
+                end
+            end
+        end
+
+        function data = loadH5ResponseData(response, h5_file)
+            % LOADH5RESPONSEDATA Load response data from H5 file on demand
+            %
+            % Implements lazy loading of response data from H5 files.
+            %
+            % Usage:
+            %   data = epicTreeTools.loadH5ResponseData(response)
+            %   data = epicTreeTools.loadH5ResponseData(response, h5_file)
+            %
+            % Input:
+            %   response - Response struct with .h5_path, optionally .h5_file, .data
+            %   h5_file  - (Optional) Path to H5 file, overrides response.h5_file
+            %
+            % Output:
+            %   data - Response data as column vector
+            %
+            % See also: epicTreeTools.getResponseMatrix, epicTreeTools.getResponseFromEpoch
+
+            data = [];
+
+            % Handle cell array of responses
+            if iscell(response)
+                response = response{1};
+            end
+
+            % Check if data is already loaded
+            if isfield(response, 'data') && ~isempty(response.data)
+                data = response.data(:);
+                return;
+            end
+
+            % Get H5 file path - prefer parameter, then response field
+            if nargin < 2 || isempty(h5_file)
+                if isfield(response, 'h5_file') && ~isempty(response.h5_file)
+                    h5_file = response.h5_file;
+                else
+                    warning('epicTreeTools:loadH5ResponseData:noH5File', ...
+                        'No h5_file provided and none in response struct');
+                    return;
+                end
+            end
+
+            % Handle path mappings (NAS paths may differ between systems)
+            if ~exist(h5_file, 'file')
+                altPaths = {
+                    strrep(h5_file, '/Volumes/rieke-nas/', '/Volumes/rieke/'),
+                    strrep(h5_file, '/Volumes/rieke/', '/Volumes/rieke-nas/'),
+                    strrep(h5_file, '/mnt/rieke-nas/', '/Volumes/rieke-nas/'),
+                };
+
+                for i = 1:length(altPaths)
+                    if exist(altPaths{i}, 'file')
+                        h5_file = altPaths{i};
+                        break;
+                    end
+                end
+
+                if ~exist(h5_file, 'file')
+                    warning('epicTreeTools:loadH5ResponseData:fileNotFound', ...
+                        'H5 file not found: %s', h5_file);
+                    return;
+                end
+            end
+
+            % Get H5 path within file
+            if ~isfield(response, 'h5_path') || isempty(response.h5_path)
+                warning('epicTreeTools:loadH5ResponseData:noH5Path', 'No h5_path in response');
+                return;
+            end
+
+            h5_path = response.h5_path;
+
+            % Clean path (remove leading slash if present)
+            if h5_path(1) == '/'
+                h5_path = h5_path(2:end);
+            end
+
+            % Load data from H5 file
+            try
+                dataPath = ['/' h5_path '/data'];
+                rawData = h5read(h5_file, dataPath);
+
+                if isstruct(rawData)
+                    if isfield(rawData, 'quantity')
+                        data = double(rawData.quantity(:));
+                    elseif isfield(rawData, 'Quantity')
+                        data = double(rawData.Quantity(:));
+                    else
+                        fn = fieldnames(rawData);
+                        for i = 1:length(fn)
+                            if isnumeric(rawData.(fn{i}))
+                                data = double(rawData.(fn{i})(:));
+                                break;
+                            end
+                        end
+                    end
+                else
+                    data = double(rawData(:));
+                end
+
+            catch ME
+                try
+                    altPath = ['/' h5_path '/data/quantity'];
+                    data = h5read(h5_file, altPath);
+                    data = double(data(:));
+                catch
+                    try
+                        info = h5info(h5_file, ['/' h5_path]);
+                        for i = 1:length(info.Datasets)
+                            if strcmpi(info.Datasets(i).Name, 'data')
+                                data = h5read(h5_file, ['/' h5_path '/' info.Datasets(i).Name]);
+                                if isstruct(data) && isfield(data, 'quantity')
+                                    data = double(data.quantity(:));
+                                else
+                                    data = double(data(:));
+                                end
+                                return;
+                            end
+                        end
+
+                        warning('epicTreeTools:loadH5ResponseData:noData', ...
+                            'Could not find data in %s. Error: %s', h5_path, ME.message);
+                    catch ME2
+                        warning('epicTreeTools:loadH5ResponseData:readError', ...
+                            'Error reading H5 file %s path %s: %s', ...
+                            h5_file, h5_path, ME2.message);
+                    end
+                end
             end
         end
     end

@@ -239,7 +239,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
 
             epochs = testCase.LeafNode.getAllEpochs(false);
 
-            [data, ~] = getResponseMatrix(epochs, 'Amp1', testCase.H5File);
+            [data, ~] = epicTreeTools.getResponseMatrix(epochs, 'Amp1', testCase.H5File);
 
             % May be empty if H5 not available
             if ~isempty(data)
@@ -256,7 +256,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
             epochs = testCase.LeafNode.getAllEpochs(false);
             nEpochs = length(epochs);
 
-            [data, ~] = getResponseMatrix(epochs, 'Amp1', testCase.H5File);
+            [data, ~] = epicTreeTools.getResponseMatrix(epochs, 'Amp1', testCase.H5File);
 
             % Skip if no data
             if isempty(data)
@@ -272,7 +272,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
 
             epochs = testCase.LeafNode.getAllEpochs(false);
 
-            [~, fs] = getResponseMatrix(epochs, 'Amp1', testCase.H5File);
+            [~, fs] = epicTreeTools.getResponseMatrix(epochs, 'Amp1', testCase.H5File);
 
             % Skip if no data
             if isempty(fs)
@@ -287,7 +287,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
         function testGetResponseMatrixEmptyInput(testCase)
             % Verify empty epoch list returns empty matrix
 
-            [data, fs] = getResponseMatrix({}, 'Amp1', testCase.H5File);
+            [data, fs] = epicTreeTools.getResponseMatrix({}, 'Amp1', testCase.H5File);
 
             testCase.verifyEmpty(data, ...
                 'Empty input must return empty matrix');
@@ -367,10 +367,10 @@ classdef DataExtractionTest < matlab.unittest.TestCase
             epochs = testCase.LeafNode.getAllEpochs(false);
 
             % Try Amp1
-            [data1, ~] = getResponseMatrix(epochs, 'Amp1', testCase.H5File);
+            [data1, ~] = epicTreeTools.getResponseMatrix(epochs, 'Amp1', testCase.H5File);
 
             % Try Amp2 (may not exist)
-            [data2, ~] = getResponseMatrix(epochs, 'Amp2', testCase.H5File);
+            [data2, ~] = epicTreeTools.getResponseMatrix(epochs, 'Amp2', testCase.H5File);
 
             % At least one should work
             testCase.verifyTrue(~isempty(data1) || ~isempty(data2), ...

@@ -266,7 +266,7 @@ try
     testEpochs = allEpochs(1:min(5, length(allEpochs)));
 
     % Pass h5_file for lazy loading
-    [respMatrix, fs] = getResponseMatrix(testEpochs, 'Amp1', h5_file);
+    [respMatrix, fs] = epicTreeTools.getResponseMatrix(testEpochs, 'Amp1', h5_file);
     fprintf('getResponseMatrix returned:\n');
     fprintf('  matrix size: [%d x %d]\n', size(respMatrix, 1), size(respMatrix, 2));
     fprintf('  sample rate: %g Hz\n', fs);
