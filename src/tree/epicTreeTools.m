@@ -3892,11 +3892,9 @@ classdef epicTreeTools < handle
             %   dataMatrix - [nEpochs x nSamples] response data matrix
             %   sampleRate - Sample rate in Hz (from first epoch)
             %
-            % Note: The legacy Java riekesuite.getResponseMatrix threw an error
-            % on variable-length responses. This version pads shorter epochs
-            % with zeros and truncates longer ones, matching the first epoch's
-            % length. This can silently corrupt analysis — see ROADMAP.md
-            % Known Issues for planned fix.
+            % Errors on variable-length responses (matching legacy Java
+            % riekesuite.getResponseMatrix behavior). All epochs must have
+            % the same response length for the given stream.
             %
             % See also: epicTreeTools.getSelectedData, epicTreeTools.getResponseFromEpoch
 
@@ -3940,22 +3938,19 @@ classdef epicTreeTools < handle
                 [data, ~] = epicTreeTools.getResponseFromEpoch(epochList{i}, streamName, h5_file);
 
                 if isempty(data)
-                    % Stream not found - leave as zeros
-                    warning('epicTreeTools:getResponseMatrix:StreamNotFound', ...
-                        'Response stream "%s" not found in epoch %d', streamName, i);
-                    continue;
+                    error('epicTreeTools:getResponseMatrix:StreamNotFound', ...
+                        'Response stream "%s" not found in epoch %d of %d.', ...
+                        streamName, i, nEpochs);
                 end
 
-                % Handle variable length data
-                if length(data) == nSamples
-                    dataMatrix(i, :) = data;
-                elseif length(data) < nSamples
-                    % Pad with zeros
-                    dataMatrix(i, 1:length(data)) = data;
-                else
-                    % Truncate
-                    dataMatrix(i, :) = data(1:nSamples);
+                % Strict length check (matches legacy Java behavior)
+                if length(data) ~= nSamples
+                    error('epicTreeTools:getResponseMatrix:InconsistentLength', ...
+                        'Inconsistent data length in epoch %d (was %d, expected %d). All epochs must have same response length for stream "%s".', ...
+                        i, length(data), nSamples, streamName);
                 end
+
+                dataMatrix(i, :) = data;
             end
         end
 
