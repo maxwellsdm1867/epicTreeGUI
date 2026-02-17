@@ -240,7 +240,7 @@ try
         fprintf('Testing on node: %s\n', string(leafNode.splitValue));
 
         % Pass h5_file for lazy loading from H5
-        [dataMatrix, epochs, sampleRate] = getSelectedData(leafNode, 'Amp1', h5_file);
+        [dataMatrix, epochs, sampleRate] = epicTreeTools.getSelectedData(leafNode, 'Amp1', h5_file);
         fprintf('getSelectedData returned:\n');
         fprintf('  dataMatrix size: [%d x %d]\n', size(dataMatrix, 1), size(dataMatrix, 2));
         fprintf('  epochs: %d\n', length(epochs));
@@ -293,7 +293,7 @@ try
             testEpochs{i}.h5_file = h5_file;
         end
 
-        result = getMeanResponseTrace(testEpochs, 'Amp1');
+        result = epicTreeTools.getMeanResponseTrace(testEpochs, 'Amp1');
         fprintf('getMeanResponseTrace returned:\n');
         fprintf('  n: %d\n', result.n);
         fprintf('  mean length: %d\n', length(result.mean));

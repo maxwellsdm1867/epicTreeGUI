@@ -3,7 +3,7 @@ classdef epicAnalysis
 %
 % Ports legacy RFAnalysis, SpikeDetection.Detector, BaselineCorrectOvation,
 % differenceOfGaussians, and singleGaussian to work with epicTreeTools nodes
-% and getSelectedData().
+% and epicTreeTools.getSelectedData().
 %
 % Usage:
 %   results = epicAnalysis.RFAnalysis(node, params)
@@ -69,7 +69,7 @@ classdef epicAnalysis
 
             for CurNode = 1:nLeaves
                 leafNode = leaves{CurNode};
-                EpochData = getSelectedData(leafNode, params.Amp);
+                EpochData = epicTreeTools.getSelectedData(leafNode, params.Amp);
 
                 if isempty(EpochData)
                     continue;

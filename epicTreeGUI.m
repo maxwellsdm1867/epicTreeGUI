@@ -649,7 +649,7 @@ classdef epicTreeGUI < handle
             end
 
             node = nodes{1};
-            [data, ~, fs] = getSelectedData(node, 'Amp1', self.h5File);
+            [data, ~, fs] = epicTreeTools.getSelectedData(node, 'Amp1', self.h5File);
 
             if isempty(data)
                 msgbox('No response data available', 'Analysis');
@@ -753,7 +753,7 @@ classdef epicTreeGUI < handle
             ax = self.plottingCanvas.axes;
 
             % Get selected data (pass H5 file for lazy loading)
-            [data, ~, fs] = getSelectedData(node, 'Amp1', self.h5File);
+            [data, ~, fs] = epicTreeTools.getSelectedData(node, 'Amp1', self.h5File);
 
             if isempty(data)
                 cla(ax);
@@ -793,7 +793,7 @@ classdef epicTreeGUI < handle
             try
                 % Use getSelectedData for single epoch (lazy loads from H5)
                 epochList = {epoch};
-                [data, ~, fs] = getSelectedData(epochList, 'Amp1', self.h5File);
+                [data, ~, fs] = epicTreeTools.getSelectedData(epochList, 'Amp1', self.h5File);
 
                 if isempty(data)
                     text(ax, 0.5, 0.5, 'No response data', ...

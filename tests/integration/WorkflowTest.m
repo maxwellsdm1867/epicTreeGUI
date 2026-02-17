@@ -22,13 +22,19 @@ classdef WorkflowTest < matlab.unittest.TestCase
 
     methods (TestClassSetup)
         function setupPaths(testCase)
-            % Add paths needed for tests
-            addpath(genpath('src'));
-            addpath(genpath('tests/helpers'));
-            addpath(genpath('tests/utilities'));
+            % Add specific paths (avoid genpath which scans recursively)
+            repoRoot = '/Users/maxwellsdm/Documents/GitHub/epicTreeGUI';
+            addpath(fullfile(repoRoot, 'src'));
+            addpath(fullfile(repoRoot, 'src', 'tree'));
+            addpath(fullfile(repoRoot, 'src', 'analysis'));
+            addpath(fullfile(repoRoot, 'src', 'utilities'));
+            addpath(fullfile(repoRoot, 'src', 'splitters'));
+            addpath(fullfile(repoRoot, 'src', 'tree', 'graphicalTree'));
+            addpath(fullfile(repoRoot, 'tests', 'helpers'));
+            addpath(fullfile(repoRoot, 'tests', 'utilities'));
 
-            % Get test data path
-            testCase.DataPath = getTestDataPath();
+            % Set test data path directly
+            testCase.DataPath = '/Users/maxwellsdm/Documents/epicTreeTest/analysis/2025-12-02_F.mat';
         end
     end
 
@@ -56,7 +62,7 @@ classdef WorkflowTest < matlab.unittest.TestCase
                 'Cell type node should have epochs');
 
             % Step 4: Call analysis function on that node
-            result = getMeanResponseTrace(cellTypeNode, 'Amp1');
+            result = epicTreeTools.getMeanResponseTrace(cellTypeNode, 'Amp1');
 
             % Step 5: Verify output struct has valid fields
             testCase.verifyTrue(isstruct(result), 'Result should be struct');
@@ -104,14 +110,14 @@ classdef WorkflowTest < matlab.unittest.TestCase
             fprintf('  Analyzing: %s / %s\n', string(cellType), string(protocolName));
 
             % Step 4: Extract data with getSelectedData
-            [dataMatrix, epochs, fs] = getSelectedData(protocolNode, 'Amp1');
+            [dataMatrix, epochs, fs] = epicTreeTools.getSelectedData(protocolNode, 'Amp1');
 
             testCase.verifyNotEmpty(dataMatrix, 'Data matrix should not be empty');
             testCase.verifyNotEmpty(epochs, 'Epochs should not be empty');
             testCase.verifyGreaterThan(fs, 0, 'Sample rate should be positive');
 
             % Step 5: Compute amplitude stats
-            stats = getResponseAmplitudeStats(protocolNode, 'Amp1');
+            stats = epicTreeTools.getResponseAmplitudeStats(protocolNode, 'Amp1');
 
             testCase.verifyTrue(isstruct(stats), 'Stats should be struct');
             testCase.verifyEqual(stats.n, length(epochs), ...
@@ -169,14 +175,14 @@ classdef WorkflowTest < matlab.unittest.TestCase
                 'Selected count should match expected after deselection');
 
             % Step 4: Call getMeanResponseTrace (uses OnlySelected=true by default)
-            result = getMeanResponseTrace(leafNode, 'Amp1');
+            result = epicTreeTools.getMeanResponseTrace(leafNode, 'Amp1');
 
             % Step 5: Verify n in output equals selected count (not total count)
             testCase.verifyEqual(result.n, expectedSelected, ...
                 'Result n should equal selected count, not total count');
 
             % Also verify with getSelectedData
-            [dataMatrix, selectedEpochs, fs] = getSelectedData(leafNode, 'Amp1');
+            [dataMatrix, selectedEpochs, fs] = epicTreeTools.getSelectedData(leafNode, 'Amp1');
 
             testCase.verifyEqual(length(selectedEpochs), expectedSelected, ...
                 'getSelectedData should return only selected epochs');
@@ -204,7 +210,7 @@ classdef WorkflowTest < matlab.unittest.TestCase
                 cellTypeNode = tree.childAt(i);
                 cellType = cellTypeNode.splitValue;
 
-                result = getMeanResponseTrace(cellTypeNode, 'Amp1');
+                result = epicTreeTools.getMeanResponseTrace(cellTypeNode, 'Amp1');
 
                 % Store result
                 results{i} = result;
@@ -339,12 +345,12 @@ classdef WorkflowTest < matlab.unittest.TestCase
             end
 
             % Step 6: Extract data from current node
-            [dataMatrix, epochs, fs] = getSelectedData(currentNode, 'Amp1');
+            [dataMatrix, epochs, fs] = epicTreeTools.getSelectedData(currentNode, 'Amp1');
 
             testCase.verifyNotEmpty(epochs, 'Should have epochs at current node');
 
             % Step 7: Compute analysis
-            result = getMeanResponseTrace(currentNode, 'Amp1');
+            result = epicTreeTools.getMeanResponseTrace(currentNode, 'Amp1');
             testCase.verifyEqual(result.n, length(epochs), ...
                 'Analysis result should match epoch count');
 

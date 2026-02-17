@@ -129,7 +129,7 @@ try
     tree.buildTreeWithSplitters({@epicTreeTools.splitOnProtocol});
     ssNode = tree.childBySplitValue('SingleSpot');
     assert(~isempty(ssNode), 'Should find SingleSpot protocol');
-    [respData, ~, ~] = getSelectedData(ssNode, 'Amp1');
+    [respData, ~, ~] = epicTreeTools.getSelectedData(ssNode, 'Amp1');
     assert(~isempty(respData), 'Should get response data');
     corrected = epicAnalysis.baselineCorrect(respData, 1, 2000);
     % Baseline region should be near zero

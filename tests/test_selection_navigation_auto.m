@@ -72,7 +72,7 @@ fprintf('  Re-selected: %d/%d [PASS]\n', selFinal, allCount);
 
 % Extract waveform data from SingleSpot
 fprintf('\n--- Test 5: Extract SingleSpot waveforms ---\n');
-[respData, epochs, fs] = getSelectedData(ssNode, 'Amp1');
+[respData, epochs, fs] = epicTreeTools.getSelectedData(ssNode, 'Amp1');
 assert(~isempty(respData), 'Should get response data');
 assert(fs == 10000, sprintf('Expected fs=10000, got %g', fs));
 assert(size(respData,1) == ssNode.epochCount(), 'Trace count mismatch');
@@ -86,7 +86,7 @@ nExtracted = 0;
 totalTraces = 0;
 for i = 1:length(leaves)
     leaf = leaves{i};
-    [leafData, ~, ~] = getSelectedData(leaf, 'Amp1');
+    [leafData, ~, ~] = epicTreeTools.getSelectedData(leaf, 'Amp1');
     if ~isempty(leafData)
         nExtracted = nExtracted + 1;
         totalTraces = totalTraces + size(leafData, 1);

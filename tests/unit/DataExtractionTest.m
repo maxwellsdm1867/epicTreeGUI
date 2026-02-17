@@ -17,9 +17,21 @@ classdef DataExtractionTest < matlab.unittest.TestCase
 
     methods (TestClassSetup)
         function loadData(testCase)
-            % Load test data with multi-level tree
-            [testCase.TestTree, ~, testCase.H5File] = loadTestTree(...
-                {'cellInfo.type', 'blockInfo.protocol_name'});
+            % Add specific paths (avoid genpath which scans recursively)
+            repoRoot = '/Users/maxwellsdm/Documents/GitHub/epicTreeGUI';
+            addpath(fullfile(repoRoot, 'src'));
+            addpath(fullfile(repoRoot, 'src', 'tree'));
+            addpath(fullfile(repoRoot, 'src', 'analysis'));
+            addpath(fullfile(repoRoot, 'src', 'utilities'));
+            addpath(fullfile(repoRoot, 'src', 'splitters'));
+            addpath(fullfile(repoRoot, 'src', 'tree', 'graphicalTree'));
+            addpath(fullfile(repoRoot, 'tests', 'helpers'));
+
+            % Load test data directly
+            matPath = '/Users/maxwellsdm/Documents/epicTreeTest/analysis/2025-12-02_F.mat';
+            [data, testCase.H5File] = loadEpicTreeData(matPath);
+            testCase.TestTree = epicTreeTools(data);
+            testCase.TestTree.buildTree({'cellInfo.type', 'blockInfo.protocol_name'});
 
             % Find a leaf node with epochs
             leaves = testCase.TestTree.leafNodes();
@@ -56,7 +68,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
         function testGetSelectedDataReturnsMatrix(testCase)
             % Verify getSelectedData returns numeric matrix
 
-            [data, ~, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, ~, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             testCase.verifyTrue(isnumeric(data), ...
                 'getSelectedData must return numeric matrix');
@@ -70,7 +82,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
             epochs = testCase.LeafNode.getAllEpochs(true);
             nExpected = length(epochs);
 
-            [data, returnedEpochs, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, returnedEpochs, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             % Skip if no data (H5 may not be available)
             if isempty(data)
@@ -86,7 +98,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
         function testGetSelectedDataSampleRate(testCase)
             % Verify sample rate is positive numeric
 
-            [data, ~, fs] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, ~, fs] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             % Skip if no data
             if isempty(data)
@@ -102,7 +114,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
         function testGetSelectedDataEpochs(testCase)
             % Verify returned epochs are cell array of structs
 
-            [~, epochs, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [~, epochs, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             testCase.verifyTrue(iscell(epochs), ...
                 'Returned epochs must be cell array');
@@ -121,7 +133,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
                 testCase.assumeFail('H5 file not available');
             end
 
-            [data, ~, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, ~, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             testCase.verifyNotEmpty(data, ...
                 'getSelectedData with H5 file should return data');
@@ -131,7 +143,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
             % Verify selection filtering reduces data correctly
 
             % Get all selected data
-            [dataAll, ~, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [dataAll, ~, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             % Skip if no data
             if isempty(dataAll)
@@ -146,7 +158,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
             end
 
             % Get selected data again
-            [dataFiltered, ~, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [dataFiltered, ~, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             % Should have fewer rows
             testCase.verifyLessThan(size(dataFiltered, 1), size(dataAll, 1), ...
@@ -167,7 +179,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
                 epochs{i}.isSelected = false;
             end
 
-            [data, returnedEpochs, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, returnedEpochs, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             testCase.verifyEmpty(data, ...
                 'Empty selection must return empty matrix');
@@ -179,7 +191,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
             % Verify invalid stream name handles gracefully
 
             % Request non-existent stream
-            [data, ~, ~] = getSelectedData(testCase.LeafNode, 'NonExistentStream', testCase.H5File);
+            [data, ~, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'NonExistentStream', testCase.H5File);
 
             % Should return empty (not error)
             testCase.verifyEmpty(data, ...
@@ -192,7 +204,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
             node = testCase.LeafNode;
 
             try
-                [data, ~, ~] = getSelectedData(node, 'Amp1', testCase.H5File);
+                [data, ~, ~] = epicTreeTools.getSelectedData(node, 'Amp1', testCase.H5File);
                 % Success - verify basic properties
                 testCase.verifyTrue(ismatrix(data), ...
                     'Data from node must be matrix');
@@ -208,7 +220,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
             epochs = testCase.LeafNode.getAllEpochs(false);
 
             try
-                [data, ~, ~] = getSelectedData(epochs, 'Amp1', testCase.H5File);
+                [data, ~, ~] = epicTreeTools.getSelectedData(epochs, 'Amp1', testCase.H5File);
                 % Success - verify basic properties
                 testCase.verifyTrue(ismatrix(data), ...
                     'Data from epoch list must be matrix');
@@ -290,7 +302,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
         function testDataNotAllZeros(testCase)
             % Verify returned data is not all zeros (real signal present)
 
-            [data, ~, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, ~, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             % Skip if no data
             if isempty(data)
@@ -305,7 +317,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
         function testDataNotAllNaN(testCase)
             % Verify no NaN values in data
 
-            [data, ~, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, ~, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             % Skip if no data
             if isempty(data)
@@ -319,7 +331,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
         function testDataConsistentLength(testCase)
             % Verify all rows have same number of columns
 
-            [data, ~, ~] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, ~, ~] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             % Skip if no data
             if isempty(data)
@@ -335,7 +347,7 @@ classdef DataExtractionTest < matlab.unittest.TestCase
         function testSampleRateReasonable(testCase)
             % Verify sample rate is in typical neurophysiology range
 
-            [data, ~, fs] = getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
+            [data, ~, fs] = epicTreeTools.getSelectedData(testCase.LeafNode, 'Amp1', testCase.H5File);
 
             % Skip if no data
             if isempty(data)

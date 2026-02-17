@@ -141,7 +141,7 @@ try
 
     % Extract data
     fprintf('Extracting data...\n');
-    [dataMatrix, epochs, fs] = getSelectedData(targetProtocol, 'Amp1', h5File);
+    [dataMatrix, epochs, fs] = epicTreeTools.getSelectedData(targetProtocol, 'Amp1', h5File);
 
     fprintf('✓ Data extraction successful!\n');
     fprintf('  Data matrix: %d epochs × %d samples\n', size(dataMatrix, 1), size(dataMatrix, 2));

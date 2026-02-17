@@ -259,7 +259,7 @@ classdef TreeNavigationUtility < handle
                 streamName = 'Amp1';
             end
 
-            [data, epochs, fs] = getSelectedData(obj.CurrentNode, streamName);
+            [data, epochs, fs] = epicTreeTools.getSelectedData(obj.CurrentNode, streamName);
         end
 
         %% Tree Display

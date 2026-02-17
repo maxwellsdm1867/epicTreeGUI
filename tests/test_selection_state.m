@@ -12,7 +12,7 @@ classdef test_selection_state < matlab.unittest.TestCase
     % 1. setSelected() correctly updates isSelected flags on internal epoch list
     % 2. getAllEpochs(true) correctly filters based on isSelected flags
     % 3. Recursive propagation works (parent deselect cascades to children)
-    % 4. getSelectedData() respects selection state
+    % 4. epicTreeTools.getSelectedData() respects selection state
     % 5. The anti-pattern (direct epoch modification) is documented
 
     properties
@@ -222,7 +222,7 @@ classdef test_selection_state < matlab.unittest.TestCase
         end
 
         function testGetSelectedDataRespectsSelection(testCase)
-            % Verify that getSelectedData() respects selection state
+            % Verify that epicTreeTools.getSelectedData() respects selection state
             % and returns fewer rows after deselection
 
             tree = epicTreeTools(testCase.TreeData);
@@ -240,7 +240,7 @@ classdef test_selection_state < matlab.unittest.TestCase
             streamName = firstEpoch.responses(1).device_name;
 
             % Get data with all epochs selected
-            [dataAll, ~, ~] = getSelectedData(tree, streamName);
+            [dataAll, ~, ~] = epicTreeTools.getSelectedData(tree, streamName);
             testCase.assumeNotEmpty(dataAll, 'No data returned for stream');
             initialRows = size(dataAll, 1);
 
@@ -249,7 +249,7 @@ classdef test_selection_state < matlab.unittest.TestCase
             child1.setSelected(false, true);
 
             % Get data after deselection
-            [dataPartial, ~, ~] = getSelectedData(tree, streamName);
+            [dataPartial, ~, ~] = epicTreeTools.getSelectedData(tree, streamName);
             partialRows = size(dataPartial, 1);
 
             % Verify fewer rows returned

@@ -55,7 +55,7 @@ function generateBaselines()
 
     fprintf('Generating getMeanResponseTrace baseline...\n');
     try
-        baseline = getMeanResponseTrace(leafNode, 'Amp1');
+        baseline = epicTreeTools.getMeanResponseTrace(leafNode, 'Amp1');
         baselinePath = fullfile(baselineDir, 'getMeanResponseTrace_baseline.mat');
         save(baselinePath, 'baseline', '-v7.3');
         fprintf('  Saved: %s\n', baselinePath);
@@ -74,7 +74,7 @@ function generateBaselines()
 
     fprintf('Generating getResponseAmplitudeStats baseline...\n');
     try
-        baseline = getResponseAmplitudeStats(leafNode, 'Amp1');
+        baseline = epicTreeTools.getResponseAmplitudeStats(leafNode, 'Amp1');
         baselinePath = fullfile(baselineDir, 'getResponseAmplitudeStats_baseline.mat');
         save(baselinePath, 'baseline', '-v7.3');
         fprintf('  Saved: %s\n', baselinePath);
@@ -94,7 +94,7 @@ function generateBaselines()
     fprintf('Generating getCycleAverageResponse baseline...\n');
     try
         % Try with default frequency (may fail if data doesn't have it)
-        baseline = getCycleAverageResponse(leafNode, 'Amp1', 'Frequency', 2);
+        baseline = epicTreeTools.getCycleAverageResponse(leafNode, 'Amp1', 'Frequency', 2);
         baselinePath = fullfile(baselineDir, 'getCycleAverageResponse_baseline.mat');
         save(baselinePath, 'baseline', '-v7.3');
         fprintf('  Saved: %s\n', baselinePath);
@@ -117,7 +117,7 @@ function generateBaselines()
     fprintf('Generating getLinearFilterAndPrediction baseline...\n');
     try
         % Try with Stage stimulus (may fail if not available)
-        baseline = getLinearFilterAndPrediction(leafNode, 'Stage', 'Amp1');
+        baseline = epicTreeTools.getLinearFilterAndPrediction(leafNode, 'Stage', 'Amp1');
         baselinePath = fullfile(baselineDir, 'getLinearFilterAndPrediction_baseline.mat');
         save(baselinePath, 'baseline', '-v7.3');
         fprintf('  Saved: %s\n', baselinePath);
@@ -139,7 +139,7 @@ function generateBaselines()
     try
         % Create invisible figure to suppress display
         fig = figure('Visible', 'off');
-        baseline = MeanSelectedNodes(multipleNodes, 'Amp1', 'Figure', fig);
+        baseline = epicTreeTools.MeanSelectedNodes(multipleNodes, 'Amp1', 'Figure', fig);
         close(fig);
 
         baselinePath = fullfile(baselineDir, 'MeanSelectedNodes_baseline.mat');

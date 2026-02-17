@@ -28,9 +28,14 @@ function [tree, data, h5File] = loadTestTree(splitKeys)
 %   [tree, data, h5] = loadTestTree({@epicTreeTools.splitOnCellType, ...
 %                                    @epicTreeTools.splitOnExperimentDate});
 
-    % Add src/ to path to ensure all dependencies are available
+    % Add specific src paths (avoid genpath which scans recursively)
     repoRoot = fileparts(fileparts(fileparts(mfilename('fullpath'))));
-    addpath(genpath(fullfile(repoRoot, 'src')));
+    addpath(fullfile(repoRoot, 'src'));
+    addpath(fullfile(repoRoot, 'src', 'tree'));
+    addpath(fullfile(repoRoot, 'src', 'analysis'));
+    addpath(fullfile(repoRoot, 'src', 'utilities'));
+    addpath(fullfile(repoRoot, 'src', 'splitters'));
+    addpath(fullfile(repoRoot, 'src', 'tree', 'graphicalTree'));
 
     % Default split key
     if nargin < 1 || isempty(splitKeys)

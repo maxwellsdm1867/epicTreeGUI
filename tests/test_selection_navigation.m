@@ -105,7 +105,7 @@ fprintf('  Is leaf: %s\n', string(singleSpotNode.isLeaf));
 fprintf('\n=== Extracting Data from SingleSpot ===\n');
 
 try
-    [data, epochs, fs] = getSelectedData(singleSpotNode, 'Amp1', gui.h5File);
+    [data, epochs, fs] = epicTreeTools.getSelectedData(singleSpotNode, 'Amp1', gui.h5File);
 
     fprintf('✓ Data extracted successfully!\n');
     fprintf('  Data matrix size: %d epochs × %d samples\n', size(data, 1), size(data, 2));
@@ -164,5 +164,5 @@ fprintf('Summary:\n');
 fprintf('  ✓ getSelectedEpochTreeNodes() works\n');
 fprintf('  ✓ Tree navigation (childAt, childrenLength) works\n');
 fprintf('  ✓ Finding nodes by splitValue works\n');
-fprintf('  ✓ Data extraction with getSelectedData() works\n');
+fprintf('  ✓ Data extraction with epicTreeTools.getSelectedData() works\n');
 fprintf('  ✓ H5 lazy loading works\n');

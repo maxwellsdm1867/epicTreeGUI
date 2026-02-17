@@ -1129,7 +1129,7 @@ classdef epicTreeTools < handle
             %   sampleRate     - Sample rate in Hz
 
             h5 = obj.resolveH5File();
-            [data, selectedEpochs, sampleRate] = getSelectedData(obj, streamName, h5);
+            [data, selectedEpochs, sampleRate] = epicTreeTools.getSelectedData(obj, streamName, h5);
         end
 
         %% ================================================================
@@ -2873,6 +2873,1004 @@ classdef epicTreeTools < handle
 
             % Build filepath
             filepath = fullfile(directory, sprintf('%s_%s.ugm', basename, timestamp));
+        end
+
+        %% ================================================================
+        % ANALYSIS FUNCTIONS (formerly standalone files)
+        % ================================================================
+
+        function [dataMatrix, selectedEpochs, sampleRate] = getSelectedData(treeNodeOrEpochs, streamName, h5_file)
+            % GETSELECTEDDATA Get response data for ONLY selected epochs
+            %
+            % THIS IS THE CRITICAL FUNCTION FOR ALL ANALYSIS WORKFLOWS.
+            %
+            % Usage:
+            %   [data, epochs] = epicTreeTools.getSelectedData(treeNode, 'Amp1')
+            %   [data, epochs, fs] = epicTreeTools.getSelectedData(epochList, 'Amp1')
+            %   [data, epochs, fs] = epicTreeTools.getSelectedData(epochList, 'Amp1', h5_file)
+            %
+            % Inputs:
+            %   treeNodeOrEpochs - Either:
+            %                      - epicTreeTools node (extracts epochs from tree)
+            %                      - Cell array of epoch structs (uses directly)
+            %   streamName       - Response stream name (e.g., 'Amp1', 'Amp2')
+            %   h5_file          - (Optional) Path to H5 file for lazy loading
+            %
+            % Outputs:
+            %   dataMatrix      - [nSelected x nSamples] response data matrix
+            %   selectedEpochs  - Cell array of selected epoch structs
+            %   sampleRate      - Sample rate in Hz (from first epoch)
+            %
+            % See also: getResponseMatrix, epicTreeTools.getAllEpochs
+
+            if nargin < 3
+                h5_file = '';
+            end
+
+            if isa(treeNodeOrEpochs, 'epicTreeTools')
+                allEpochs = treeNodeOrEpochs.getAllEpochs(false);
+            elseif iscell(treeNodeOrEpochs)
+                allEpochs = treeNodeOrEpochs;
+            else
+                error('getSelectedData:InvalidInput', ...
+                    'Input must be epicTreeTools node or cell array of epochs');
+            end
+
+            selectedEpochs = {};
+            for i = 1:length(allEpochs)
+                ep = allEpochs{i};
+                if isfield(ep, 'isSelected')
+                    if ep.isSelected
+                        selectedEpochs{end+1} = ep; %#ok<AGROW>
+                    end
+                else
+                    selectedEpochs{end+1} = ep; %#ok<AGROW>
+                end
+            end
+            selectedEpochs = selectedEpochs(:);
+
+            if isempty(selectedEpochs)
+                dataMatrix = [];
+                sampleRate = [];
+                return;
+            end
+
+            [dataMatrix, sampleRate] = getResponseMatrix(selectedEpochs, streamName, h5_file);
+        end
+
+        function epochList = getTreeEpochs(treeNode, onlySelected)
+            % GETTREEEPOCHS Get all epochs under a tree node
+            %
+            % Convenience wrapper for epicTreeTools.getAllEpochs().
+            %
+            % Usage:
+            %   epochs = epicTreeTools.getTreeEpochs(tree)
+            %   epochs = epicTreeTools.getTreeEpochs(tree, true)
+            %
+            % See also: epicTreeTools.getAllEpochs, epicTreeTools.getSelectedData
+
+            if nargin < 2
+                onlySelected = false;
+            end
+
+            if ~isa(treeNode, 'epicTreeTools')
+                error('getTreeEpochs:InvalidInput', 'Input must be an epicTreeTools node');
+            end
+
+            epochList = treeNode.getAllEpochs(onlySelected);
+        end
+
+        function results = MeanSelectedNodes(nodes, streamName, varargin)
+            % MEANSELECTEDNODES Compare mean responses across multiple tree nodes
+            %
+            % Usage:
+            %   results = epicTreeTools.MeanSelectedNodes(nodes, 'Amp1')
+            %   results = epicTreeTools.MeanSelectedNodes(nodes, 'Amp1', 'PreTime', 500)
+            %
+            % See also: epicTreeTools.getSelectedData, epicTreeTools.getMeanResponseTrace
+
+            p = inputParser;
+            p.addRequired('nodes', @iscell);
+            p.addRequired('streamName', @ischar);
+            p.addParameter('h5_file', '', @ischar);
+            p.addParameter('PreTime', [], @(x) isempty(x) || isnumeric(x));
+            p.addParameter('StimTime', [], @(x) isempty(x) || isnumeric(x));
+            p.addParameter('BaselineCorrect', true, @islogical);
+            p.addParameter('Normalize', false, @islogical);
+            p.addParameter('SmoothPts', 10, @isnumeric);
+            p.addParameter('PlotOffset', 0, @isnumeric);
+            p.addParameter('LineWidth', 1.5, @isnumeric);
+            p.addParameter('Colors', 'auto', @(x) ischar(x) || isnumeric(x));
+            p.addParameter('Figure', [], @(x) isempty(x) || isnumeric(x) || ishandle(x));
+            p.addParameter('HoldOn', false, @islogical);
+            p.addParameter('ShowLegend', true, @islogical);
+            p.addParameter('ShowAnalysis', true, @islogical);
+            p.parse(nodes, streamName, varargin{:});
+            opts = p.Results;
+
+            nNodes = length(nodes);
+            if nNodes == 0
+                error('MeanSelectedNodes:NoNodes', 'No nodes provided');
+            end
+
+            if ischar(opts.Colors) && strcmp(opts.Colors, 'auto')
+                colors = lines(nNodes);
+            else
+                colors = opts.Colors;
+                if size(colors, 1) < nNodes
+                    colors = repmat(colors, ceil(nNodes/size(colors,1)), 1);
+                end
+            end
+
+            results = struct();
+            results.splitValue = zeros(1, nNodes);
+            results.respAmp = zeros(1, nNodes);
+            results.nEpochs = zeros(1, nNodes);
+            results.meanResponse = [];
+            results.semResponse = [];
+
+            legendLabels = cell(1, nNodes);
+
+            for i = 1:nNodes
+                node = nodes{i};
+
+                [dataMatrix, epochs, sampleRate] = epicTreeTools.getSelectedData(node, streamName, opts.h5_file);
+
+                if isempty(dataMatrix)
+                    warning('MeanSelectedNodes:NoData', 'No data for node %d', i);
+                    continue;
+                end
+
+                if isempty(results.meanResponse)
+                    results.sampleRate = sampleRate;
+                    nSamples = size(dataMatrix, 2);
+                    results.meanResponse = zeros(nNodes, nSamples);
+                    results.semResponse = zeros(nNodes, nSamples);
+                    results.timeVector = (1:nSamples) / sampleRate;
+                end
+
+                if ~isempty(epochs) && isfield(epochs{1}, 'parameters')
+                    params = epochs{1}.parameters;
+                    if isempty(opts.PreTime) && isfield(params, 'preTime')
+                        preTime = params.preTime;
+                    else
+                        preTime = opts.PreTime;
+                    end
+                    if isempty(opts.StimTime) && isfield(params, 'stimTime')
+                        stimTime = params.stimTime;
+                    else
+                        stimTime = opts.StimTime;
+                    end
+                else
+                    preTime = opts.PreTime;
+                    stimTime = opts.StimTime;
+                end
+
+                if ~isempty(preTime)
+                    prePts = round(preTime / 1000 * sampleRate);
+                else
+                    prePts = round(size(dataMatrix, 2) * 0.1);
+                end
+                if ~isempty(stimTime)
+                    stimPts = round(stimTime / 1000 * sampleRate);
+                else
+                    stimPts = round(size(dataMatrix, 2) * 0.5);
+                end
+
+                if opts.BaselineCorrect && prePts > 1
+                    baselines = mean(dataMatrix(:, 1:prePts), 2, 'omitnan');
+                    dataMatrix = dataMatrix - baselines;
+                end
+
+                meanTrace = mean(dataMatrix, 1, 'omitnan');
+                nValidRows = sum(~all(isnan(dataMatrix), 2));
+                semTrace = std(dataMatrix, 0, 1, 'omitnan') / sqrt(max(nValidRows, 1));
+
+                if opts.SmoothPts > 1
+                    kernel = gausswin(opts.SmoothPts);
+                    kernel = kernel / sum(kernel);
+                    meanTrace = conv(meanTrace, kernel, 'same');
+                    semTrace = conv(semTrace, kernel, 'same');
+                end
+
+                results.meanResponse(i, :) = meanTrace;
+                results.semResponse(i, :) = semTrace;
+                results.nEpochs(i) = size(dataMatrix, 1);
+
+                if prePts + stimPts <= length(meanTrace)
+                    stimRegion = meanTrace(prePts+1 : prePts+stimPts);
+                    results.respAmp(i) = sum(stimRegion) / sampleRate;
+                else
+                    results.respAmp(i) = sum(meanTrace(prePts+1:end)) / sampleRate;
+                end
+
+                if isnumeric(node.splitValue)
+                    results.splitValue(i) = node.splitValue;
+                    legendLabels{i} = sprintf('%g (n=%d)', node.splitValue, results.nEpochs(i));
+                else
+                    results.splitValue(i) = i;
+                    legendLabels{i} = sprintf('%s (n=%d)', string(node.splitValue), results.nEpochs(i));
+                end
+            end
+
+            if opts.Normalize && max(abs(results.respAmp)) > 0
+                results.respAmp = results.respAmp / max(abs(results.respAmp));
+            end
+
+            if opts.ShowAnalysis
+                numSubplots = 2;
+            else
+                numSubplots = 1;
+            end
+
+            if isempty(opts.Figure)
+                fig = figure('Name', 'Mean Selected Nodes', 'NumberTitle', 'off');
+            else
+                fig = figure(opts.Figure);
+            end
+
+            if ~opts.HoldOn
+                clf(fig);
+            end
+
+            subplot(1, numSubplots, 1);
+            hold on;
+
+            for i = 1:nNodes
+                if results.nEpochs(i) > 0
+                    t = results.timeVector;
+                    y = results.meanResponse(i, :) + opts.PlotOffset * (i-1);
+
+                    yUpper = y + results.semResponse(i, :);
+                    yLower = y - results.semResponse(i, :);
+                    fill([t fliplr(t)], [yUpper fliplr(yLower)], colors(i,:), ...
+                        'EdgeColor', 'none', 'FaceAlpha', 0.2);
+
+                    plot(t, y, 'Color', colors(i,:), 'LineWidth', opts.LineWidth);
+                end
+            end
+
+            xlabel('Time (s)');
+            ylabel('Response');
+            title('Mean Responses');
+
+            if opts.ShowLegend
+                legend(legendLabels{results.nEpochs > 0}, 'Location', 'best');
+            end
+
+            if opts.ShowAnalysis
+                subplot(1, numSubplots, 2);
+                hold on;
+
+                validIdx = results.nEpochs > 0;
+                plot(results.splitValue(validIdx), results.respAmp(validIdx), 'ko-', ...
+                    'MarkerFaceColor', 'k', 'LineWidth', 1.5, 'MarkerSize', 8);
+
+                xlabel('Split Value');
+                ylabel('Integrated Response');
+                title('Response vs Condition');
+                grid on;
+            end
+        end
+
+        function result = getCycleAverageResponse(epochListOrNode, streamName, varargin)
+            % GETCYCLEAVERAGERESPONSE Compute cycle-averaged response for periodic stimuli
+            %
+            % Usage:
+            %   result = epicTreeTools.getCycleAverageResponse(epochs, 'Amp1', 'Frequency', 2)
+            %   result = epicTreeTools.getCycleAverageResponse(treeNode, 'Amp1')
+            %
+            % See also: epicTreeTools.getMeanResponseTrace
+
+            ip = inputParser;
+            ip.addRequired('epochListOrNode');
+            ip.addRequired('streamName', @ischar);
+            ip.addParameter('Frequency', [], @isnumeric);
+            ip.addParameter('NumCycles', [], @isnumeric);
+            ip.addParameter('SkipCycles', 1, @isnumeric);
+            ip.addParameter('OnlySelected', true, @islogical);
+            ip.addParameter('BaselineSubtract', true, @islogical);
+            ip.parse(epochListOrNode, streamName, varargin{:});
+
+            stimFreq = ip.Results.Frequency;
+            numCycles = ip.Results.NumCycles;
+            skipCycles = ip.Results.SkipCycles;
+            onlySelected = ip.Results.OnlySelected;
+            baselineSubtract = ip.Results.BaselineSubtract;
+
+            if isa(epochListOrNode, 'epicTreeTools')
+                epochs = epochListOrNode.getAllEpochs(onlySelected);
+            elseif iscell(epochListOrNode)
+                if onlySelected
+                    epochs = {};
+                    for i = 1:length(epochListOrNode)
+                        ep = epochListOrNode{i};
+                        if ~isfield(ep, 'isSelected') || ep.isSelected
+                            epochs{end+1} = ep; %#ok<AGROW>
+                        end
+                    end
+                    epochs = epochs(:);
+                else
+                    epochs = epochListOrNode;
+                end
+            else
+                error('Input must be epicTreeTools node or cell array of epochs');
+            end
+
+            result = struct();
+            result.n = length(epochs);
+
+            if result.n == 0
+                result.cycleAverage = [];
+                result.cycleStd = [];
+                result.cycleSEM = [];
+                result.cycleTime = [];
+                result.F1amplitude = NaN;
+                result.F1phase = NaN;
+                result.F2amplitude = NaN;
+                result.F2phase = NaN;
+                result.F1F2ratio = NaN;
+                result.DC = NaN;
+                result.frequency = NaN;
+                result.nCycles = 0;
+                return;
+            end
+
+            if isempty(stimFreq)
+                epoch1 = epochs{1};
+                if isfield(epoch1, 'parameters')
+                    params = epoch1.parameters;
+                    if isfield(params, 'temporal_frequency')
+                        stimFreq = params.temporal_frequency;
+                    elseif isfield(params, 'temporalFrequency')
+                        stimFreq = params.temporalFrequency;
+                    end
+                end
+            end
+
+            if isempty(stimFreq) || stimFreq <= 0
+                error('Stimulus frequency must be provided or available in epoch.parameters.temporal_frequency');
+            end
+
+            result.frequency = stimFreq;
+
+            [dataMatrix, sampleRate] = getResponseMatrix(epochs, streamName);
+
+            if isempty(dataMatrix)
+                result.cycleAverage = [];
+                result.cycleStd = [];
+                result.cycleSEM = [];
+                result.cycleTime = [];
+                result.F1amplitude = NaN;
+                result.F1phase = NaN;
+                result.F2amplitude = NaN;
+                result.F2phase = NaN;
+                result.F1F2ratio = NaN;
+                result.DC = NaN;
+                result.nCycles = 0;
+                return;
+            end
+
+            preTime = 0;
+            stimTime = 1;
+            if ~isempty(epochs)
+                epoch1 = epochs{1};
+                if isfield(epoch1, 'parameters')
+                    params = epoch1.parameters;
+                    if isfield(params, 'preTime')
+                        preTime = params.preTime / 1000;
+                    end
+                    if isfield(params, 'stimTime')
+                        stimTime = params.stimTime / 1000;
+                    end
+                end
+            end
+
+            if baselineSubtract
+                baselinePoints = max(1, round(preTime * sampleRate));
+                baselines = mean(dataMatrix(:, 1:baselinePoints), 2, 'omitnan');
+                dataMatrix = dataMatrix - baselines;
+            end
+
+            nSamples = size(dataMatrix, 2);
+            timeVector = (0:nSamples-1) / sampleRate;
+            stimIdx = timeVector >= preTime & timeVector < (preTime + stimTime);
+            stimData = dataMatrix(:, stimIdx);
+            stimTime_actual = timeVector(stimIdx) - preTime;
+
+            cyclePeriod = 1 / stimFreq;
+            pointsPerCycle = round(cyclePeriod * sampleRate);
+            totalCycles = floor(length(stimTime_actual) / pointsPerCycle);
+
+            if isempty(numCycles) || numCycles > (totalCycles - skipCycles)
+                numCycles = totalCycles - skipCycles;
+            end
+
+            if numCycles < 1
+                warning('Not enough cycles for averaging');
+                result.cycleAverage = [];
+                result.cycleStd = [];
+                result.cycleSEM = [];
+                result.cycleTime = [];
+                result.F1amplitude = NaN;
+                result.F1phase = NaN;
+                result.F2amplitude = NaN;
+                result.F2phase = NaN;
+                result.F1F2ratio = NaN;
+                result.DC = NaN;
+                result.nCycles = 0;
+                return;
+            end
+
+            result.nCycles = numCycles;
+            result.cycleTime = (0:pointsPerCycle-1) / sampleRate;
+
+            allCycles = [];
+
+            for i = 1:result.n
+                trace = stimData(i, :);
+
+                for c = (skipCycles + 1):(skipCycles + numCycles)
+                    startIdx = (c - 1) * pointsPerCycle + 1;
+                    endIdx = c * pointsPerCycle;
+
+                    if endIdx <= length(trace)
+                        cycle = trace(startIdx:endIdx);
+                        allCycles = [allCycles; cycle]; %#ok<AGROW>
+                    end
+                end
+            end
+
+            if isempty(allCycles)
+                result.cycleAverage = [];
+                result.cycleStd = [];
+                result.cycleSEM = [];
+                result.F1amplitude = NaN;
+                result.F1phase = NaN;
+                result.F2amplitude = NaN;
+                result.F2phase = NaN;
+                result.F1F2ratio = NaN;
+                result.DC = NaN;
+                return;
+            end
+
+            result.cycleAverage = mean(allCycles, 1, 'omitnan');
+            result.cycleStd = std(allCycles, 0, 1, 'omitnan');
+            nValidCycles = sum(~all(isnan(allCycles), 2));
+            result.cycleSEM = result.cycleStd / sqrt(max(nValidCycles, 1));
+
+            result.DC = mean(result.cycleAverage);
+
+            n = length(result.cycleAverage);
+            t = (0:n-1) / sampleRate;
+            sinComponent = sum(result.cycleAverage .* sin(2*pi*stimFreq*t)) * 2 / n;
+            cosComponent = sum(result.cycleAverage .* cos(2*pi*stimFreq*t)) * 2 / n;
+            result.F1amplitude = sqrt(sinComponent^2 + cosComponent^2);
+            result.F1phase = atan2d(sinComponent, cosComponent);
+
+            sinComponent2 = sum(result.cycleAverage .* sin(2*pi*2*stimFreq*t)) * 2 / n;
+            cosComponent2 = sum(result.cycleAverage .* cos(2*pi*2*stimFreq*t)) * 2 / n;
+            result.F2amplitude = sqrt(sinComponent2^2 + cosComponent2^2);
+            result.F2phase = atan2d(sinComponent2, cosComponent2);
+
+            if result.F2amplitude > 0
+                result.F1F2ratio = result.F1amplitude / result.F2amplitude;
+            else
+                result.F1F2ratio = Inf;
+            end
+        end
+
+        function result = getLinearFilterAndPrediction(epochListOrNode, stimStreamName, respStreamName, varargin)
+            % GETLINEARFILTERANDPREDICTION Compute linear filter (STA) and prediction
+            %
+            % Usage:
+            %   result = epicTreeTools.getLinearFilterAndPrediction(epochs, 'Stage', 'Amp1')
+            %   result = epicTreeTools.getLinearFilterAndPrediction(treeNode, 'LED', 'Amp1', 'FilterLength', 500)
+            %
+            % See also: epicTreeTools.getMeanResponseTrace, epicTreeTools.getCycleAverageResponse
+
+            ip = inputParser;
+            ip.addRequired('epochListOrNode');
+            ip.addRequired('stimStreamName', @ischar);
+            ip.addRequired('respStreamName', @ischar);
+            ip.addParameter('FilterLength', 500, @isnumeric);
+            ip.addParameter('OnlySelected', true, @islogical);
+            ip.addParameter('Method', 'correlation', @ischar);
+            ip.parse(epochListOrNode, stimStreamName, respStreamName, varargin{:});
+
+            filterLengthMs = ip.Results.FilterLength;
+            onlySelected = ip.Results.OnlySelected;
+            method = lower(ip.Results.Method);
+
+            if isa(epochListOrNode, 'epicTreeTools')
+                epochs = epochListOrNode.getAllEpochs(onlySelected);
+            elseif iscell(epochListOrNode)
+                if onlySelected
+                    epochs = {};
+                    for i = 1:length(epochListOrNode)
+                        ep = epochListOrNode{i};
+                        if ~isfield(ep, 'isSelected') || ep.isSelected
+                            epochs{end+1} = ep; %#ok<AGROW>
+                        end
+                    end
+                    epochs = epochs(:);
+                else
+                    epochs = epochListOrNode;
+                end
+            else
+                error('Input must be epicTreeTools node or cell array of epochs');
+            end
+
+            result = struct();
+            result.n = length(epochs);
+
+            if result.n == 0
+                result.filter = [];
+                result.filterTime = [];
+                result.prediction = [];
+                result.response = [];
+                result.stimulus = [];
+                result.correlation = NaN;
+                result.sampleRate = [];
+                return;
+            end
+
+            [respMatrix, sampleRate] = getResponseMatrix(epochs, respStreamName);
+
+            if isempty(respMatrix)
+                result.filter = [];
+                result.filterTime = [];
+                result.prediction = [];
+                result.response = [];
+                result.stimulus = [];
+                result.correlation = NaN;
+                result.sampleRate = [];
+                return;
+            end
+
+            result.sampleRate = sampleRate;
+
+            stimMatrix = zeros(size(respMatrix));
+            for i = 1:result.n
+                stim = epicTreeTools.getStimulusByName(epochs{i}, stimStreamName);
+                if ~isempty(stim) && isfield(stim, 'data')
+                    data = stim.data(:)';
+                    if length(data) >= size(stimMatrix, 2)
+                        stimMatrix(i, :) = data(1:size(stimMatrix, 2));
+                    else
+                        stimMatrix(i, 1:length(data)) = data;
+                    end
+                end
+            end
+
+            filterLength = round(filterLengthMs / 1000 * sampleRate);
+            result.filterTime = (0:filterLength-1) / sampleRate * 1000;
+
+            allStim = [];
+            allResp = [];
+            for i = 1:result.n
+                allStim = [allStim, stimMatrix(i, :)]; %#ok<AGROW>
+                allResp = [allResp, respMatrix(i, :)]; %#ok<AGROW>
+            end
+
+            allStim = allStim - mean(allStim);
+            allResp = allResp - mean(allResp);
+
+            result.stimulus = allStim;
+            result.response = allResp;
+
+            switch method
+                case 'correlation'
+                    result.filter = epicTreeTools.computeFilterByCorrelation(allStim, allResp, filterLength);
+                case 'sta'
+                    result.filter = epicTreeTools.computeFilterByCorrelation(allStim, allResp, filterLength);
+                otherwise
+                    result.filter = epicTreeTools.computeFilterByCorrelation(allStim, allResp, filterLength);
+            end
+
+            if max(abs(result.filter)) > 0
+                result.filter = result.filter / max(abs(result.filter));
+            end
+
+            result.prediction = conv(allStim, result.filter, 'same');
+
+            scaleFactor = std(allResp) / std(result.prediction);
+            result.prediction = result.prediction * scaleFactor;
+
+            validIdx = ~isnan(result.response) & ~isnan(result.prediction);
+            if sum(validIdx) > 0
+                R = corrcoef(result.response(validIdx), result.prediction(validIdx));
+                result.correlation = R(1, 2);
+            else
+                result.correlation = NaN;
+            end
+        end
+
+        function response = getMeanResponseTrace(epochListOrNode, streamName, varargin)
+            % GETMEANRESPONSETRACE Compute mean response trace with statistics
+            %
+            % Usage:
+            %   response = epicTreeTools.getMeanResponseTrace(epochs, 'Amp1')
+            %   response = epicTreeTools.getMeanResponseTrace(treeNode, 'Amp1')
+            %   response = epicTreeTools.getMeanResponseTrace(epochs, 'Amp1', 'RecordingType', 'exc')
+            %
+            % See also: epicTreeTools.getSelectedData, getResponseMatrix, epicTreeTools.getResponseAmplitudeStats
+
+            ip = inputParser;
+            ip.addRequired('epochListOrNode');
+            ip.addRequired('streamName', @ischar);
+            ip.addParameter('RecordingType', 'raw', @ischar);
+            ip.addParameter('BaselineSubtract', [], @islogical);
+            ip.addParameter('PSTHsigma', 10, @isnumeric);
+            ip.addParameter('OnlySelected', true, @islogical);
+            ip.parse(epochListOrNode, streamName, varargin{:});
+
+            recordingType = lower(ip.Results.RecordingType);
+            PSTHsigma = ip.Results.PSTHsigma;
+            onlySelected = ip.Results.OnlySelected;
+
+            if isempty(ip.Results.BaselineSubtract)
+                baselineSubtract = ismember(recordingType, {'exc', 'inh'});
+            else
+                baselineSubtract = ip.Results.BaselineSubtract;
+            end
+
+            if isa(epochListOrNode, 'epicTreeTools')
+                epochs = epochListOrNode.getAllEpochs(onlySelected);
+            elseif iscell(epochListOrNode)
+                if onlySelected
+                    epochs = {};
+                    for i = 1:length(epochListOrNode)
+                        ep = epochListOrNode{i};
+                        if ~isfield(ep, 'isSelected') || ep.isSelected
+                            epochs{end+1} = ep; %#ok<AGROW>
+                        end
+                    end
+                    epochs = epochs(:);
+                else
+                    epochs = epochListOrNode;
+                end
+            else
+                error('Input must be epicTreeTools node or cell array of epochs');
+            end
+
+            response = struct();
+            response.n = length(epochs);
+
+            if response.n == 0
+                response.mean = [];
+                response.stdev = [];
+                response.SEM = [];
+                response.timeVector = [];
+                response.sampleRate = [];
+                response.units = '';
+                response.baseline = [];
+                return;
+            end
+
+            h5_file = '';
+            if ~isempty(epochs)
+                epoch1 = epochs{1};
+                if isfield(epoch1, 'h5_file') && ~isempty(epoch1.h5_file)
+                    h5_file = epoch1.h5_file;
+                end
+            end
+
+            [dataMatrix, sampleRate] = getResponseMatrix(epochs, streamName, h5_file);
+
+            if isempty(dataMatrix)
+                response.mean = [];
+                response.stdev = [];
+                response.SEM = [];
+                response.timeVector = [];
+                response.sampleRate = [];
+                response.units = '';
+                response.baseline = [];
+                return;
+            end
+
+            if iscell(sampleRate)
+                sampleRate = sampleRate{1};
+            end
+            sampleRate = double(sampleRate);
+            response.sampleRate = sampleRate;
+
+            nSamples = size(dataMatrix, 2);
+            response.timeVector = (0:nSamples-1) / sampleRate;
+
+            preTime = 0;
+            if ~isempty(epochs)
+                epoch1 = epochs{1};
+                if isfield(epoch1, 'parameters') && isfield(epoch1.parameters, 'preTime')
+                    preTime = epoch1.parameters.preTime / 1000;
+                end
+            end
+            baselinePoints = max(1, round(preTime * sampleRate));
+
+            switch recordingType
+                case 'extracellular'
+                    response.units = 'spikes/s';
+
+                    spikeTimes = cell(response.n, 1);
+                    for i = 1:response.n
+                        resp = epicTreeTools.getResponseByName(epochs{i}, streamName);
+                        if ~isempty(resp) && isfield(resp, 'spike_times')
+                            spikeTimes{i} = resp.spike_times / 1000;
+                        else
+                            spikeTimes{i} = [];
+                        end
+                    end
+
+                    dataMatrix = epicTreeTools.computePSTH(spikeTimes, response.timeVector, PSTHsigma/1000);
+                    response.baseline = [];
+
+                case {'exc', 'inh'}
+                    response.units = 'pA';
+
+                    if baselineSubtract && baselinePoints > 1
+                        baselines = mean(dataMatrix(:, 1:baselinePoints), 2, 'omitnan');
+                        dataMatrix = dataMatrix - baselines;
+                        response.baseline = mean(baselines, 'omitnan');
+                    else
+                        response.baseline = [];
+                    end
+
+                case 'iclamp'
+                    response.units = 'mV';
+
+                    if baselineSubtract && baselinePoints > 1
+                        baselines = mean(dataMatrix(:, 1:baselinePoints), 2, 'omitnan');
+                        dataMatrix = dataMatrix - baselines;
+                        response.baseline = mean(baselines, 'omitnan');
+                    else
+                        response.baseline = [];
+                    end
+
+                otherwise
+                    response.units = 'AU';
+                    response.baseline = [];
+            end
+
+            response.mean = mean(dataMatrix, 1, 'omitnan');
+            response.stdev = std(dataMatrix, 0, 1, 'omitnan');
+            nValidRows = sum(~all(isnan(dataMatrix), 2));
+            response.SEM = response.stdev / sqrt(max(nValidRows, 1));
+        end
+
+        function stats = getResponseAmplitudeStats(epochListOrNode, streamName, varargin)
+            % GETRESPONSEAMPLITUDESTATS Compute response amplitude statistics
+            %
+            % Usage:
+            %   stats = epicTreeTools.getResponseAmplitudeStats(epochs, 'Amp1')
+            %   stats = epicTreeTools.getResponseAmplitudeStats(treeNode, 'Amp1', 'ResponseWindow', [0.5 1.5])
+            %
+            % See also: epicTreeTools.getMeanResponseTrace, epicTreeTools.getSelectedData
+
+            ip = inputParser;
+            ip.addRequired('epochListOrNode');
+            ip.addRequired('streamName', @ischar);
+            ip.addParameter('RecordingType', 'exc', @ischar);
+            ip.addParameter('ResponseWindow', [], @isnumeric);
+            ip.addParameter('BaselineWindow', [], @isnumeric);
+            ip.addParameter('OnlySelected', true, @islogical);
+            ip.parse(epochListOrNode, streamName, varargin{:});
+
+            recordingType = lower(ip.Results.RecordingType);
+            responseWindow = ip.Results.ResponseWindow;
+            baselineWindow = ip.Results.BaselineWindow;
+            onlySelected = ip.Results.OnlySelected;
+
+            if isa(epochListOrNode, 'epicTreeTools')
+                epochs = epochListOrNode.getAllEpochs(onlySelected);
+            elseif iscell(epochListOrNode)
+                if onlySelected
+                    epochs = {};
+                    for i = 1:length(epochListOrNode)
+                        ep = epochListOrNode{i};
+                        if ~isfield(ep, 'isSelected') || ep.isSelected
+                            epochs{end+1} = ep; %#ok<AGROW>
+                        end
+                    end
+                    epochs = epochs(:);
+                else
+                    epochs = epochListOrNode;
+                end
+            else
+                error('Input must be epicTreeTools node or cell array of epochs');
+            end
+
+            stats = struct();
+            stats.n = length(epochs);
+
+            if stats.n == 0
+                stats.peakAmplitude = [];
+                stats.peakTime = [];
+                stats.integratedResponse = [];
+                stats.meanAmplitude = [];
+                stats.baseline = [];
+                stats.mean_peak = NaN;
+                stats.std_peak = NaN;
+                stats.sem_peak = NaN;
+                stats.mean_integrated = NaN;
+                stats.std_integrated = NaN;
+                stats.sem_integrated = NaN;
+                stats.units = '';
+                return;
+            end
+
+            [dataMatrix, sampleRate] = getResponseMatrix(epochs, streamName);
+
+            if isempty(dataMatrix)
+                stats.peakAmplitude = [];
+                stats.peakTime = [];
+                stats.integratedResponse = [];
+                stats.meanAmplitude = [];
+                stats.baseline = [];
+                stats.mean_peak = NaN;
+                stats.std_peak = NaN;
+                stats.sem_peak = NaN;
+                stats.mean_integrated = NaN;
+                stats.std_integrated = NaN;
+                stats.sem_integrated = NaN;
+                stats.units = '';
+                return;
+            end
+
+            nSamples = size(dataMatrix, 2);
+            timeVector = (0:nSamples-1) / sampleRate;
+
+            preTime = 0;
+            stimTime = 1;
+            if ~isempty(epochs)
+                epoch1 = epochs{1};
+                if isfield(epoch1, 'parameters')
+                    params = epoch1.parameters;
+                    if isfield(params, 'preTime')
+                        preTime = params.preTime / 1000;
+                    end
+                    if isfield(params, 'stimTime')
+                        stimTime = params.stimTime / 1000;
+                    end
+                end
+            end
+
+            if isempty(baselineWindow)
+                baselineWindow = [0, preTime];
+            end
+            if isempty(responseWindow)
+                responseWindow = [preTime, preTime + stimTime];
+            end
+
+            baselineIdx = timeVector >= baselineWindow(1) & timeVector < baselineWindow(2);
+            responseIdx = timeVector >= responseWindow(1) & timeVector < responseWindow(2);
+
+            if sum(baselineIdx) == 0
+                baselineIdx(1:min(10, nSamples)) = true;
+            end
+            if sum(responseIdx) == 0
+                responseIdx = true(1, nSamples);
+            end
+
+            switch recordingType
+                case 'exc'
+                    stats.units = 'pA';
+                case 'inh'
+                    stats.units = 'pA';
+                case 'extracellular'
+                    stats.units = 'spikes';
+                otherwise
+                    stats.units = 'AU';
+            end
+
+            stats.baseline = mean(dataMatrix(:, baselineIdx), 2, 'omitnan');
+
+            dataSubtracted = dataMatrix - stats.baseline;
+
+            responseData = dataSubtracted(:, responseIdx);
+            responseTime = timeVector(responseIdx);
+
+            nEpochs = stats.n;
+            stats.peakAmplitude = zeros(nEpochs, 1);
+            stats.peakTime = zeros(nEpochs, 1);
+            stats.integratedResponse = zeros(nEpochs, 1);
+            stats.meanAmplitude = zeros(nEpochs, 1);
+
+            dt = 1 / sampleRate;
+
+            for i = 1:nEpochs
+                trace = responseData(i, :);
+
+                if strcmp(recordingType, 'inh')
+                    [pk, pkIdx] = max(trace);
+                else
+                    [pk, pkIdx] = min(trace);
+                end
+
+                stats.peakAmplitude(i) = pk;
+                stats.peakTime(i) = responseTime(pkIdx);
+
+                stats.integratedResponse(i) = trapz(trace) * dt;
+
+                stats.meanAmplitude(i) = mean(trace);
+            end
+
+            stats.mean_peak = mean(stats.peakAmplitude);
+            stats.std_peak = std(stats.peakAmplitude);
+            stats.sem_peak = stats.std_peak / sqrt(nEpochs);
+
+            stats.mean_integrated = mean(stats.integratedResponse);
+            stats.std_integrated = std(stats.integratedResponse);
+            stats.sem_integrated = stats.std_integrated / sqrt(nEpochs);
+
+            stats.mean_meanAmplitude = mean(stats.meanAmplitude);
+            stats.std_meanAmplitude = std(stats.meanAmplitude);
+            stats.sem_meanAmplitude = stats.std_meanAmplitude / sqrt(nEpochs);
+        end
+
+        %% ================================================================
+        % PRIVATE HELPER METHODS (used by analysis functions above)
+        % ================================================================
+
+        function filter = computeFilterByCorrelation(stimulus, response, filterLength)
+            % COMPUTEFILTERBYCORRELATION Compute filter using cross-correlation
+            %
+            % Uses Wiener-Hopf equation: filter = R_ss^(-1) * R_sr
+
+            n = length(stimulus);
+
+            xcorr_sr = zeros(1, filterLength);
+            for lag = 0:filterLength-1
+                if lag + 1 <= n
+                    xcorr_sr(lag + 1) = sum(stimulus(1:n-lag) .* response(lag+1:n)) / (n - lag);
+                end
+            end
+
+            xcorr_ss = zeros(filterLength, filterLength);
+            for i = 0:filterLength-1
+                for j = 0:filterLength-1
+                    lag = abs(i - j);
+                    if lag + 1 <= n
+                        xcorr_ss(i+1, j+1) = sum(stimulus(1:n-lag) .* stimulus(lag+1:n)) / (n - lag);
+                    end
+                end
+            end
+
+            lambda = 0.01 * trace(xcorr_ss) / filterLength;
+            filter = (xcorr_ss + lambda * eye(filterLength)) \ xcorr_sr';
+            filter = filter';
+        end
+
+        function psth = computePSTH(spikeTimes, timeVector, sigma)
+            % COMPUTEPSTH Compute PSTH from spike times using Gaussian kernel
+
+            nTrials = length(spikeTimes);
+            nTimePoints = length(timeVector);
+            dt = timeVector(2) - timeVector(1);
+
+            kernelWidth = ceil(4 * sigma / dt);
+            kernelX = (-kernelWidth:kernelWidth) * dt;
+            kernel = exp(-kernelX.^2 / (2 * sigma^2));
+            kernel = kernel / (sigma * sqrt(2 * pi));
+
+            psth = zeros(nTrials, nTimePoints);
+
+            for i = 1:nTrials
+                spikes = spikeTimes{i};
+                if isempty(spikes)
+                    continue;
+                end
+
+                spikeTrain = zeros(1, nTimePoints);
+                for j = 1:length(spikes)
+                    idx = find(timeVector >= spikes(j), 1, 'first');
+                    if ~isempty(idx) && idx <= nTimePoints
+                        spikeTrain(idx) = spikeTrain(idx) + 1;
+                    end
+                end
+
+                smoothed = conv(spikeTrain, kernel, 'same');
+                psth(i, :) = smoothed;
+            end
         end
     end
 end

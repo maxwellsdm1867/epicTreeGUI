@@ -372,7 +372,7 @@ try
     fprintf('   Testing on: %s\n', testLeaf.pathString());
 
     % Use getSelectedData
-    [dataMatrix, epochs, sampleRate] = getSelectedData(testLeaf, 'Amp1');
+    [dataMatrix, epochs, sampleRate] = epicTreeTools.getSelectedData(testLeaf, 'Amp1');
     fprintf('   getSelectedData returned:\n');
     fprintf('     dataMatrix size: [%d x %d]\n', size(dataMatrix, 1), size(dataMatrix, 2));
     fprintf('     epochs count: %d\n', length(epochs));

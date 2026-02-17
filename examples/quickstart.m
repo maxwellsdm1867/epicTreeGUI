@@ -70,7 +70,7 @@ fprintf('  Epochs: %d selected / %d total\n', ...
 
 % Extract response data matrix
 % Returns [nEpochs x nSamples] matrix for device 'Amp1'
-[dataMatrix, selectedEpochs, sampleRate] = getSelectedData(targetLeaf, 'Amp1');
+[dataMatrix, selectedEpochs, sampleRate] = epicTreeTools.getSelectedData(targetLeaf, 'Amp1');
 
 fprintf('  Data matrix: %d epochs × %d samples\n', size(dataMatrix, 1), size(dataMatrix, 2));
 fprintf('  Sample rate: %g Hz\n', sampleRate);

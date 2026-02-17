@@ -345,7 +345,7 @@ try
 
     % Get data from first child node
     firstChild = tree.childAt(1);
-    [dataMatrix, epochs, sampleRate] = getSelectedData(firstChild, 'Amp1');
+    [dataMatrix, epochs, sampleRate] = epicTreeTools.getSelectedData(firstChild, 'Amp1');
 
     % Verify output
     assert(~isempty(dataMatrix), 'dataMatrix should not be empty');
@@ -382,7 +382,7 @@ try
     subset = allEpochs(1:10);  % First 10 epochs
 
     % Pass as cell array directly
-    [dataMatrix, epochs, sampleRate] = getSelectedData(subset, 'Amp1');
+    [dataMatrix, epochs, sampleRate] = epicTreeTools.getSelectedData(subset, 'Amp1');
 
     assert(size(dataMatrix, 1) == 10, 'Should have 10 epochs');
     assert(length(epochs) == 10, 'Should return 10 epoch structs');
@@ -469,7 +469,7 @@ else
         h5_file = getH5FilePath(exp_name);
 
         % Get data with H5 loading
-        [dataMatrix, epochs, sampleRate] = getSelectedData(testLeaf, 'Amp1', h5_file);
+        [dataMatrix, epochs, sampleRate] = epicTreeTools.getSelectedData(testLeaf, 'Amp1', h5_file);
 
         assert(~isempty(dataMatrix), 'dataMatrix should not be empty from H5');
         assert(any(dataMatrix(:) ~= 0), 'Data should have non-zero values');
@@ -508,7 +508,7 @@ try
     end
 
     % Get selected data
-    [dataMatrix, epochs, ~] = getSelectedData(testLeaf, 'Amp1');
+    [dataMatrix, epochs, ~] = epicTreeTools.getSelectedData(testLeaf, 'Amp1');
 
     expectedCount = originalCount - floor(originalCount/2);
     assert(size(dataMatrix, 1) == expectedCount, ...
@@ -562,7 +562,7 @@ try
     assert(~isempty(contrastNode), 'Should find contrast=0.5 node');
 
     % 5. Get data from selected node
-    [data1, epochs1, fs1] = getSelectedData(contrastNode, 'Amp1');
+    [data1, epochs1, fs1] = epicTreeTools.getSelectedData(contrastNode, 'Amp1');
     assert(~isempty(data1), 'Should have data for contrast=0.5');
 
     % 6. Mark some epochs as unselected
@@ -572,7 +572,7 @@ try
     end
 
     % 7. Get data again - should be fewer
-    [data2, epochs2, ~] = getSelectedData(contrastNode, 'Amp1');
+    [data2, epochs2, ~] = epicTreeTools.getSelectedData(contrastNode, 'Amp1');
     assert(size(data2, 1) == size(data1, 1) - nToDeselect, ...
         'Should have fewer epochs after deselection');
 

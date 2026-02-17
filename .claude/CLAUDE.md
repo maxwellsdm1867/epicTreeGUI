@@ -121,12 +121,13 @@ Interactive browser + viewer
 - Selection management with checkbox system
 - Menu-driven analysis functions
 
-**3. getSelectedData function (src/getSelectedData.m)**
+**3. epicTreeTools.getSelectedData (static method in epicTreeTools)**
 - **THIS IS THE CRITICAL FUNCTION** used by ALL analysis workflows
 - Input: epicTreeTools node OR cell array of epochs
 - Filters to only epochs with `isSelected == true`
 - Returns: `[dataMatrix, selectedEpochs, sampleRate]`
 - Used by RFAnalysis, LSTA, SpatioTemporalModel, CenterSurround, etc.
+- Other analysis static methods: `getMeanResponseTrace`, `getResponseAmplitudeStats`, `getCycleAverageResponse`, `getLinearFilterAndPrediction`, `MeanSelectedNodes`
 
 **4. graphicalTree system (src/tree/graphicalTree/)**
 - Visual tree rendering with checkboxes, expand/collapse, highlighting
@@ -170,7 +171,7 @@ for i = 1:tree.childrenLength()
         contrast = contrastNode.splitValue;
 
         % Analyze data at this condition
-        [data, epochs, fs] = getSelectedData(contrastNode, 'Amp1');
+        [data, epochs, fs] = epicTreeTools.getSelectedData(contrastNode, 'Amp1');
         results = analyzeData(data, fs);
 
         % Store results at node
@@ -218,7 +219,7 @@ end
 ```matlab
 function results = myAnalysisFunction(treeNode)
     % Get selected data
-    [data, epochs, fs] = getSelectedData(treeNode, 'Amp1');
+    [data, epochs, fs] = epicTreeTools.getSelectedData(treeNode, 'Amp1');
 
     if isempty(data)
         error('No selected data');
@@ -346,7 +347,7 @@ delete(self.figure);
 - `getAllEpochs(onlySelected)` - Flatten tree to epoch list
 
 **Data access:**
-- `getSelectedData(nodeOrEpochs, streamName)` - **Use this for all analysis**
+- `epicTreeTools.getSelectedData(nodeOrEpochs, streamName)` - **Use this for all analysis**
 - `epicTreeTools.getNestedValue(obj, keyPath)` - Access nested struct fields
 - `epicTreeTools.getResponseData(epoch, deviceName)` - Low-level response access
 - `epicTreeTools.saveUserMetadata(filepath)` - Save selection state to .ugm file (builds mask from isSelected one-time)
@@ -371,7 +372,6 @@ epicTreeGUI/
 ├── test_launch.m              # Quick launcher
 ├── inspect_mat_file.m         # Data inspection
 ├── src/
-│   ├── getSelectedData.m      # CRITICAL - data extraction
 │   ├── loadEpicTreeData.m     # Load .mat files
 │   ├── getResponseMatrix.m    # Low-level data matrix builder
 │   ├── tree/
@@ -396,10 +396,10 @@ epicTreeGUI/
 ### DO NOT use old_epochtree/ code directly
 The `old_epochtree/` directory contains legacy Java-based code for reference only. The new system uses pure MATLAB with different patterns:
 - Old: `edu.washington.rieke.Analysis.*` (Java)
-- New: `epicTreeTools`, `getSelectedData` (MATLAB)
+- New: `epicTreeTools`, `epicTreeTools.getSelectedData` (MATLAB)
 
 ### Selection state is CRITICAL
-Always filter epochs using `getAllEpochs(true)` or `getSelectedData()` to respect user selections. Direct access to `epochList` bypasses selection filtering.
+Always filter epochs using `getAllEpochs(true)` or `epicTreeTools.getSelectedData()` to respect user selections. Direct access to `epochList` bypasses selection filtering.
 
 ### .ugm files persist selection state
 The .ugm (User-Generated Metadata) files store which epochs are selected. These are separate from the .mat file to keep user modifications isolated from raw experiment data. By default, `epicTreeTools(data)` auto-loads the latest .ugm file if one exists. Use `'LoadUserMetadata', 'none'` to start fresh.
@@ -428,7 +428,7 @@ Switching split keys rebuilds the entire tree structure (typically <1 second). T
 
 **Add a new analysis function:**
 1. Follow pattern: accept `treeNode` or epoch list
-2. Use `getSelectedData(node, streamName)` to get data
+2. Use `epicTreeTools.getSelectedData(node, streamName)` to get data
 3. Store results with `node.putCustom('results', results)`
 4. Add menu item in `epicTreeGUI.buildMenuBar()` if GUI integration needed
 

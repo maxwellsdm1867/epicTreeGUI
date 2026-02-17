@@ -171,3 +171,18 @@ Plans:
 - MATLAB epicTreeTools.extractAllEpochs now propagates h5_uuid to cellInfo/groupInfo/blockInfo/expInfo
 - Commits: ae7d33c (epicTreeGUI), b3f41bc (datajoint)
 - All 24 existing tests pass (8 selection_navigation_auto + 16 comprehensive_functions)
+
+**Static method consolidation refactoring** (2026-02-17):
+- 7 standalone files deleted, consolidated as static methods in epicTreeTools.m (getSelectedData, getTreeEpochs, MeanSelectedNodes, getCycleAverageResponse, getLinearFilterAndPrediction, getMeanResponseTrace, getResponseAmplitudeStats + 2 helpers)
+- ~94 call sites updated across 20 files
+- All 32 script-based tests pass (8 selection_navigation_auto + 16 comprehensive_functions + 8 tree_navigation)
+- Replaced `addpath(genpath(...))` with explicit `addpath()` in test files
+
+## Known Issues
+
+**CLASS-BASED TESTS STALL VIA MCP** (HIGH priority — blocks CI/automated verification):
+- `tests/unit/AnalysisFunctionsTest.m`, `tests/unit/DataExtractionTest.m`, `tests/integration/WorkflowTest.m` all stall/hang when run via the MCP MATLAB server tools (`run_matlab_test_file` or `evaluate_matlab_code`). The connection dies silently with no error output.
+- Root cause is **unknown**. Suspected but unconfirmed possibilities: MCP tool timeout, `runtests()` output buffering, or something in the test class lifecycle.
+- Script-based tests (`run tests/test_*.m`) work fine through MCP — only `runtests()` class-based tests are affected.
+- **Workaround:** Run class-based tests directly in MATLAB command window: `runtests('tests/unit/AnalysisFunctionsTest')`
+- Needs investigation in a MATLAB session to determine whether the tests themselves pass or have bugs.

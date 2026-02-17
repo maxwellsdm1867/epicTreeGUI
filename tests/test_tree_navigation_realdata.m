@@ -303,7 +303,7 @@ try
         fprintf('   H5 file: %s\n', h5_file);
 
         % Use getSelectedData
-        [dataMatrix, epochs, sampleRate] = getSelectedData(testLeaf, 'Amp1', h5_file);
+        [dataMatrix, epochs, sampleRate] = epicTreeTools.getSelectedData(testLeaf, 'Amp1', h5_file);
         fprintf('   getSelectedData returned:\n');
         fprintf('     dataMatrix size: [%d x %d]\n', size(dataMatrix, 1), size(dataMatrix, 2));
         fprintf('     epochs: %d\n', length(epochs));

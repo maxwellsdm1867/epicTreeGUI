@@ -304,7 +304,7 @@ try
     for i = 1:length(leaves)
         leaf = leaves{i};
         tic;
-        [leafData, epochs, fs] = getSelectedData(leaf, 'Amp1');
+        [leafData, epochs, fs] = epicTreeTools.getSelectedData(leaf, 'Amp1');
         extractTimes(i) = toc;
 
         assert(~isempty(leafData), sprintf('Leaf %d: empty data', i));
@@ -359,7 +359,7 @@ try
 
     for i = 1:length(leaves)
         leaf = leaves{i};
-        [leafData, ~, fs] = getSelectedData(leaf, 'Amp1');
+        [leafData, ~, fs] = epicTreeTools.getSelectedData(leaf, 'Amp1');
         leafData = double(leafData);
         fs = double(fs);
 
@@ -422,7 +422,7 @@ try
     tree = epicTreeTools(data, 'LoadUserMetadata', 'none');
     tree.buildTreeWithSplitters({@epicTreeTools.splitOnCellType, @epicTreeTools.splitOnProtocol});
     ssNode = tree.childAt(1).childBySplitValue('SingleSpot');
-    [data1, ~, fs1] = getSelectedData(ssNode, 'Amp1');
+    [data1, ~, fs1] = epicTreeTools.getSelectedData(ssNode, 'Amp1');
 
     % Rebuild with totally different splitters
     tree.buildTreeWithSplitters({'cellInfo.label', 'parameters.stimTime'});
@@ -430,7 +430,7 @@ try
     % Rebuild back to original
     tree.buildTreeWithSplitters({@epicTreeTools.splitOnCellType, @epicTreeTools.splitOnProtocol});
     ssNode2 = tree.childAt(1).childBySplitValue('SingleSpot');
-    [data2, ~, fs2] = getSelectedData(ssNode2, 'Amp1');
+    [data2, ~, fs2] = epicTreeTools.getSelectedData(ssNode2, 'Amp1');
 
     % Data should be identical
     assert(isequal(size(data1), size(data2)), 'Size changed after rebuild');
@@ -510,17 +510,17 @@ try
     assert(fullCount >= 2, 'Need at least 2 epochs for this test');
 
     % Extract all
-    [dataAll, ~, ~] = getSelectedData(ssNode, 'Amp1');
+    [dataAll, ~, ~] = epicTreeTools.getSelectedData(ssNode, 'Amp1');
     assert(size(dataAll,1) == fullCount, 'Full extraction count wrong');
 
     % Deselect via node method (setSelected propagates to actual epochs)
     ssNode.setSelected(false, true);
-    [dataNone, ~, ~] = getSelectedData(ssNode, 'Amp1');
+    [dataNone, ~, ~] = epicTreeTools.getSelectedData(ssNode, 'Amp1');
     assert(isempty(dataNone), sprintf('Expected 0 after deselect, got %d', size(dataNone,1)));
 
     % Re-select all
     ssNode.setSelected(true, true);
-    [dataResel, ~, ~] = getSelectedData(ssNode, 'Amp1');
+    [dataResel, ~, ~] = epicTreeTools.getSelectedData(ssNode, 'Amp1');
     assert(size(dataResel,1) == fullCount, 'Re-select full count wrong');
 
     fprintf('  Full: %d epochs -> %d traces\n', fullCount, size(dataAll,1));
@@ -634,7 +634,7 @@ try
     tic;
     for i = 1:length(leaves)
         leaf = leaves{i};
-        [leafData, ~, fs] = getSelectedData(leaf, 'Amp1');
+        [leafData, ~, fs] = epicTreeTools.getSelectedData(leaf, 'Amp1');
         assert(~isempty(leafData), sprintf('Leaf %d: empty', i));
         assert(size(leafData,1) == leaf.epochCount(), sprintf('Leaf %d: count mismatch', i));
         totalExtracted = totalExtracted + size(leafData, 1);
@@ -665,7 +665,7 @@ try
 
     for i = 1:length(leaves)
         leaf = leaves{i};
-        [leafData, ~, fs] = getSelectedData(leaf, 'Amp1');
+        [leafData, ~, fs] = epicTreeTools.getSelectedData(leaf, 'Amp1');
         leafData = double(leafData);
         fs = double(fs);
 

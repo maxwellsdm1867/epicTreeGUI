@@ -110,7 +110,7 @@ fprintf('Testing on: %s\n', testNode.pathString());
 % Get selected data (H5 file optional for bundled data)
 % Note: getSelectedData can work with embedded data (no H5 file needed)
 try
-    [dataMatrix, epochs, sampleRate] = getSelectedData(testNode, 'Amp1');
+    [dataMatrix, epochs, sampleRate] = epicTreeTools.getSelectedData(testNode, 'Amp1');
     fprintf('Retrieved:\n');
     fprintf('  Data size: [%d x %d]\n', size(dataMatrix, 1), size(dataMatrix, 2));
     fprintf('  Sample rate: %g Hz\n', sampleRate);
@@ -180,7 +180,7 @@ fprintf('\n=== Example 7: Mean Response Trace ===\n');
 
 % Get data
 try
-    [data_ex7, ~, fs] = getSelectedData(testNode, 'Amp1');
+    [data_ex7, ~, fs] = epicTreeTools.getSelectedData(testNode, 'Amp1');
 catch
     fprintf('Skipping Example 7: H5 data not available\n');
     return;
@@ -226,7 +226,7 @@ if tree.childrenLength() > 0
     if length(protocolNodes) >= 2
         figure('Name', 'Protocol Comparison');
         try
-            results = MeanSelectedNodes(protocolNodes, 'Amp1', ...
+            results = epicTreeTools.MeanSelectedNodes(protocolNodes, 'Amp1', ...
                 'BaselineCorrect', true, ...
                 'ShowLegend', true, ...
                 'ShowAnalysis', true);
@@ -256,7 +256,7 @@ for i = 1:length(leaves)
 
     % Get data
     try
-        [leafData, ~, ~] = getSelectedData(leaf, 'Amp1');
+        [leafData, ~, ~] = epicTreeTools.getSelectedData(leaf, 'Amp1');
     catch
         leafData = [];
     end
@@ -298,6 +298,6 @@ fprintf('  - buildTree()          : Organize by split keys\n');
 fprintf('  - childAt(), childrenLength() : Navigate down\n');
 fprintf('  - parent, parentAt(), depth() : Navigate up\n');
 fprintf('  - getAllEpochs()       : Get epochs with selection filter\n');
-fprintf('  - getSelectedData()    : Get response matrix\n');
+fprintf('  - epicTreeTools.getSelectedData()    : Get response matrix\n');
 fprintf('  - putCustom()/getCustom() : Store/retrieve results\n');
-fprintf('  - MeanSelectedNodes()  : Compare conditions\n');
+fprintf('  - epicTreeTools.MeanSelectedNodes()  : Compare conditions\n');
