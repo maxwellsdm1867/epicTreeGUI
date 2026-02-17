@@ -309,13 +309,25 @@ def build_stimulus_struct(stim_dict, h5_file):
         h5_file: Path to H5 file (or None)
 
     Returns:
-        dict: Stimulus struct with empty data field and h5_path populated
+        dict: Stimulus struct with empty data field, h5_path,
+              stimulus_id (generator class), and stimulus_parameters
     """
+    # Extract stimulus parameters and flatten for MATLAB compatibility
+    stim_params = stim_dict.get('stimulus_parameters', {})
+    if stim_params and isinstance(stim_params, dict):
+        stim_params = flatten_json_params(stim_params)
+    elif stim_params and isinstance(stim_params, str):
+        stim_params = flatten_json_params(stim_params)
+    else:
+        stim_params = {}
+
     return {
         'device_name': stim_dict.get('device_name', ''),
-        'data': [],  # Empty for lazy loading
+        'stimulus_id': stim_dict.get('stimulus_id', ''),
+        'data': [],  # Empty for lazy loading / reconstruction
         'h5_path': stim_dict.get('h5path', ''),
         'h5_file': h5_file if h5_file else '',
         'sample_rate': parse_sample_rate(stim_dict.get('sample_rate')),
-        'units': stim_dict.get('units', 'normalized')
+        'units': stim_dict.get('units', 'normalized'),
+        'stimulus_parameters': stim_params
     }

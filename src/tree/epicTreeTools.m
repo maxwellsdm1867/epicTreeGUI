@@ -1027,7 +1027,7 @@ classdef epicTreeTools < handle
 
             % Get first stimulus to determine size
             firstStim = epicTreeTools.getStimulusByName(epochs{1}, streamName);
-            if isempty(firstStim) || ~isfield(firstStim, 'data')
+            if isempty(firstStim) || ~isfield(firstStim, 'data') || isempty(firstStim.data)
                 dataMatrix = [];
                 return;
             end
@@ -1035,10 +1035,11 @@ classdef epicTreeTools < handle
             nSamples = length(firstStim.data);
             nEpochs = length(epochs);
             dataMatrix = zeros(nEpochs, nSamples);
+            dataMatrix(1, :) = firstStim.data(:)';
 
-            for i = 1:nEpochs
+            for i = 2:nEpochs
                 stim = epicTreeTools.getStimulusByName(epochs{i}, streamName);
-                if ~isempty(stim) && isfield(stim, 'data')
+                if ~isempty(stim) && isfield(stim, 'data') && ~isempty(stim.data)
                     data = stim.data(:)';
                     if length(data) == nSamples
                         dataMatrix(i, :) = data;
@@ -2180,6 +2181,10 @@ classdef epicTreeTools < handle
         function stimulus = getStimulusByName(epoch, deviceName)
             % GETSTIMULUSBYNAME Get stimulus struct by device name
             %
+            % If stimulus.data is empty but stimulus_id and
+            % stimulus_parameters exist, auto-reconstructs the waveform
+            % using epicStimulusGenerators.
+            %
             % Usage:
             %   stim = epicTreeTools.getStimulusByName(epoch, 'LED')
 
@@ -2191,7 +2196,7 @@ classdef epicTreeTools < handle
                 for i = 1:length(stimuli)
                     if strcmp(stimuli(i).device_name, deviceName)
                         stimulus = stimuli(i);
-                        return;
+                        break;
                     end
                 end
             elseif iscell(stimuli)
@@ -2199,8 +2204,36 @@ classdef epicTreeTools < handle
                     s = stimuli{i};
                     if isfield(s, 'device_name') && strcmp(s.device_name, deviceName)
                         stimulus = s;
-                        return;
+                        break;
                     end
+                end
+            end
+
+            if isempty(stimulus), return; end
+
+            % Auto-reconstruct if data is empty but stimulus_id exists
+            hasData = isfield(stimulus, 'data') && ~isempty(stimulus.data);
+            hasID = isfield(stimulus, 'stimulus_id') && ~isempty(stimulus.stimulus_id);
+
+            if ~hasData && hasID
+                try
+                    stimParams = struct();
+                    if isfield(stimulus, 'stimulus_parameters')
+                        stimParams = stimulus.stimulus_parameters;
+                        if ~isstruct(stimParams)
+                            stimParams = struct();
+                        end
+                    end
+                    [data, sr] = epicStimulusGenerators.generateStimulus( ...
+                        stimulus.stimulus_id, stimParams);
+                    stimulus.data = data;
+                    if sr > 0
+                        stimulus.sample_rate = sr;
+                    end
+                catch ME
+                    warning('epicTreeTools:getStimulusByName:reconstructFailed', ...
+                        'Failed to reconstruct stimulus from %s: %s', ...
+                        stimulus.stimulus_id, ME.message);
                 end
             end
         end
@@ -3430,16 +3463,34 @@ classdef epicTreeTools < handle
 
             result.sampleRate = sampleRate;
 
-            stimMatrix = zeros(size(respMatrix));
-            for i = 1:result.n
-                stim = epicTreeTools.getStimulusByName(epochs{i}, stimStreamName);
-                if ~isempty(stim) && isfield(stim, 'data')
-                    data = stim.data(:)';
-                    if length(data) >= size(stimMatrix, 2)
-                        stimMatrix(i, :) = data(1:size(stimMatrix, 2));
-                    else
-                        stimMatrix(i, 1:length(data)) = data;
+            try
+                [stimMatrix, ~] = epicTreeTools.getStimulusMatrix(epochs, stimStreamName);
+            catch
+                stimMatrix = [];
+            end
+
+            if isempty(stimMatrix)
+                % Fallback: try getStimulusByName per-epoch
+                stimMatrix = zeros(size(respMatrix));
+                for i = 1:result.n
+                    stim = epicTreeTools.getStimulusByName(epochs{i}, stimStreamName);
+                    if ~isempty(stim) && isfield(stim, 'data') && ~isempty(stim.data)
+                        data = stim.data(:)';
+                        if length(data) >= size(stimMatrix, 2)
+                            stimMatrix(i, :) = data(1:size(stimMatrix, 2));
+                        else
+                            stimMatrix(i, 1:length(data)) = data;
+                        end
                     end
+                end
+            elseif size(stimMatrix, 2) ~= size(respMatrix, 2)
+                % Trim or pad to match response length
+                if size(stimMatrix, 2) > size(respMatrix, 2)
+                    stimMatrix = stimMatrix(:, 1:size(respMatrix, 2));
+                else
+                    padded = zeros(size(respMatrix));
+                    padded(:, 1:size(stimMatrix, 2)) = stimMatrix;
+                    stimMatrix = padded;
                 end
             end
 
@@ -4167,6 +4218,110 @@ classdef epicTreeTools < handle
                             'Error reading H5 file %s path %s: %s', ...
                             h5_file, h5_path, ME2.message);
                     end
+                end
+            end
+        end
+
+        function [data, sampleRate] = getStimulusFromEpoch(epoch, streamName)
+            % GETSTIMULUSFROMEPOCH Extract stimulus data from a single epoch
+            %
+            % Searches epoch.stimuli for matching device_name. If the
+            % stimulus .data field is empty but .stimulus_id and
+            % .stimulus_parameters exist, auto-reconstructs the waveform
+            % using epicStimulusGenerators.
+            %
+            % Mirrors getResponseFromEpoch for stimulus data.
+            %
+            % Inputs:
+            %   epoch      - Epoch struct with stimuli field
+            %   streamName - Stimulus device name (e.g., 'LED', 'Stage')
+            %
+            % Outputs:
+            %   data       - 1xN row vector of stimulus waveform
+            %   sampleRate - Sample rate in Hz
+            %
+            % See also: epicTreeTools.getStimulusMatrix, epicTreeTools.getStimulusByName
+
+            data = [];
+            sampleRate = [];
+
+            stim = epicTreeTools.getStimulusByName(epoch, streamName);
+            if isempty(stim)
+                return;
+            end
+
+            if isfield(stim, 'sample_rate') && ~isempty(stim.sample_rate)
+                sampleRate = stim.sample_rate;
+            end
+
+            if isfield(stim, 'data') && ~isempty(stim.data)
+                data = stim.data(:)';
+            end
+        end
+
+        function [dataMatrix, sampleRate] = getStimulusMatrix(epochList, streamName)
+            % GETSTIMULUSMATRIX Extract stimulus data matrix from epoch list
+            %
+            % Returns a matrix where each row is one epoch's stimulus data.
+            % Auto-reconstructs stimuli when .data is empty but stimulus_id
+            % and stimulus_parameters are present (via getStimulusByName).
+            %
+            % Mirrors getResponseMatrix for stimulus data.
+            %
+            % Usage:
+            %   [data, fs] = epicTreeTools.getStimulusMatrix(epochs, 'LED')
+            %
+            % Inputs:
+            %   epochList  - Cell array of epoch structs
+            %   streamName - Stimulus device name (e.g., 'LED', 'Stage')
+            %
+            % Outputs:
+            %   dataMatrix - [nEpochs x nSamples] stimulus data matrix
+            %   sampleRate - Sample rate in Hz (from first epoch)
+            %
+            % See also: epicTreeTools.getStimulusFromEpoch, epicTreeTools.getResponseMatrix
+
+            if isempty(epochList)
+                dataMatrix = [];
+                sampleRate = [];
+                return;
+            end
+
+            if ~iscell(epochList)
+                epochList = {epochList};
+            end
+
+            nEpochs = length(epochList);
+
+            [firstData, sampleRate] = epicTreeTools.getStimulusFromEpoch(epochList{1}, streamName);
+
+            if isempty(firstData)
+                dataMatrix = [];
+                return;
+            end
+
+            nSamples = length(firstData);
+            dataMatrix = zeros(nEpochs, nSamples);
+            dataMatrix(1, :) = firstData;
+
+            for i = 2:nEpochs
+                [epochData, ~] = epicTreeTools.getStimulusFromEpoch(epochList{i}, streamName);
+
+                if isempty(epochData)
+                    warning('epicTreeTools:getStimulusMatrix:StreamNotFound', ...
+                        'Stimulus stream "%s" not found in epoch %d of %d.', ...
+                        streamName, i, nEpochs);
+                    continue;
+                end
+
+                if length(epochData) ~= nSamples
+                    warning('epicTreeTools:getStimulusMatrix:InconsistentLength', ...
+                        'Inconsistent stimulus length in epoch %d (was %d, expected %d).', ...
+                        i, length(epochData), nSamples);
+                    len = min(length(epochData), nSamples);
+                    dataMatrix(i, 1:len) = epochData(1:len);
+                else
+                    dataMatrix(i, :) = epochData;
                 end
             end
         end

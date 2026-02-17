@@ -297,17 +297,36 @@ h5_file = getH5FilePath(exp_name);  % Uses epicTreeConfig('h5_dir')
 stimulus = struct(...
     % Identification
     'id', 789, ...
-    'device_name', 'Stage', ...       % Stimulus device
+    'device_name', 'Stage', ...       % Stimulus device (e.g., 'LED', 'Stage')
     'label', 'LED stimulus', ...
 
+    % Generator identification (for waveform reconstruction)
+    'stimulus_id', 'symphonyui.builtin.stimuli.DirectCurrentGenerator', ...  % Fully-qualified Symphony generator class name
+    'stimulus_parameters', struct(...   % Generator-specific parameters
+        'time', 0.75, ...              % Varies by generator type
+        'offset', 120, ...
+        'sampleRate', 10000 ...
+    ), ...
+
     % Data
-    'data', [stimulus_trace], ...     % Actual stimulus trace (if applicable)
+    'data', [stimulus_trace], ...     % Reconstructed or pre-computed waveform
+                                      % May be empty — MATLAB auto-reconstructs
+                                      % from stimulus_id + stimulus_parameters
 
     % Metadata
     'sample_rate', 10000, ...         % Hz
     'units', 'normalized' ...         % Units of 'data' field
 );
 ```
+
+**Stimulus reconstruction:** When `data` is empty and `stimulus_id` is present,
+`epicTreeTools.getStimulusByName()` auto-reconstructs the waveform using
+`epicStimulusGenerators.generateStimulus(stimulus_id, stimulus_parameters)`.
+This is transparent to callers — they always get a populated `data` field back.
+
+**Note:** `stimulus_id` is the Symphony generator class name (e.g.,
+`edu.washington.riekelab.stimuli.GaussianNoiseGeneratorV2`), NOT the protocol
+name. The protocol name (e.g., `VariableMeanNoise`) is stored in `epoch_block.protocol_name`.
 
 ## Example: Loading in EpicTreeGUI Backend
 
