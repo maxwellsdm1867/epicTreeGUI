@@ -1,0 +1,69 @@
+{
+  "old": "/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-full-sqlite-handoff-avx1oj94/recordings.sqlite",
+  "new": "/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-sqlite-v2-validation-sqzezay7/recordings.sqlite",
+  "old_bytes": 13332480,
+  "new_bytes": 10362880,
+  "reduction_percent": 22.27,
+  "build_seconds": 0.384,
+  "counts": {
+    "export_metadata": 1,
+    "sources": 1,
+    "cells": 2,
+    "epoch_groups": 2,
+    "epoch_blocks": 20,
+    "epochs": 520,
+    "streams": 1040,
+    "epoch_tags": 0,
+    "parameter_sets": 397,
+    "parameter_values": 9528,
+    "frozen_records": 520,
+    "example_queries": 8,
+    "documentation": 3
+  },
+  "archive_roundtrip_epochs": 520,
+  "query_roundtrips": [
+    "epoch_parameters",
+    "streams",
+    "epoch_tags",
+    "epoch_overview"
+  ],
+  "top_storage_objects": [
+    [
+      "epochs",
+      4268032
+    ],
+    [
+      "streams",
+      1433600
+    ],
+    [
+      "frozen_records",
+      1433600
+    ],
+    [
+      "parameter_values",
+      1261568
+    ],
+    [
+      "parameters_field_value",
+      1032192
+    ],
+    [
+      "parameter_sets",
+      245760
+    ],
+    [
+      "export_metadata",
+      163840
+    ],
+    [
+      "sqlite_autoindex_streams_1",
+      65536
+    ]
+  ],
+  "full_trace_epochs": 520,
+  "exact_samples_compared": 2600000,
+  "source_checksum_calls": 1,
+  "trace_verification_seconds": 1.631,
+  "warm_20sample_mean_ms": 0.296
+}

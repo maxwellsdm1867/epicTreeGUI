@@ -1,0 +1,169 @@
+{
+  "verified_at": "2026-09-27",
+  "source": "2026-09-23_F.h5",
+  "catalog": {
+    "sources": 2,
+    "cells": 8,
+    "epochs": 1776
+  },
+  "history": {
+    "baseline_epochs": 101,
+    "added_epochs": 72,
+    "added_cells": 2,
+    "epochs": 173,
+    "cells": 4,
+    "dates": [
+      "2026-09-23",
+      "2026-09-24"
+    ]
+  },
+  "mean_noise_epochs_unchanged": 520,
+  "exports": [
+    {
+      "actor": "maxwellsdm",
+      "artifact_path": "/Users/maxwellsdm/Documents/RecordingWorkspace/RetinaSRM/exports/11cbfb64-7aa9-4980-bd17-65f962a01100/epictree-bundle.zip",
+      "artifact_sha256": "e32e8e6ccb9233c2e3333144953d0caa85782f3f7174d8e35664a6ac56682298",
+      "created_at": "Mon, 28 Sep 2026 01:57:08 GMT",
+      "dataset_uuid": "11cbfb64-7aa9-4980-bd17-65f962a01100",
+      "download_url": "/api/exports/11cbfb64-7aa9-4980-bd17-65f962a01100/download",
+      "epoch_count": 173,
+      "format": "epictree-mat",
+      "name": "History Noise \u00b7 Sep 23 + Sep 24",
+      "project_uuid": "440adc1c-158f-41df-895e-6c942ed35f6a",
+      "protocol_uuid": "6b6df15d-0e2b-52b0-aa57-8d00df927cfb",
+      "status": "completed"
+    },
+    {
+      "actor": "maxwellsdm",
+      "artifact_path": "/Users/maxwellsdm/Documents/RecordingWorkspace/RetinaSRM/exports/69ea44d6-1b5f-4533-9020-060ae2743896/recordings.sqlite",
+      "artifact_sha256": "036ff7c2b02fc741aabf1aa1a7a0d36d291baeb74aaedc5c34735b0f4cf5d9ed",
+      "created_at": "Mon, 28 Sep 2026 01:56:03 GMT",
+      "dataset_uuid": "69ea44d6-1b5f-4533-9020-060ae2743896",
+      "download_url": "/api/exports/69ea44d6-1b5f-4533-9020-060ae2743896/download",
+      "epoch_count": 173,
+      "format": "wheeler-sqlite",
+      "name": "History Noise \u00b7 Sep 23 + Sep 24",
+      "project_uuid": "440adc1c-158f-41df-895e-6c942ed35f6a",
+      "protocol_uuid": "6b6df15d-0e2b-52b0-aa57-8d00df927cfb",
+      "status": "completed"
+    }
+  ],
+  "native_generator": {
+    "output_directory": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp4b365d8f_512e_4f4a_97bf_71e3762182cf/moved bundle's files",
+    "epoch_count": 173,
+    "fields": [
+      "date",
+      "cell",
+      "block"
+    ],
+    "scripts": [
+      {
+        "script": "launch_epictree.m",
+        "executed_unchanged": true,
+        "epochs": 173,
+        "ordered_leaves": 45,
+        "exact_epoch_sequence": true,
+        "mixed_mask_by_uuid": true,
+        "gui_created": true,
+        "roundtrip_mask_by_uuid": true,
+        "friendly_display_labels": true,
+        "gui_save_path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp4b365d8f_512e_4f4a_97bf_71e3762182cf/moved bundle's files/selection.ugm",
+        "reopened_saved_mask": false,
+        "trace": {
+          "epoch_uuid": "3b54ad41-be74-40e3-a573-dd105ff6fc90",
+          "samples": 200000,
+          "sample_rate": 10000,
+          "units": "mV",
+          "gui_equals_direct_h5": true,
+          "loader_equals_direct_h5": true
+        },
+        "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp4b365d8f_512e_4f4a_97bf_71e3762182cf/moved bundle's files/generated-script-1.png"
+      },
+      {
+        "script": "tree_layout.m",
+        "executed_unchanged": true,
+        "epochs": 173,
+        "ordered_leaves": 45,
+        "exact_epoch_sequence": true,
+        "mixed_mask_by_uuid": true,
+        "gui_created": true,
+        "roundtrip_mask_by_uuid": true,
+        "friendly_display_labels": true,
+        "gui_save_path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp4b365d8f_512e_4f4a_97bf_71e3762182cf/moved bundle's files/selection.ugm",
+        "reopened_saved_mask": true,
+        "trace": {
+          "epoch_uuid": "f13d83a5-5cf2-4066-8cfc-b430f42f9f29",
+          "samples": 100000,
+          "sample_rate": 10000,
+          "units": "mV",
+          "gui_equals_direct_h5": true,
+          "loader_equals_direct_h5": true
+        },
+        "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp4b365d8f_512e_4f4a_97bf_71e3762182cf/moved bundle's files/generated-script-2.png"
+      }
+    ],
+    "all_excluded_nodes_and_gui_flags": true,
+    "invalid_mapping_rejected": true,
+    "unavailable_field_rejected": true,
+    "invalid_sequence_rejected": true,
+    "source_files_modified": false,
+    "project_database_modified": false
+  },
+  "native_multisource": {
+    "status": "passed",
+    "trace_cases": 5,
+    "epochs": 173,
+    "both_sources_verified": true,
+    "control_and_long_trace_verified": true,
+    "mixed_mask_uuid_roundtrip": true
+  },
+  "api_timings": {
+    "protocol-suggestions": {
+      "milliseconds": [
+        22.2,
+        5.7,
+        5.8,
+        6.6,
+        6.5
+      ],
+      "median_ms": 6.5,
+      "bytes": 8672
+    },
+    "overview": {
+      "milliseconds": [
+        142.6,
+        124.1,
+        130.3,
+        140.3,
+        144.0
+      ],
+      "median_ms": 140.3,
+      "bytes": 211326
+    },
+    "protocols/6b6df15d-0e2b-52b0-aa57-8d00df927cfb": {
+      "milliseconds": [
+        24.7,
+        24.6,
+        24.0,
+        23.0,
+        24.6
+      ],
+      "median_ms": 24.6,
+      "bytes": 3628
+    },
+    "protocols/6b6df15d-0e2b-52b0-aa57-8d00df927cfb/tree?splits=date,cell,block": {
+      "milliseconds": [
+        8.8,
+        7.6,
+        8.6,
+        8.0,
+        8.2
+      ],
+      "median_ms": 8.2,
+      "bytes": 73183
+    }
+  },
+  "evidence_directory": "/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-sept23-import-e2e-9xm97pop",
+  "python_regressions_passed": 233,
+  "frontend_tests_passed": 66
+}

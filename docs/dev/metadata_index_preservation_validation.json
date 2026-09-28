@@ -1,0 +1,27 @@
+{
+  "receipt": {
+    "sources": 2,
+    "epochs": 1776,
+    "protocols": 5,
+    "source_cache_hits": 2,
+    "source_cache_rebuilt": 0,
+    "timing_ms": {
+      "metadata_check": 13.389250030741096,
+      "source_rebuild": 0.0,
+      "sql_queries": 350.37020800518803,
+      "total": 709.3309590127319
+    },
+    "discovery_indexes_preserved": true,
+    "status": "complete",
+    "reused_sources": 2,
+    "rebuilt_sources": 0,
+    "elapsed_seconds": 0.7093309590127319,
+    "completed_at": "2026-09-28T04:54:59.939528+00:00"
+  },
+  "discovery_checksum": "12f3c0ab8093df1d911dbe7c8d15f313ccf8671c670d8091006f75e6fa6a3985",
+  "catalog_fields": 140,
+  "epoch_count": 1776,
+  "exact_discovery_preserved": true,
+  "waveform_reads": 0,
+  "mutations": []
+}

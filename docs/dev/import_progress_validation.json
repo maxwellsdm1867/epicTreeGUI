@@ -1,0 +1,233 @@
+{
+  "status": "passed",
+  "source": "/Users/maxwellsdm/Downloads/2026-09-23_F.h5",
+  "source_sha256": "63d48aeab9344cce6665a9a752f836a797d8c136211202482cce4f72f501003e",
+  "source_unchanged": true,
+  "parse_only_no_sql_writes": true,
+  "valid": {
+    "exit_code": 0,
+    "elapsed_seconds": 11.479,
+    "final": {
+      "version": 1,
+      "commit_state": "not_started",
+      "pid": 41823,
+      "stage_started_at": "2026-09-28T04:29:19.416923+00:00",
+      "stage": "complete",
+      "stage_label": "Complete",
+      "updated_at": "2026-09-28T04:29:19.416923+00:00",
+      "child_job_file": "/private/tmp/rieke-import-progress-real-20260927-final/valid-source/project/logs/imports/92eb6521-acaf-48ba-873b-e4e8d8a3587d.json",
+      "outcome": "completed",
+      "counts": {
+        "cells": 5,
+        "epochs": 690,
+        "responses": 1308,
+        "stimuli": 690
+      },
+      "catalog_committed": false,
+      "manifest": "/private/tmp/rieke-import-progress-real-20260927-final/valid-source/project/imports/2026-09-23_F-63d48aeab934/import-manifest.json"
+    }
+  },
+  "malformed": {
+    "exit_code": 1,
+    "elapsed_seconds": 0.853,
+    "final": {
+      "version": 1,
+      "commit_state": "not_started",
+      "pid": 42005,
+      "stage_started_at": "2026-09-28T04:29:20.315717+00:00",
+      "stage": "failed",
+      "stage_label": "Stopped",
+      "updated_at": "2026-09-28T04:29:20.315717+00:00",
+      "child_job_file": "/private/tmp/rieke-import-progress-real-20260927-final/malformed-source/project/logs/imports/73d5ca95-db56-4f64-afa3-2e886965cfd7.json",
+      "outcome": "failed",
+      "error_type": "AssertionError",
+      "error": "AssertionError during parsing for malformed.h5; inspect the parser log and traceback.",
+      "workflow_stage": "parsing",
+      "catalog_committed": false,
+      "traceback_path": "/private/tmp/rieke-import-progress-real-20260927-final/malformed-source/project/logs/imports/73d5ca95-db56-4f64-afa3-2e886965cfd7.traceback.txt"
+    }
+  },
+  "observed_stages": [
+    "source_hashing",
+    "parsing",
+    "validating_metadata",
+    "verifying_source_hash",
+    "complete"
+  ],
+  "measured_validation_updates": [
+    {
+      "seconds": 3.359,
+      "completed": 0,
+      "total": 690
+    },
+    {
+      "seconds": 3.53,
+      "completed": 38,
+      "total": 690
+    },
+    {
+      "seconds": 3.759,
+      "completed": 89,
+      "total": 690
+    },
+    {
+      "seconds": 3.974,
+      "completed": 96,
+      "total": 690
+    },
+    {
+      "seconds": 4.15,
+      "completed": 101,
+      "total": 690
+    },
+    {
+      "seconds": 4.442,
+      "completed": 107,
+      "total": 690
+    },
+    {
+      "seconds": 4.615,
+      "completed": 112,
+      "total": 690
+    },
+    {
+      "seconds": 4.89,
+      "completed": 117,
+      "total": 690
+    },
+    {
+      "seconds": 5.063,
+      "completed": 122,
+      "total": 690
+    },
+    {
+      "seconds": 5.285,
+      "completed": 161,
+      "total": 690
+    },
+    {
+      "seconds": 5.459,
+      "completed": 179,
+      "total": 690
+    },
+    {
+      "seconds": 5.686,
+      "completed": 184,
+      "total": 690
+    },
+    {
+      "seconds": 5.952,
+      "completed": 188,
+      "total": 690
+    },
+    {
+      "seconds": 6.172,
+      "completed": 192,
+      "total": 690
+    },
+    {
+      "seconds": 6.403,
+      "completed": 196,
+      "total": 690
+    },
+    {
+      "seconds": 6.631,
+      "completed": 201,
+      "total": 690
+    },
+    {
+      "seconds": 6.851,
+      "completed": 206,
+      "total": 690
+    },
+    {
+      "seconds": 7.078,
+      "completed": 211,
+      "total": 690
+    },
+    {
+      "seconds": 7.305,
+      "completed": 216,
+      "total": 690
+    },
+    {
+      "seconds": 7.472,
+      "completed": 263,
+      "total": 690
+    },
+    {
+      "seconds": 7.699,
+      "completed": 314,
+      "total": 690
+    },
+    {
+      "seconds": 7.869,
+      "completed": 367,
+      "total": 690
+    },
+    {
+      "seconds": 8.103,
+      "completed": 419,
+      "total": 690
+    },
+    {
+      "seconds": 8.279,
+      "completed": 472,
+      "total": 690
+    },
+    {
+      "seconds": 8.506,
+      "completed": 526,
+      "total": 690
+    },
+    {
+      "seconds": 8.726,
+      "completed": 579,
+      "total": 690
+    },
+    {
+      "seconds": 8.892,
+      "completed": 632,
+      "total": 690
+    },
+    {
+      "seconds": 9.111,
+      "completed": 679,
+      "total": 690
+    },
+    {
+      "seconds": 9.171,
+      "completed": 690,
+      "total": 690
+    }
+  ],
+  "final_validation": {
+    "python_tests": 284,
+    "frontend_tests": 92,
+    "build": "passed",
+    "live_duplicate_job": "8aa37ae6-b924-4dc6-ac7b-e698186177ee",
+    "catalog_counts_after": {
+      "approved": 0,
+      "cells": 8,
+      "duration_seconds": 4538.25,
+      "epochs": 1776,
+      "exported": 173,
+      "included": 1776,
+      "protocols": 5,
+      "reviewed": 0,
+      "sources": 2,
+      "unreviewed": 1776
+    },
+    "jobs_endpoint_local_ms": [
+      27.17,
+      1.23,
+      1.07,
+      0.84,
+      0.85
+    ],
+    "browser_navigation_persistent_status": true,
+    "browser_connection_failure_retains_confirmed_state": true,
+    "browser_automatic_recovery_restores_workspace": true,
+    "automatic_import_resubmission": false
+  }
+}

@@ -32,6 +32,7 @@ classdef epicTreeGUI < handle
         h5File                  % H5 file path for lazy loading
         matFilePath = ''        % Path to source .mat file (for .ugm file discovery)
         loadedMask = []         % Selection mask loaded at startup (for close comparison)
+        workspaceMaskPath = '' % Explicit bundle mask; never use global latest-file discovery
 
         % UI Components
         figure                  % Main figure handle
@@ -98,34 +99,41 @@ classdef epicTreeGUI < handle
                     % Store loaded mask for close comparison (build from current isSelected state)
                     self.loadedMask = self.buildCurrentMask();
 
-                    % Get H5 file from config
-                    try
-                        config = epicTreeConfig();
-                        if isfield(config, 'h5_dir') && ~isempty(config.h5_dir)
-                            % Get experiment name from first epoch
-                            if ~isempty(self.allEpochs)
-                                ep = self.allEpochs{1};
-                                if isfield(ep, 'expInfo') && isfield(ep.expInfo, 'exp_name')
-                                    expName = ep.expInfo.exp_name;
-                                    self.h5File = fullfile(config.h5_dir, [expName '.h5']);
+                    % Exported epochs retain their own acquisition files. A
+                    % legacy global directory must not override these paths
+                    % or emit a false "data will not load" warning.
+                    hasEpochSources = ~isempty(self.allEpochs) && all(cellfun(@(ep) ...
+                        isfield(ep, 'h5_file') && ~isempty(ep.h5_file), self.allEpochs));
+                    self.h5File = '';
+                    if ~hasEpochSources
+                        try
+                            config = epicTreeConfig();
+                            if isfield(config, 'h5_dir') && ~isempty(config.h5_dir)
+                                % Get experiment name from first epoch
+                                if ~isempty(self.allEpochs)
+                                    ep = self.allEpochs{1};
+                                    if isfield(ep, 'expInfo') && isfield(ep.expInfo, 'exp_name')
+                                        expName = ep.expInfo.exp_name;
+                                        self.h5File = fullfile(config.h5_dir, [expName '.h5']);
 
-                                    % Verify H5 file exists
-                                    if ~exist(self.h5File, 'file')
-                                        warning('epicTreeGUI:H5NotFound', ...
-                                            'H5 file not found: %s\nData will not load!', self.h5File);
-                                        self.h5File = '';
-                                    else
-                                        fprintf('✓ H5 file found: %s\n', self.h5File);
+                                        % Verify H5 file exists
+                                        if ~exist(self.h5File, 'file')
+                                            warning('epicTreeGUI:H5NotFound', ...
+                                                'H5 file not found: %s\nData will not load!', self.h5File);
+                                            self.h5File = '';
+                                        else
+                                            fprintf('✓ H5 file found: %s\n', self.h5File);
+                                        end
                                     end
                                 end
+                            else
+                                warning('epicTreeGUI:NoH5Config', ...
+                                    'H5 directory not configured! Run: epicTreeConfig(''h5_dir'', ''/path/to/h5'')');
                             end
-                        else
-                            warning('epicTreeGUI:NoH5Config', ...
-                                'H5 directory not configured! Run: epicTreeConfig(''h5_dir'', ''/path/to/h5'')');
+                        catch ME
+                            warning('epicTreeGUI:ConfigError', ...
+                                'Error getting H5 config: %s', ME.message);
                         end
-                    catch ME
-                        warning('epicTreeGUI:ConfigError', ...
-                            'Error getting H5 config: %s', ME.message);
                     end
 
                     % Update tree browser
@@ -187,6 +195,45 @@ classdef epicTreeGUI < handle
                     epochs = [epochs; nodeEpochs(:)];
                 end
             end
+        end
+        function filepath = saveWorkspaceMask(self)
+            % Save the working bundle mask that the generated command reloads.
+            filepath = self.workspaceMaskPath;
+            if isempty(filepath) || isempty(self.matFilePath) || ...
+                    ~strcmp(filepath,fullfile(fileparts(self.matFilePath),'selection.ugm'))
+                error('epicTreeGUI:InvalidWorkspaceMask','Workspace mask must be adjacent to its recordings.mat.');
+            end
+            ids=cellfun(@(epoch) epoch.h5_uuid,self.tree.allEpochs,'UniformOutput',false);
+            previous=struct();
+            if isfile(filepath)
+                saved=load(filepath,'-mat');
+                if ~isfield(saved,'ugm') || ~isstruct(saved.ugm) || ~isscalar(saved.ugm) || ...
+                        ~isfield(saved.ugm,'epoch_h5_uuids') || ~iscellstr(saved.ugm.epoch_h5_uuids)
+                    error('epicTreeGUI:InvalidWorkspaceMask','Existing workspace mask has no valid UUID membership.');
+                end
+                oldIds=cellfun(@(id) reshape(id,1,[]),saved.ugm.epoch_h5_uuids,'UniformOutput',false);
+                if numel(oldIds)~=numel(ids) || numel(unique(oldIds))~=numel(ids) || ~isequal(sort(oldIds(:)),sort(ids(:)))
+                    error('epicTreeGUI:InvalidWorkspaceMask','Existing mask belongs to different epochs; it was not overwritten.');
+                end
+                previous=saved.ugm;
+            end
+            temporary=[tempname(fileparts(filepath)) '.ugm'];
+            try
+                self.tree.saveUserMetadata(temporary);
+                saved=load(temporary,'-mat'); ugm=saved.ugm;
+                provenance={'project_uuid','protocol_uuid','dataset_uuid','export_uuid', ...
+                    'query_sha256','recipe_sha256','source_scope_revision'};
+                for i=1:numel(provenance)
+                    key=provenance{i}; if isfield(previous,key),ugm.(key)=previous.(key);end
+                end
+                save(temporary,'ugm','-v7.3');
+                [ok,message]=movefile(temporary,filepath,'f');
+                if ~ok,error('epicTreeGUI:MaskSaveFailed','%s',message);end
+            catch cause
+                if isfile(temporary),delete(temporary);end
+                rethrow(cause);
+            end
+            self.loadedMask=self.buildCurrentMask();
         end
     end
 
@@ -343,11 +390,19 @@ classdef epicTreeGUI < handle
             browserNode.userData = epochNode;
 
             % Get display name
-            if ~isempty(epochNode.splitValue)
+            if epochNode.hasCustom('workspaceValueLabel') && epochNode.hasCustom('workspaceFieldLabel')
+                browserNode.name = sprintf('%s: %s',epochNode.getCustom('workspaceFieldLabel'),epochNode.getCustom('workspaceValueLabel'));
+            elseif ~isempty(epochNode.splitValue)
                 if isnumeric(epochNode.splitValue)
                     browserNode.name = sprintf('%s = %g', epochNode.splitKey, epochNode.splitValue);
                 elseif ischar(epochNode.splitValue)
-                    displayValue = self.abbreviateProtocolName(epochNode.splitValue);
+                    if startsWith(epochNode.splitKey, 'workspaceGrouping.')
+                        % Canonical JSON is a typed value, not a dotted class name.
+                        % Preserve decimals, arrays and quoted strings verbatim.
+                        displayValue = epochNode.splitValue;
+                    else
+                        displayValue = self.abbreviateProtocolName(epochNode.splitValue);
+                    end
                     browserNode.name = sprintf('%s', displayValue);
                 else
                     displayValue = self.abbreviateProtocolName(char(string(epochNode.splitValue)));
@@ -428,7 +483,9 @@ classdef epicTreeGUI < handle
                             switch choice
                                 case 'Update Mask'
                                     % Save to latest .ugm or create new if none exists
-                                    if ~isempty(self.matFilePath)
+                                    if ~isempty(self.workspaceMaskPath)
+                                        self.saveWorkspaceMask();
+                                    elseif ~isempty(self.matFilePath)
                                         latestUGM = epicTreeTools.findLatestUGM(self.matFilePath);
                                         if isempty(latestUGM)
                                             % Create new
@@ -442,7 +499,7 @@ classdef epicTreeGUI < handle
                                     % Continue closing
                                 case 'Discard Changes'
                                     % Continue closing without saving
-                                case 'Cancel'
+                                case {'Cancel',''}
                                     % Don't close
                                     return;
                             end
@@ -450,6 +507,10 @@ classdef epicTreeGUI < handle
                     end
                 end
             catch ME
+                if ~isempty(self.workspaceMaskPath)
+                    errordlg(sprintf('Mask could not be saved. The window remains open.\n%s',ME.message),'Save mask failed');
+                    return;
+                end
                 warning('epicTreeGUI:onClose', ...
                     'Error during close handler: %s. Closing without saving.', ME.message);
             end
@@ -580,6 +641,16 @@ classdef epicTreeGUI < handle
         function onSaveEpochMask(self)
             % Save current selection state to .ugm file
 
+            if ~isempty(self.workspaceMaskPath)
+                try
+                    filepath=self.saveWorkspaceMask();
+                    msgbox(sprintf('Workspace mask saved to:\n%s\nThe generated command will reload these selections.',filepath),'Epoch Mask Saved');
+                catch cause
+                    errordlg(cause.message,'Save mask failed');
+                end
+                return;
+            end
+
             % Validate we have data and path
             if isempty(self.tree) || isempty(self.tree.allEpochs)
                 errordlg('No data loaded.', 'Save Epoch Mask');
@@ -649,7 +720,11 @@ classdef epicTreeGUI < handle
             end
 
             node = nodes{1};
-            [data, ~, fs] = epicTreeTools.getSelectedData(node, 'Amp1', self.h5File);
+            try
+                [data, ~, fs] = epicTreeTools.getSelectedData(node, 'Amp1', self.h5File);
+            catch cause
+                self.showDataError(cause); return;
+            end
 
             if isempty(data)
                 msgbox('No response data available', 'Analysis');
@@ -702,8 +777,11 @@ classdef epicTreeGUI < handle
                 valueStr = char(string(node.splitValue));
             end
 
+            fieldName=node.splitKey;
+            if node.hasCustom('workspaceFieldLabel'),fieldName=node.getCustom('workspaceFieldLabel');end
+            if node.hasCustom('workspaceValueLabel'),valueStr=node.getCustom('workspaceValueLabel');end
             data = {
-                'Node', node.splitKey;
+                'Node', fieldName;
                 'Value', valueStr;
                 'Epochs', sprintf('%d', nEpochs);
                 'Selected', sprintf('%d', nSelected)
@@ -716,7 +794,11 @@ classdef epicTreeGUI < handle
             % Update info table for selected individual epoch
 
             % Extract epoch metadata
-            if isfield(epoch, 'expInfo') && isfield(epoch.expInfo, 'date')
+            if isfield(epoch, 'start_time') && ~isempty(epoch.start_time)
+                dateStr = char(epoch.start_time);
+            elseif isfield(epoch, 'startTime') && ~isempty(epoch.startTime)
+                dateStr = char(epoch.startTime);
+            elseif isfield(epoch, 'expInfo') && isfield(epoch.expInfo, 'date')
                 dateStr = epoch.expInfo.date;
             else
                 dateStr = 'Unknown';
@@ -729,7 +811,9 @@ classdef epicTreeGUI < handle
             end
 
             % Get protocol name
-            if isfield(epoch, 'protocolSettings') && isfield(epoch.protocolSettings, 'protocolID')
+            if isfield(epoch, 'blockInfo') && isfield(epoch.blockInfo, 'protocol_name') && ~isempty(epoch.blockInfo.protocol_name)
+                protocol = epoch.blockInfo.protocol_name;
+            elseif isfield(epoch, 'protocolSettings') && isfield(epoch.protocolSettings, 'protocolID')
                 protocol = epoch.protocolSettings.protocolID;
             elseif isfield(epoch, 'parameters') && isfield(epoch.parameters, 'protocol')
                 protocol = epoch.parameters.protocol;
@@ -747,13 +831,24 @@ classdef epicTreeGUI < handle
             set(self.plottingCanvas.infoTable, 'Data', data);
         end
 
+        function showDataError(self,cause)
+            ax=self.plottingCanvas.axes;
+            cla(ax); hold(ax,'off'); title(ax,'Data unavailable');
+            text(ax,0.02,0.5,sprintf('No trace displayed.\n%s',cause.message), ...
+                'Units','normalized','Interpreter','none','HorizontalAlignment','left');
+        end
+
         function plotNodeData(self, node)
             % Plot data for selected tree node (aggregated epochs)
 
             ax = self.plottingCanvas.axes;
 
             % Get selected data (pass H5 file for lazy loading)
-            [data, ~, fs] = epicTreeTools.getSelectedData(node, 'Amp1', self.h5File);
+            try
+                [data, ~, fs] = epicTreeTools.getSelectedData(node, 'Amp1', self.h5File);
+            catch cause
+                self.showDataError(cause); return;
+            end
 
             if isempty(data)
                 cla(ax);
@@ -813,12 +908,24 @@ classdef epicTreeGUI < handle
                 plot(ax, t, data, 'b', 'LineWidth', 1.5);
 
                 xlabel(ax, 'Time (ms)');
-                ylabel(ax, 'Amp1');
+                responseLabel = 'Amp1';
+                if isfield(epoch, 'responses')
+                    responses = epoch.responses;
+                    if isstruct(responses), responses = num2cell(responses); end
+                    for ii = 1:numel(responses)
+                        response = responses{ii};
+                        if isfield(response, 'device_name') && strcmp(response.device_name, 'Amp1') && ...
+                                isfield(response, 'units') && ~isempty(response.units)
+                            responseLabel = sprintf('Amp1 (%s)', char(response.units));
+                            break;
+                        end
+                    end
+                end
+                ylabel(ax, responseLabel);
                 title(ax, 'Single Epoch');
 
             catch ME
-                text(ax, 0.5, 0.5, sprintf('Error loading data:\n%s', ME.message), ...
-                    'HorizontalAlignment', 'center', 'Units', 'normalized');
+                self.showDataError(ME);
             end
         end
 
@@ -856,12 +963,13 @@ classdef epicTreeGUI < handle
 
             fullName = char(fullName);
 
-            % Extract last component after final '.' (protocol name only)
-            parts = strsplit(fullName, '.');
-            if length(parts) > 1
+            % Only a protocol namespace is eligible. Decimal values and other
+            % metadata strings must not be mistaken for Java class names.
+            shortName = fullName;
+            if contains(fullName, '.protocols.') && ...
+                    ~isempty(regexp(fullName, '^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$', 'once'))
+                parts = strsplit(fullName, '.');
                 shortName = parts{end};
-            else
-                shortName = fullName;
             end
 
             % Truncate if still too long
@@ -878,7 +986,9 @@ classdef epicTreeGUI < handle
             % Example: "  1: 2025-12-02 10:15:30"
 
             % Try to extract date/time from epoch
-            if isfield(epoch, 'expInfo') && isfield(epoch.expInfo, 'date')
+            if isfield(epoch, 'start_time') && ~isempty(epoch.start_time)
+                dateStr = char(epoch.start_time);
+            elseif isfield(epoch, 'expInfo') && isfield(epoch.expInfo, 'date')
                 dateStr = epoch.expInfo.date;
             elseif isfield(epoch, 'startTime')
                 dateStr = epoch.startTime;

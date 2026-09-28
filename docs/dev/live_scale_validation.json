@@ -1,0 +1,23 @@
+{
+  "tree_lossless_gzip": true,
+  "tree_bytes": 73183,
+  "compressed_tree_bytes": 11829,
+  "catalog_counts": {
+    "approved": 0,
+    "cells": 8,
+    "duration_seconds": 4538.25,
+    "epochs": 1776,
+    "exported": 173,
+    "included": 1776,
+    "protocols": 5,
+    "reviewed": 0,
+    "sources": 2,
+    "unreviewed": 1776
+  },
+  "python_tests": 312,
+  "frontend_tests": 98,
+  "production_build": "passed",
+  "live_tree_epoch_navigation_and_trace": "passed",
+  "source_inventory_check_timestamps": "passed",
+  "live_metadata_refresh_seconds": 0.94
+}

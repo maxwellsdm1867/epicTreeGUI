@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-27",
+  "description": "Disposable synthetic metadata benchmark, one source and 140 fields; input details are generated lazily. This is not a production workload or a directly comparable app-memory ratio.",
+  "command": "PYTHONPATH=python /Users/maxwellsdm/Documents/GitHub/retinanalysis/.venv/bin/python docs/dev/benchmark_disk_metadata_index.py <epochs> 140",
+  "memory_unit": "macOS ru_maxrss bytes, process peak including input rows and retained three-column projection",
+  "notes": [
+    "Database paths are disposable temporary artifacts; timings recorded from original tool stdout.",
+    "10k measurement preceded reverse-index field restriction in predicate matching; 50k measurement included it.",
+    "Later lazy source-projection/count-cache changes are separately covered by parity tests; these timings were not rerun after those changes.",
+    "Open time includes full database SHA256 verification and loading cached catalogs. Cold build includes SQLite insertion and complete catalog construction."
+  ],
+  "measurements": [
+    {"epochs":10000,"fields":140,"build_seconds":12.228306834003888,"open_catalog_seconds":0.3353575410146732,"three_column_seconds":0.09462887499830686,"predicate_seconds":0.503023083001608,"matched":1429,"db_bytes":47570944,"maxrss":71811072,"path":"/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-disk-index-bench-uf_zq5e6/index.sqlite"},
+    {"epochs":50000,"fields":140,"build_seconds":63.37151312499191,"open_catalog_seconds":1.6027152920141816,"three_column_seconds":0.4949072090093978,"predicate_seconds":0.10548737502540462,"matched":7143,"db_bytes":238047232,"maxrss":158056448,"path":"/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-disk-index-bench-velimem0/index.sqlite"}
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "cell_uuid": "4012ffd8-1fc3-4e90-9119-6dbdcc696044",
+  "units": "pA",
+  "blocks": [
+    {
+      "block_uuid": "6c54a54c-d432-45a0-a973-b064006023f5",
+      "conditions": [
+        {
+          "spot_size": 40.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 5,
+          "response_mean": 80.40133333333334
+        },
+        {
+          "spot_size": 80.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 5,
+          "response_mean": 79.22435333333334
+        },
+        {
+          "spot_size": 120.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 77.47238499999999
+        },
+        {
+          "spot_size": 160.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 76.25269333333334
+        },
+        {
+          "spot_size": 180.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 75.48905
+        },
+        {
+          "spot_size": 200.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 75.26338
+        },
+        {
+          "spot_size": 220.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 74.77608666666667
+        },
+        {
+          "spot_size": 240.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 74.66799833333333
+        },
+        {
+          "spot_size": 280.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 73.49662166666667
+        },
+        {
+          "spot_size": 320.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 73.91251333333334
+        },
+        {
+          "spot_size": 460.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 75.60335333333332
+        },
+        {
+          "spot_size": 600.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 75.304695
+        },
+        {
+          "spot_size": 720.0,
+          "group_label": "Control",
+          "contrast": null,
+          "spot_intensity": 0.8,
+          "background_intensity": 0.25,
+          "units": "pA",
+          "used_epochs": 3,
+          "available_epochs": 4,
+          "response_mean": 76.171385
+        }
+      ],
+      "sample_budget": 500000,
+      "samples_read": 292500,
+      "epochs_checked": 39,
+      "exact_parameter_and_group_scope": true,
+      "direct_h5_means_and_deltas_match": true
+    }
+  ],
+  "mutations": []
+}

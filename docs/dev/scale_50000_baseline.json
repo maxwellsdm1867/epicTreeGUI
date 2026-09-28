@@ -1,0 +1,83 @@
+{
+  "synthetic": true,
+  "epochs": 50000,
+  "cells": 200,
+  "protocols": 5,
+  "sources": 10,
+  "no_waveform_or_sql_io": true,
+  "construction_seconds": 1.1230420830252115,
+  "private_cache_copy_seconds": 2.2913540419831406,
+  "memory_mib": {
+    "initial": 19.703125,
+    "read_model": 315.375,
+    "with_private_source_cache": 561.109375,
+    "after_queries": 955.46875
+  },
+  "measurements": [
+    {
+      "operation": "overview",
+      "seconds": 0.41601416701450944,
+      "json_serialization_seconds": 0.0005345840181689709,
+      "json_bytes": 104161,
+      "rss_before_mib": 561.125,
+      "rss_with_result_mib": 580.78125
+    },
+    {
+      "operation": "protocol_query",
+      "seconds": 0.011312375019770116,
+      "json_serialization_seconds": 0.005807749985251576,
+      "json_bytes": 1320416,
+      "rss_before_mib": 563.78125,
+      "rss_with_result_mib": 563.78125
+    },
+    {
+      "operation": "epoch_page_100",
+      "seconds": 0.02686437501688488,
+      "json_serialization_seconds": 0.0006972909905016422,
+      "json_bytes": 142064,
+      "rss_before_mib": 563.78125,
+      "rss_with_result_mib": 570.78125
+    },
+    {
+      "operation": "project_tree_cold",
+      "seconds": 22.107912082981784,
+      "json_serialization_seconds": 0.08823620897601359,
+      "json_bytes": 18433088,
+      "rss_before_mib": 564.796875,
+      "rss_with_result_mib": 758.09375
+    },
+    {
+      "operation": "project_tree_warm",
+      "seconds": 0.49423283300711773,
+      "json_serialization_seconds": 0.08300354098901153,
+      "json_bytes": 18433088,
+      "rss_before_mib": 823.03125,
+      "rss_with_result_mib": 837.5625
+    },
+    {
+      "operation": "predicate_fields_cold",
+      "seconds": 16.6822592089884,
+      "json_serialization_seconds": 0.0007152080070227385,
+      "json_bytes": 57404,
+      "rss_before_mib": 826.984375,
+      "rss_with_result_mib": 423.359375
+    },
+    {
+      "operation": "predicate_fields_warm",
+      "seconds": 9.791698539629579e-05,
+      "json_serialization_seconds": 0.0005539580015465617,
+      "json_bytes": 57404,
+      "rss_before_mib": 870.125,
+      "rss_with_result_mib": 870.21875
+    },
+    {
+      "operation": "filtered_preview_warm",
+      "seconds": 3.258580041001551,
+      "json_serialization_seconds": 0.03637058398453519,
+      "json_bytes": 7382173,
+      "rss_before_mib": 870.515625,
+      "rss_with_result_mib": 935.625
+    }
+  ],
+  "limits": "Synthetic metadata-only process timings; excludes SQL/H5 verification, network and browser rendering."
+}

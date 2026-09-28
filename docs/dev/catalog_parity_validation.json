@@ -1,0 +1,22 @@
+[
+  {
+    "epochs": 10000,
+    "fields": 50,
+    "catalog_before_s": 2.8747,
+    "catalog_after_s": 0.6281,
+    "predicate_before_s": 1.5357,
+    "predicate_after_s": 0.3726,
+    "exact_catalog_values_predicate_tree_parity": true,
+    "full_tree_json_bytes": 2943417
+  },
+  {
+    "epochs": 50000,
+    "fields": 50,
+    "catalog_before_s": 16.1626,
+    "catalog_after_s": 3.5375,
+    "predicate_before_s": 7.4252,
+    "predicate_after_s": 1.6936,
+    "exact_catalog_values_predicate_tree_parity": true,
+    "full_tree_json_bytes": 14846420
+  }
+]

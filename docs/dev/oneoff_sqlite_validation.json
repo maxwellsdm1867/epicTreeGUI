@@ -1,0 +1,39 @@
+{
+  "export_uuid": "37c28a23-ba37-4945-af19-0b572243a0d5",
+  "artifact_sha256": "a3c2685cd7b89c50413fccd817bcf8c66b212435f6544916363553fe4697c7b8",
+  "schema": 2,
+  "integrity": "ok",
+  "foreign_key_errors": 0,
+  "epochs": 173,
+  "cells": 4,
+  "dates": 2,
+  "saved_candidate": "a4910b6c-5043-4f66-b2c1-f16eb0080a05",
+  "no_protocol_created": true,
+  "lazy_trace_result_keys": [
+    "epoch_uuid",
+    "stream_uuid",
+    "values",
+    "sample_rate",
+    "units",
+    "total_samples",
+    "start",
+    "count",
+    "source_sha256",
+    "decimated"
+  ],
+  "query": {
+    "kind": "source_predicate",
+    "predicate": {
+      "all": [
+        {
+          "field": "protocol",
+          "operator": "eq",
+          "value": "edu.washington.riekelab.chris.protocols.VariableHistoryNoiseCurInject"
+        }
+      ]
+    },
+    "version": 2
+  },
+  "split_order": "date,cell,block",
+  "verified_lazy_trace_samples": 128
+}

@@ -59,3 +59,10 @@ __pycache__/
 
 # Legacy reference code (preserved locally, not tracked)
 docs/legacy/old_epochtree/
+
+# Local DataJoint/MySQL runtime files (never commit database storage)
+/new_retinanalysis/data/
+
+# Local React workspace build/dependencies
+/workspace-app/node_modules/
+/workspace-app/dist/
