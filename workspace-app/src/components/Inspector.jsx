@@ -303,7 +303,7 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
     resource={{scope:id,...epoch,loading:!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch))),retry:epoch.reload}}
     epoch={focusedEpoch} targets={targets} navigation={{position:focusedPageIndex<0?-1:offset+focusedPageIndex,total:rows.data?.total||0,loading:!!pendingNavigation||rows.loading,disabled:busy,onMove:moveEpoch}}
     traceRevision={revision} inclusion={{disabled:busy,scope:'pinned dataset',onToggle:(epoch,included)=>curate({included},'focused',epoch.epoch_uuid)}} detailDisabled={busy} onQC={onQC} tags={tagEntry}
-    detailExtras={<>        {busy&&<p className="curation-progress" role="status">{operationMessage}</p>}
+    detailExtras={focusedEpoch&&<>        {busy&&<p className="curation-progress" role="status">{operationMessage}</p>}
         <div className="tags"><span>Dataset-only tags:</span>
           {(focusedEpoch.curation?.tags||[]).map(t=><button key={t} disabled={busy} aria-label={`Remove tag ${t} from focused epoch only`} title="Remove from focused epoch only" onClick={()=>curate({tags_remove:[t]},'focused')}>{t}<X size={13}/></button>)}
           {!focusedEpoch.curation?.tags?.length&&<span>No tags</span>}

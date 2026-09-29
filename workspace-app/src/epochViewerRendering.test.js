@@ -1,0 +1,41 @@
+import test,{before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+import {createElement} from 'react';
+import {renderToString} from 'react-dom/server';
+import {createServer} from 'vite';
+import react from '@vitejs/plugin-react';
+
+let server;
+before(async()=>{
+ server=await createServer({root:fileURLToPath(new URL('..',import.meta.url)),configFile:false,plugins:[react()],server:{middlewareMode:true,hmr:false},appType:'custom',logLevel:'error'});
+});
+after(async()=>{await server?.close();});
+function render(Component,props){
+ const previous=console.error;
+ // Layout effects intentionally wait for the browser; SSR still exercises
+ // adapter render expressions (the null-epoch crash happened before effects).
+ console.error=(message,...args)=>{if(!String(message).startsWith('Warning: useLayoutEffect does nothing on the server'))previous(message,...args);};
+ try{return renderToString(createElement(Component,props));}finally{console.error=previous;}
+}
+test('opening a pinned inspector before any epoch is focused renders its empty state without dereferencing curation',async()=>{
+ const {default:Inspector}=await server.ssrLoadModule('/src/components/Inspector.jsx');
+ const html=render(Inspector,{protocol:{definition:{protocol_uuid:'fixture',name:'Variable History Noise'},cells:[]},filters:{},revision:0});
+ assert.match(html,/Choose an epoch/);
+ assert.match(html,/Epoch list controls/);
+ assert.doesNotMatch(html,/Dataset-only tags:/);
+ assert.doesNotMatch(html,/Include in analysis/);
+});
+test('opening Search results before any epoch is focused uses the same safe viewer empty state',async()=>{
+ const {default:MatchingEpochs}=await server.ssrLoadModule('/src/components/MatchingEpochs.jsx');
+ const html=render(MatchingEpochs,{predicate:{all:[]},splits:'date,cell',preview:{tree_revision:'fixture',catalog:{fields:[]}},viewFilters:{},onViewFilters:()=>{}});
+ assert.match(html,/Choose an epoch/);
+ assert.match(html,/Epoch list controls/);
+ assert.doesNotMatch(html,/Include in analysis/);
+});
+test('shared viewer accepts no selected epoch and no source-specific extras',async()=>{
+ const {default:EpochViewer}=await server.ssrLoadModule('/src/components/EpochViewer.jsx');
+ const html=render(EpochViewer,{layout:{sizes:{columns:'minmax(0,1fr)',metadata:300},treeOpen:false,metadataOpen:false,onResize:()=>{}},epoch:null});
+ assert.match(html,/Choose an epoch/);
+ assert.doesNotMatch(html,/Include in analysis/);
+});
