@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {ArrowUpCircle,RefreshCw,X} from 'lucide-react';
 import {api} from '../api.js';
-import {updateNotice,releaseLink,updateLabel,watchAppUpdates} from '../appUpdates.js';
+import {updateNotice,releaseLink,watchAppUpdates} from '../appUpdates.js';
 import './AppUpdates.css';
 
 function UpdateDialog({status,busy,error,onCheck,onClose,onDownload,download}){
@@ -11,8 +11,8 @@ function UpdateDialog({status,busy,error,onCheck,onClose,onDownload,download}){
   const installed=typeof status?.installed==='string'?status.installed:status?.installed?.version;
   const notice=updateNotice(status),url=releaseLink(status?.release_url);
   return createPortal(<dialog ref={dialog} className="app-update-dialog" aria-labelledby="app-update-title" onCancel={event=>{event.preventDefault();onClose();}}>
-    <header><h2 id="app-update-title">Rieke OS updates</h2><button autoFocus className="icon-button" aria-label="Close updates" onClick={onClose}><X size={18}/></button></header>
-    <p>Installed version: <strong>{installed||'Development checkout'}</strong></p>
+    <header><h2 id="app-update-title">Release / Publish</h2><button autoFocus className="icon-button" aria-label="Close updates" onClick={onClose}><X size={18}/></button></header>
+    <p>Rieke OS app version: <strong>{installed||'Development checkout'}</strong></p>
     <p className="app-update-automatic">Updates are checked automatically when you open the app and every 15 minutes while it is visible.</p>
     <p role="status">{busy?'Checking for updates…':notice?.message||status?.message||'Check for a published Rieke OS release.'}</p>
     {error&&<p role="alert" className="error">{error}</p>}
@@ -25,7 +25,7 @@ function UpdateDialog({status,busy,error,onCheck,onClose,onDownload,download}){
   </dialog>,document.body);
 }
 
-export default function AppUpdates(){
+export default function AppUpdates({sidebar=false}){
   const [status,setStatus]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[open,setOpen]=useState(false),[dismissed,setDismissed]=useState(null);
   const alive=useRef(false),checking=useRef(false);
   const [download,setDownload]=useState(null);
@@ -48,7 +48,7 @@ export default function AppUpdates(){
   },[download?.state]);
   useEffect(()=>{alive.current=true;const stop=watchAppUpdates(()=>check());return()=>{alive.current=false;stop();};},[]);
   const notice=updateNotice(status);
-  return <><button className={`app-update-button ${notice?'has-update':''}`} onClick={()=>setOpen(true)} title={notice?.message||status?.message||'App updates'} aria-label={notice?.message||updateLabel(status,busy)}><ArrowUpCircle size={16}/><span>{updateLabel(status,busy)}</span></button>
+  return <><button className={`${sidebar?'nav-item app-update-nav':'app-update-button'} ${notice?'has-update':''}`} onClick={()=>setOpen(true)} title={notice?.message||status?.message||'App updates'} aria-label="Release / Publish"><ArrowUpCircle size={17}/><span>Release / Publish</span>{notice&&<span className="app-update-dot" aria-label="Update available"/>}</button>
     {notice&&dismissed!==notice.version&&<div className="app-update-notice" role="status"><ArrowUpCircle size={18}/><div><strong>{notice.message}</strong><button onClick={()=>setOpen(true)}>View update</button></div><button className="icon-button" aria-label="Dismiss update notification" onClick={()=>setDismissed(notice.version)}><X size={15}/></button></div>}
     {open&&<UpdateDialog status={status} busy={busy} error={error} onCheck={()=>check(true)} onDownload={stage} download={download} onClose={()=>setOpen(false)}/>}</>;
 }
