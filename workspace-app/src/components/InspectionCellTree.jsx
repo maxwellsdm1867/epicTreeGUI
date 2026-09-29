@@ -1,5 +1,5 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {Check,X} from 'lucide-react';
+import EpochInclusionToggle from './EpochInclusionToggle.jsx';
 import AnnotationIndicator from './AnnotationIndicator.jsx';
 import {api,humanize,number} from '../api.js';
 import {epochPageRequest} from '../epochBrowserSource.js';
@@ -22,7 +22,7 @@ function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,disab
         <AnnotationIndicator epoch={epoch}/>
         {epoch.curation?.included===false&&<span className="epoch-excluded" title="Excluded from analysis; recording retained">×</span>}
       </button>
-      {onToggleInclusion&&<button className="epoch-analysis-toggle" disabled={disabled||page.loading} aria-label={`Include ${datedCellLabel(cell,true)} epoch ${offset+index+1} in analysis`} aria-pressed={epoch.curation?.included!==false} title={epoch.curation?.included===false?'Excluded from analysis. Click to include.':'Included in analysis. Click to exclude; recording stays here.'} onClick={()=>onToggleInclusion(epoch,epoch.curation?.included===false)}>{epoch.curation?.included===false?<X size={13}/>:<Check size={13}/>}</button>}
+      {onToggleInclusion&&<EpochInclusionToggle epoch={epoch} label={`${datedCellLabel(cell,true)} epoch ${offset+index+1}`} disabled={disabled||page.loading} onToggle={onToggleInclusion}/>}
     </div>)}
     {page.data&&<div className="pagination"><button aria-label={`Previous epochs for ${datedCellLabel(cell,true)}`} disabled={disabled||page.loading||!offset} onClick={()=>setOffset(Math.max(0,offset-60))}>Previous</button><span>{page.data.total?offset+1:0}–{Math.min(offset+60,page.data.total)} of {number(page.data.total)}</span><button aria-label={`Next epochs for ${datedCellLabel(cell,true)}`} disabled={disabled||page.loading||offset+60>=page.data.total} onClick={()=>setOffset(offset+60)}>Next</button></div>}
   </Status>;

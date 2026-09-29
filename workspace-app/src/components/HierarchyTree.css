@@ -23,9 +23,6 @@
 .ht-leaf{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:4px}
 .ht-leaf>button:first-child{min-width:0;flex-wrap:wrap}
 .ht-leaf .annotation-row-pills{max-width:100%;flex-wrap:wrap}
-.ht-leaf>button.ht-tag-action,.ht-leaf>button.ht-inclusion-action{width:auto;min-height:28px;padding:5px 6px;gap:4px;justify-content:center;font-size:10px;white-space:nowrap}
+.ht-leaf>button.ht-tag-action{width:auto;min-height:28px;padding:5px 6px;gap:4px;justify-content:center;font-size:10px;white-space:nowrap}
 .ht-leaf>button.ht-tag-action{color:var(--accent);border:1px solid var(--border)}
-.ht-leaf>button.ht-inclusion-action,.ht-inclusion-state{color:#467554;background:#edf5ef;border-radius:5px}
-.ht-leaf>button.ht-inclusion-action.excluded,.ht-inclusion-state.excluded{color:#9b6255;background:#faf0ec}
 .ht-inclusion-state{font-size:10px;padding:5px}
-.ht-inclusion-action[aria-pressed=false]{text-decoration:none}
