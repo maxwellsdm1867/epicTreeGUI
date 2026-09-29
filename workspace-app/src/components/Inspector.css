@@ -34,3 +34,5 @@
 .epoch-inspector-mode .tree-heading .tree-collapse-action{font-size:11px;padding:6px 8px;white-space:nowrap}
 .epoch-inspector-mode .tree-heading .segmented{margin-left:0}
 .epoch-inspector-mode .tree-heading .tree-edit-action{margin-left:0}
+
+.epoch-inspector-mode .tree-heading{border-bottom:1px solid var(--border);flex-shrink:0}
