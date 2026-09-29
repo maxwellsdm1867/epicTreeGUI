@@ -108,7 +108,7 @@ function ScientificContext({epoch}) {
   </section>;
 }
 
-function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revision,onChange,onBack,onImport,onStores,onExport,splitRecipe=['date','cell','block'],onSplitChange,initialNavigation=null,onSessionChange,onQC,onTagFilter,onFilterChange}) {
+function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revision,onChange,onBack,onImport,onStores,onExport,splitRecipe=['date','cell','block'],onSplitChange,initialNavigation=null,onSessionChange,onQC,onTagFilter,onFilterChange,toolbarTarget=null}) {
   const id=protocol.definition.protocol_uuid;
   const requestedCellFocus=filters?.cell_uuid&&filters.cell_uuid!==cellScope?null:(cellScope || null);
   const [focusCell,setFocusCell]=useState(initialNavigation&&Object.hasOwn(initialNavigation,'focusCell')?initialNavigation.focusCell:requestedCellFocus);
@@ -280,7 +280,7 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
   const annotationChanged=()=>{epoch.reload();loadedRows.reload();onChange?.();};
   const tagEntry=focusedEpoch&&<AnnotationTags epoch={focusedEpoch} revision={revision} disabled={busy||epoch.loading||!!pendingNavigation} onChange={annotationChanged} onFilter={onTagFilter} focusRequest={tagFocus} targetScope={cellTagRequest?'cell':targets.length?'selected':'epoch'} epochFocusRequest={epochTagFocus} onNavigateEpoch={navigateAndTag} selectedEpochs={targets} tools={!cellTagRequest&&!targets.length&&<TagExchangeControls epoch={focusedEpoch} disabled={busy} onChanged={annotationChanged}/>}><EpochTags value={tag} onValue={setTag} onAdd={value=>curate({tags_add:[value]})} onRemove={value=>curate({tags_remove:[value]},'focused')} selectedTags={focusedEpoch.curation?.tags||[]} busy={busy} scope={`dataset · ${actionScope}`} revision={revision}/></AnnotationTags>;
   return <div className={`inspector ${designMode?'tree-design':'epoch-inspector-mode'}`} tabIndex={0} onKeyDown={epochKeys} aria-label={designMode?'Tree overview workspace':'Epoch inspection workspace. Tab next epoch, Shift+Tab previous epoch; W/S also navigate.'}>
-    <EpochBrowserToolbar treeControlsInPane filterControl={onFilterChange&&<ProtocolViewFilter filters={filters} onChange={onFilterChange} revision={revision} disabled={busy}/>} designMode={designMode} onBrowse={()=>{setDesignMode(false);setTreeMode(false);setTreeOpen(true);}} onDesign={()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);}} onTags={openTagsForSelection} metadataOpen={metadataOpen} onToggleMetadata={()=>toggleMetadata(!metadataOpen)} actions={[
+    <EpochBrowserToolbar portalTarget={toolbarTarget} treeControlsInPane filterControl={onFilterChange&&<ProtocolViewFilter filters={filters} onChange={onFilterChange} revision={revision} disabled={busy}/>} designMode={designMode} onBrowse={()=>{setDesignMode(false);setTreeMode(false);setTreeOpen(true);}} onDesign={()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);}} onTags={openTagsForSelection} metadataOpen={metadataOpen} onToggleMetadata={()=>toggleMetadata(!metadataOpen)} actions={[
         {label:treeOpen?(designMode?'Hide tree editor':'Hide epoch list'):(designMode?'Show tree editor':'Show epoch list'),icon:GitBranch,run:()=>setTreeOpen(value=>!value)},
         !designMode&&{label:'Import mask file…',icon:FileJson,run:()=>setMasksOpen(true),disabled:busy},
         !designMode&&onImport&&{label:'Add data store',icon:Upload,run:onImport,disabled:busy},
