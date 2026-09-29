@@ -129,10 +129,12 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
     app.extensions["curation_store"] = store
 
     def filters(allowed=()):
-        if set(request.args) - {"cell_uuid", "cell_type", "group_label", "offset", "limit", "splits"} - set(allowed):
+        if any(len(request.args.getlist(key)) != 1 for key in ('tag', 'tagged', 'tag_predicate') if key in request.args):
+            raise ValueError('Tag filters must be specified once')
+        if set(request.args) - {"cell_uuid", "cell_type", "group_label", "tag", "tagged", "tag_predicate", "offset", "limit", "splits"} - set(allowed):
             raise ValueError("Unknown query filter; no unrestricted fallback was applied")
-        return {key: request.args[key] for key in ("cell_uuid", "cell_type", "group_label")
-                if request.args.get(key)}
+        return {key: request.args[key] for key in ("cell_uuid", "cell_type", "group_label", "tag", "tagged", "tag_predicate")
+                if key in request.args}
 
     def state(protocol_uuid):
         result = service.query_result(protocol_uuid)

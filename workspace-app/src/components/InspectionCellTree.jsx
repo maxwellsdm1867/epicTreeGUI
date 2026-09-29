@@ -1,6 +1,5 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import EpochInclusionToggle from './EpochInclusionToggle.jsx';
-import AnnotationIndicator from './AnnotationIndicator.jsx';
 import {api,humanize,number} from '../api.js';
 import {epochPageRequest} from '../epochBrowserSource.js';
 import {epochSelectionRange,toggleEpochSelection,mergeEpochSelection} from '../epochSelection.js';
@@ -19,8 +18,8 @@ function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,disab
         <strong>{offset+index+1}</strong>
         <time>{epoch.start_time?.split(/[T ]/)[1]?.slice(0,8)||'—'}</time>
         <span className="epoch-short-protocol" title={humanize(epoch.protocol_name?.split('.').at(-1))}>{humanize(epoch.protocol_name?.split('.').at(-1))||'—'}</span>
-        <AnnotationIndicator epoch={epoch}/>
-        {epoch.curation?.included===false&&<span className="epoch-excluded" title="Excluded from analysis; recording retained">×</span>}
+
+
       </button>
       {onToggleInclusion&&<EpochInclusionToggle epoch={epoch} label={`${datedCellLabel(cell,true)} epoch ${offset+index+1}`} disabled={disabled||page.loading} onToggle={onToggleInclusion}/>}
     </div>)}
@@ -30,7 +29,7 @@ function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,disab
 function CellBranch({cell,dateOpen,onSelectCell,selectedCell,...props}){
   const [open,setOpen]=useState(false);
   return <details className="cell-tree-cell" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
-    <summary className={selectedCell===cell.cell_uuid?'selected-cell':''} onClick={()=>onSelectCell(cell)}><strong>{cell.label||cell.cell_label||'Unlabeled cell'}</strong><AnnotationIndicator epoch={cell} level="cell"/></summary>
+    <summary className={selectedCell===cell.cell_uuid?'selected-cell':''} onClick={()=>onSelectCell(cell)}><strong>{cell.label||cell.cell_label||'Unlabeled cell'}</strong></summary>
     {dateOpen&&open&&<CellEpochs cell={cell} {...props}/>}
   </details>;
 }
@@ -83,5 +82,5 @@ export default function InspectionCellTree({cells,targets,setTargets,disabled,on
     }catch(error){if(error.name!=='AbortError')setError(error.message);}
     finally{setSelecting(false);}
   }
-  return <div className="inspection-cell-tree" aria-label="All matching dates, cells and epochs" title="⌘/Ctrl-click to select epochs; Shift-click for a range">{error&&<p role="alert">{error}</p>}{selecting&&<p role="status">Selecting epoch range…</p>}{dates.map(group=><DateBranch key={group.date} group={group} {...props} targets={targets} onFocus={onFocus} onSelectCell={selectCell} onSelect={select} disabled={disabled||selecting}/>)}</div>;
+  return <div className="inspection-cell-tree" aria-label="All matching dates, cells and epochs" title="⌘/Ctrl-click to select epochs; Shift-click for a range">{error&&<p role="alert">{error}</p>}{selecting&&<p role="status">Selecting epoch range…</p>}{!dates.length&&<p role="status">No epochs match the current filters.</p>}{dates.map(group=><DateBranch key={group.date} group={group} {...props} targets={targets} onFocus={onFocus} onSelectCell={selectCell} onSelect={select} disabled={disabled||selecting}/>)}</div>;
 }

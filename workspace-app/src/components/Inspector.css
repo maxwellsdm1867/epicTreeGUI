@@ -25,3 +25,7 @@
 .epoch-inspector-mode .tree-heading .segmented{display:flex;flex:0 1 auto;margin:0;width:auto;max-width:100%}
 .epoch-inspector-mode .tree-heading .segmented button{font-size:11px;padding:6px 11px;flex:0 1 auto;white-space:nowrap}
 .epoch-inspector-mode .compact-inspector-toolbar{padding:8px 14px;gap:10px}
+
+.epoch-inspector-mode .tree-heading{justify-content:center;gap:12px}
+.epoch-inspector-mode .tree-heading .segmented{margin-left:auto}
+.epoch-inspector-mode .tree-heading .tree-edit-action{margin-left:auto;white-space:nowrap;font-size:11px;padding:6px 8px}
