@@ -119,7 +119,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
     try{const data=await api('/explore/preview',{method:'POST',body:{predicate,splits:grouping,summary_only:true,...(baseline?{baseline_revision_uuid:baseline}:{})},signal:controller.signal});if(!controller.signal.aborted){setDraftPreview({data,loading:false,error:null,key});setAnnotationHold(null);if(openResults){setResultsFromDraft(true);setStep('results');setDestination(null);setFocused(null);}}}
     catch(error){if(!controller.signal.aborted)setDraftPreview({data:null,loading:false,error:error.message,key});}
   }
-  async function saveRevision(kind,nextStep='results'){
+  async function saveRevision(kind,nextStep='results',notifyParent=true){
     if(annotationHold){setError('Refresh results after editing annotations before recording or exporting this selection.');return;}
     const predicate=kind==='filter'?compiled.predicate:applied?.recipe.predicate;
     if(!predicate||busy)return;
@@ -130,7 +130,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
       if(parent)body.parent_revision_uuid=parent;
       const result=await api('/explore/revisions',{method:'POST',body});
       if(!result.recipe||!result.revision_uuid)throw new Error('The server did not return a recorded revision. Reload history before retrying.');
-      setApplied({...result,previewGeneration:generation,previewRevision:viewRevision});if(result.preview)setTree({data:result.preview,loading:false,error:null});onChange?.();setSplits(result.recipe.splits);setFilterSplits(result.recipe.splits);setPath([]);setTreeNavigation(null);setFocused(null);setStep(nextStep);setResultsFromDraft(false);
+      setApplied({...result,previewGeneration:generation,previewRevision:viewRevision});if(result.preview)setTree({data:result.preview,loading:false,error:null});if(notifyParent)onChange?.();setSplits(result.recipe.splits);setFilterSplits(result.recipe.splits);setPath([]);setTreeNavigation(null);setFocused(null);setStep(nextStep);setResultsFromDraft(false);
       if(kind==='filter'){setDraft(draftOf(result.recipe.predicate));setRestored(null);}
       storePreset({name:body.name,predicate,splits:result.recipe.splits,matched_count:result.summary?.matched_count??result.preview?.matched_count});
       setHistoryVersion(value=>value+1);setHistoryOffset(0);setNotice(`Recorded revision ${result.revision_uuid.slice(0,8)}. Its query and exact epoch membership are preserved.`);return result;
@@ -188,7 +188,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
   }
   async function prepareDestination(next,fromDraft=resultsFromDraft){
     if(annotationHold){setError('Refresh results after editing annotations before using this selection.');return;}
-    if(fromDraft||!applied||changedTree||changedMembership){const result=await saveRevision(fromDraft?'filter':'tree',next==='tree'?'tree':'results');if(!result)return;}
+    if(fromDraft||!applied||changedTree||changedMembership){const result=await saveRevision(fromDraft?'filter':'tree',next==='tree'?'tree':'results',next!=='export');if(!result)return;}
     if(next==='tree'){setStep('tree');setDestination(null);}else setDestination(next);
   }
   const previousOpenRequest=useRef(openRequest);
@@ -240,7 +240,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
     {annotationHold&&<div className="mx-operation-error" role="status"><span>Annotations changed. The current epoch page and selection are retained; refresh results before exporting or applying this query.</span><button disabled={busy||resultLoading} onClick={refreshResults}><RefreshCw size={14}/> Refresh results</button></div>}
     {notice&&<div className="mx-recorded-notice" role="status"><Check size={14}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss revision notice"><X size={14}/></button></div>}
     {initialCandidateLoading?<div className="mx-candidate-loading" role="status"><LoaderCircle size={18}/> Loading saved candidate…</div>:initialRevisionId&&!applied&&!departedInitial?<div className="mx-candidate-loading"><span>The saved candidate could not be loaded.</span><button onClick={()=>setInitialCandidateRetry(value=>value+1)}>Retry</button></div>:step==='filter'&&!focused?<SearchPresets entries={presets} fields={catalog.data?.fields||[]} history={history} projectPresets={projectPresets} onProjectPin={pinProjectPreset} onImportRecipe={importQueryRecipe} onProjectPage={setPresetOffset} busy={busy||catalog.loading} error={presetError||catalog.error} onRun={usePreset} onEdit={item=>usePreset(item,'edit')} onPin={item=>usePreset(item,'pin')}/>:step==='results'?<div className="mx-results-workflow">
-      {destination&&applied&&!resultsFromDraft&&<ExportSelectionDialog candidate={applied} projectId={projectId} protocols={protocols} initialProtocolId={initialProtocolId} defaultName={name} defaultFormat={initialExportIntent?.format} disabled={!!annotationHold||busy||resultLoading||!!resultError||changedTree||changedMembership} onClose={()=>setDestination(null)} onApplied={onProtocolApplied} onChanged={()=>onChange?.()}/>}
+      {destination&&applied&&!resultsFromDraft&&<ExportSelectionDialog candidate={applied} projectId={projectId} protocols={protocols} initialProtocolId={initialProtocolId} defaultName={name} defaultFormat={initialExportIntent?.format} disabled={!!annotationHold||busy||resultLoading||!!resultError||changedTree||changedMembership} onClose={()=>{setDestination(null);onChange?.();}} onApplied={onProtocolApplied} onChanged={()=>onChange?.()}/>}
       {resultError&&<div className="mx-operation-error" role="alert">{resultError}<button onClick={()=>resultsFromDraft?previewDraft():setGeneration(value=>value+1)}>Refresh results</button></div>}
       {!resultLoading&&!resultError&&resultPreview&&resultPredicate?<MatchingEpochs toolbarTarget={epochToolbarTarget} onFilter={editSearch} filterDisabled={busy} onExport={openResultsExport} exportDisabled={exportDisabled} designDisabled={!!annotationHold||busy||resultLoading||!!resultError} actions={resultActions} onDesign={()=>{if(!annotationHold&&!busy&&!resultLoading&&!resultError)prepareDestination('tree');}} key={resultPreview.tree_revision} predicate={resultPredicate} splits={resultSplits} preview={resultPreview} session={matchingNavigation} onSession={setMatchingNavigation} onAnnotationsChanged={annotationsChanged} onTagFilter={predicate=>{setDraft(draftOf(predicate));setActivePreset(null);setEditorOpen(true);}} onRefresh={refreshResults}/>:<Status loading={resultLoading} error={resultError}/>}
     </div>:<>
@@ -248,7 +248,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
         {changedFilter&&<Badge>Unapplied filter edits</Badge>}{changedTree||changedMembership?<><Badge kind="warning">{changedMembership?'Current preview differs from saved revision':'Tree changes are a draft'}</Badge><button disabled={!!annotationHold||busy||tree.loading||!!tree.error} onClick={()=>saveRevision('tree')}><Save size={14}/> {changedMembership?'Save current revision':'Save tree revision'}</button></>:<Badge kind="success">Filter & tree recorded</Badge>}
         {treeDiff&&(treeDiff.added||treeDiff.removed||treeDiff.changed)?<span className="mx-current-diff">Current data: +{treeDiff.added} / −{treeDiff.removed} / {treeDiff.changed} changed</span>:null}
       </div>
-      {!focused&&applied&&<div className="mx-results-actions"><strong>Tree layout</strong><button onClick={()=>{setResultsFromDraft(false);setStep('results');}}>View matching epochs</button><button className="primary" disabled={!!annotationHold||busy||tree.loading||!!tree.error} onClick={()=>{setResultsFromDraft(false);setStep('results');prepareDestination('export',false);}}>Export selection</button></div>}
+      {!focused&&applied&&<div className="mx-results-actions"><strong>Tree layout</strong><button onClick={()=>{setResultsFromDraft(false);setStep('results');}}>View matching epochs</button></div>}
       {!focused&&applied&&<ProtocolApplyPanel initialProtocolId={initialProtocolId} candidate={applied} protocols={protocols} disabled={!!annotationHold||busy||tree.loading||pagedStatus.loading||!!tree.error||!!pagedStatus.error||changedTree||changedMembership} onApplied={onProtocolApplied}/>}
       <EpochBrowserLayout layoutRef={layoutRef} className="mx-layout" sizes={pane} treeOpen metadataOpen={false} editing treeMin={240}
         onResize={(name,value)=>{if(name==='tree')setGroupingWidth(value);}}
