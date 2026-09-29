@@ -106,3 +106,15 @@ requires a closed native project and an unused destination on the same
 filesystem; atomic exclusive rename prevents destination overwrite. Cross-volume
 moves leave the source untouched and direct the user to copy/open via their file
 manager. Existing root/directory API parameters remain for compatibility.
+
+
+## Quiet import notifications
+
+Routine import status now appears as a compact upper-right notification. Normal
+notices expire after six seconds and attention notices after ten; hover/focus
+pauses expiry. Clicking View details opens the import workbench. Existing history
+is not replayed as new notifications after reload. Completion no longer opens a
+modal automatically; the review dialog is available explicitly from Review import.
+The browser verified a real duplicate import notification and automatic expiry,
+with no persistent header bar or automatic review dialog. App update notices also
+expire; their availability indicator remains in Release / Publish.
