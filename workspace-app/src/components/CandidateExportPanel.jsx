@@ -31,7 +31,7 @@ export default function CandidateExportPanel({candidate,onExported,disabled=fals
   }
   return <section className="candidate-export" aria-label="Export saved search result">
     <header><strong>Export this result</strong><span>{number(count)} epochs · one-off export</span></header>
-    <p>Export the saved query and tree directly. All matching epochs are included; protocol masks and tags are not merged. Any explicitly queried tags stay in the query evidence.</p>
+    <p>Export this selection’s included epochs and saved tree. Existing protocol masks and tags are not merged. Any explicitly queried tags stay in the query evidence.</p>
     <form onSubmit={exportResult}>
       <label className="candidate-export-name">Name <span>(optional)</span><input value={name} onChange={event=>changeName(event.target.value)} maxLength={120} placeholder={recipe?.name?`${recipe.name} · automatic date`:'Automatic name and date'} disabled={busy||disabled}/></label>
       <fieldset disabled={busy||disabled}><legend>Handoff format</legend>

@@ -1,5 +1,5 @@
 import {createPortal} from 'react-dom';
-import {Activity,GitBranch,MessageCircle,PanelRightClose,PanelRightOpen,ArrowLeft,ArrowRight,X,Download} from 'lucide-react';
+import {ChevronsDownUp,Activity,GitBranch,MessageCircle,PanelRightClose,PanelRightOpen,ArrowLeft,ArrowRight,X,Download} from 'lucide-react';
 import {number} from '../api.js';
 import InspectorActions from './InspectorActions.jsx';
 
@@ -14,5 +14,5 @@ export function EpochNavigation({position,total,loading=false,disabled=false,onM
   return <div className="epoch-navigation" tabIndex={0} aria-label="Epoch navigation. Tab next; Shift+Tab previous; W/S also navigate."><button disabled={disabled||loading||position===0} onClick={()=>onMove(-1)}><ArrowLeft size={14}/> Previous epoch</button><span>{loading?'Loading epoch…':position<0?'Focused epoch is outside the loaded page':`Epoch ${number(position+1)} of ${number(total)} matching epochs`}</span><button disabled={disabled||loading||(position>=0&&position+1>=total)} onClick={()=>onMove(1)}>Next epoch <ArrowRight size={14}/></button></div>;
 }
 export function EpochListHeading({treeMode=false,onTreeMode,onDesign,designDisabled=false,onCollapse}){
-  return <div className="tree-heading" aria-label="Epoch list controls">{onCollapse&&<button className="tree-collapse-action" disabled={designDisabled} onClick={onCollapse}>Collapse all</button>}<div className="segmented">{onTreeMode&&<><button className={!treeMode?'active':''} aria-pressed={!treeMode} onClick={()=>onTreeMode(false)}>Epochs</button><button className={treeMode?'active':''} aria-pressed={treeMode} onClick={()=>onTreeMode(true)}>Split tree</button></>}</div>{onDesign&&<button className="tree-edit-action" disabled={designDisabled} onClick={onDesign}><GitBranch size={13}/> Edit tree</button>}</div>;
+  return <div className="tree-heading" aria-label="Epoch list controls">{onCollapse&&<button className="tree-collapse-action" aria-label="Collapse all" title="Collapse all" disabled={designDisabled} onClick={onCollapse}><ChevronsDownUp size={13}/><span>Collapse all</span></button>}<div className="segmented">{onTreeMode&&<><button className={!treeMode?'active':''} aria-pressed={!treeMode} onClick={()=>onTreeMode(false)}>Epochs</button><button className={treeMode?'active':''} aria-pressed={treeMode} onClick={()=>onTreeMode(true)}>Split tree</button></>}</div>{onDesign&&<button className="tree-edit-action" aria-label="Edit tree" title="Edit tree" disabled={designDisabled} onClick={onDesign}><GitBranch size={13}/><span>Edit tree</span></button>}</div>;
 }
