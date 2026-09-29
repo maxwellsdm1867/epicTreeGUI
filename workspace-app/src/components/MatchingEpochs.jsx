@@ -1,30 +1,30 @@
-import {NavigationLoadingProvider,NavigationLoadingNotice} from './NavigationLoading.jsx';
+import EpochDetailHeading from './EpochDetailHeading.jsx';
+import {NavigationLoadingProvider} from './NavigationLoading.jsx';
 import StableContent from './StableContent.jsx';
 import {advanceEpochIntent,epochIntentAt,epochAtIntent} from '../epochNavigationIntent.js';
 import {useEffect,useRef,useState} from 'react';
-import {GitBranch} from 'lucide-react';
+import {GitBranch,ListFilter} from 'lucide-react';
 import {useEpochResource,useEpochPrefetch,humanize} from '../api.js';
 import {useEpochBrowserPage} from '../useEpochBrowserPage.js';
 import {epochShortcutDirection,inspectorPaneSizes} from '../inspectorInteraction.js';
-import {datedCellLabel} from '../recordingIdentity.js';
 import {Trace} from './Inspector.jsx';
-import InspectionCellTree from './InspectionCellTree.jsx';
-import {EpochBrowserToolbar,EpochSelectionBar,EpochNavigation,EpochListHeading} from './EpochBrowserChrome.jsx';
-import PagedTree from './PagedTree.jsx';
+import EpochTreePane from './EpochTreePane.jsx';
+import {EpochBrowserToolbar,EpochSelectionBar,EpochNavigation} from './EpochBrowserChrome.jsx';
 import MetadataPanel from './MetadataPanel.jsx';
 import EpochConnections from './EpochConnections.jsx';
-import PaneDivider from './PaneDivider.jsx';
+import EpochBrowserLayout from './EpochBrowserLayout.jsx';
 import {Empty} from './Common.jsx';
 import './MatchingEpochs.css';
 import SelectionOverview from './SelectionOverview.jsx';
 import AnnotationTags from './AnnotationTags.jsx';
 import TagExchangeControls from './TagExchangeControls.jsx';
 
-function MatchingEpochsContent({predicate,splits,preview,onRefresh,session,onSession,onTagFilter,onAnnotationsChanged,onDesign,designDisabled=false,onExport,exportDisabled=false,actions=[]}){
+function MatchingEpochsContent({toolbarTarget=null,onFilter,filterDisabled=false,predicate,splits,preview,onRefresh,session,onSession,onTagFilter,onAnnotationsChanged,onDesign,designDisabled=false,onExport,exportDisabled=false,actions=[]}){
   const navigationIntent=useRef(null);
   const saved=useRef(session?.revision===preview.tree_revision?session:null).current;
   const [focused,setFocused]=useState(saved?.focused||null),[request,setRequest]=useState(saved?.focused?{anchorUuid:saved.focused}:{offset:0});
   const [cells,setCells]=useState(null),[targets,setTargets]=useState([]);
+  const [collapseRequest,setCollapseRequest]=useState(0);
   const [treeOpen,setTreeOpen]=useState(saved?.treeOpen??true),[treeMode,setTreeMode]=useState(saved?.treeMode??false);
   const [metadataOpen,setMetadataOpen]=useState(()=>{try{const value=localStorage.getItem('workspace.inspector.metadata');return value===null?window.innerWidth>=1350:value==='true';}catch{return true;}});
   const [cellTagRequest,setCellTagRequest]=useState(null);
@@ -63,17 +63,23 @@ function MatchingEpochsContent({predicate,splits,preview,onRefresh,session,onSes
   const tagEntry=detail&&<AnnotationTags epoch={detail} revision={detailRevision} disabled={!currentPage||epoch.loading} selectedEpochs={targets} focusRequest={tagFocus} targetScope={cellTagRequest?'cell':targets.length?'selected':'epoch'} epochFocusRequest={epochTagFocus} onNavigateEpoch={direction=>{move(direction);setEpochTagFocus(value=>value+1);}} onChange={annotationsChanged} onFilter={onTagFilter} tools={!cellTagRequest&&!targets.length&&<TagExchangeControls epoch={detail} onChanged={annotationsChanged} disabled={!currentPage||epoch.loading}/>}/>;
   const detailLoading=!!focused&&!page.error&&!epoch.error&&!detail;
   return <section className="inspector epoch-inspector-mode matching-epochs" tabIndex={0} aria-label="Matching epoch inspection" onKeyDown={event=>{if(!focused)return;const direction=epochShortcutDirection(event);if(direction){event.preventDefault();event.stopPropagation();event.currentTarget.focus({preventScroll:true});move(direction);}}}>
-    <EpochBrowserToolbar onExport={onExport} exportDisabled={exportDisabled} onBrowse={()=>{setTreeMode(false);setTreeOpen(true);}} onDesign={onDesign} designDisabled={designDisabled} onTags={openTags} metadataOpen={metadataOpen} onToggleMetadata={()=>toggleMetadata(!metadataOpen)} actions={[{label:treeOpen?'Hide epoch list':'Show epoch list',icon:GitBranch,run:()=>setTreeOpen(value=>!value)},...actions]}/>
+    <EpochBrowserToolbar portalTarget={toolbarTarget} treeControlsInPane filterControl={onFilter&&<button disabled={filterDisabled} aria-haspopup="dialog" onClick={onFilter}><ListFilter size={15}/> Filter</button>} onExport={onExport} exportDisabled={exportDisabled} onBrowse={()=>{setTreeMode(false);setTreeOpen(true);}} onDesign={onDesign} designDisabled={designDisabled} onTags={openTags} metadataOpen={metadataOpen} onToggleMetadata={()=>toggleMetadata(!metadataOpen)} actions={[{label:treeOpen?'Hide epoch list':'Show epoch list',icon:GitBranch,run:()=>setTreeOpen(value=>!value)},...actions]}/>
 
     {annotationNotice&&<div className="matching-annotation-notice" role="status">{annotationNotice}<button onClick={onRefresh}>Refresh results</button><button aria-label="Dismiss annotation notice" onClick={()=>setAnnotationNotice('')}>×</button></div>}
     {page.error&&<div className="mx-operation-error" role="alert">{page.error}<button onClick={onRefresh}>Refresh predicate results</button></div>}
-    <div ref={layout} className={`inspection-layout resizable-layout ${treeOpen?'':'without-tree'} ${metadataOpen?'metadata-open':''} ${pane.overlay?'metadata-overlay':''}`} style={{gridTemplateColumns:pane.columns,'--metadata-width':`${pane.metadata}px`}}>
-      <NavigationLoadingNotice/>
-      {treeOpen&&<aside className="inspection-tree"><EpochListHeading treeMode={treeMode} onTreeMode={setTreeMode}/>{treeMode?<PagedTree cells={cells} selectedEpochs={targets} setSelectedEpochs={setTargets} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cellUuid,epoch)=>{selectEpoch(epoch.epoch_uuid);setTargets([]);toggleMetadata(true);setCellTagRequest((cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});}} presentation="tree" predicate={predicate} splits={splits} revision={preview.tree_revision} expectedRevision={preview.tree_revision} onRefreshPreview={onRefresh} selected={focused} onSelectEpoch={selectEpoch}/>:<div className="tree-scroll" aria-label="Date, cell and epoch overview"><StableContent data={cells} loading={!cells&&page.loading} error={page.error} retry={onRefresh}><InspectionCellTree cells={cells||[]} source={source} revision={preview.tree_revision} focused={cellTagRequest?null:focused} onFocus={selectEpoch} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cell,epoch)=>{selectEpoch(epoch.epoch_uuid);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);}} targets={targets} setTargets={setTargets} disabled={!!page.error}/></StableContent></div>}{!metadataOpen&&<StableContent className="stable-tag-dock" data={detail} loading={detailLoading} error={epoch.error} retry={epoch.reload}>{tagEntry}</StableContent>}</aside>}
-      {treeOpen&&<PaneDivider label="Resize epoch tree pane" value={pane.tree} min={180} max={pane.treeMax} onChange={tree=>setSizes(old=>({...old,tree}))}/>}
-      <div className="inspection-detail"><StableContent {...epoch} data={detail} blocked={!!page.error} loading={detailLoading} retry={epoch.reload}>{cellTagRequest||targets.length>0?<SelectionOverview cell={cellTagRequest} count={targets.length}/>:detail?<><div className="epoch-heading"><div><h2>{datedCellLabel(detail)}</h2><p>{humanize(detail.protocol_name?.split('.').at(-1))} · Epoch {detail.epoch_number} within block</p></div></div><EpochNavigation position={index<0?-1:offset+index} total={page.data?.total||0} loading={page.loading} onMove={move}/><Trace epoch={detail} revision={detailRevision}/>{!metadataOpen&&!treeOpen&&tagEntry}</>:<Empty title="Choose an epoch">Select an epoch from the tree to inspect its response and metadata.</Empty>}</StableContent></div>
-      {metadataOpen&&<><PaneDivider label="Resize metadata pane" value={pane.metadata} min={240} max={pane.metadataMax} reverse className={pane.overlay?'metadata-overlay-divider':''} style={pane.overlay?{right:pane.metadata}:undefined} onChange={metadata=>setSizes(old=>({...old,metadata}))}/><StableContent className="stable-metadata" data={detail} blocked={!!page.error} loading={detailLoading} error={epoch.error} retry={epoch.reload}><MetadataPanel selectionCell={cellTagRequest} selectedEpochs={targets} onClearSelection={()=>setTargets([])} tags={tagEntry} epoch={detail} catalog={{data:preview.catalog}} onClose={()=>toggleMetadata(false)} connections={detail&&<EpochConnections epoch={detail} protocolName={humanize(detail.protocol_name)} contextLabel="Acquisition protocol"/>}/></StableContent></>}
-    </div>
+    <EpochBrowserLayout layoutRef={layout} sizes={pane} treeOpen={treeOpen} metadataOpen={metadataOpen}
+      onResize={(name,value)=>setSizes(old=>({...old,[name]:value}))}
+      tree={<EpochTreePane
+        treeMode={treeMode} onTreeMode={value=>{setTreeMode(value);if(value)setSizes(old=>({...old,tree:Math.max(420,pane.tree)}));}}
+        onDesign={onDesign} designDisabled={designDisabled} collapseRequest={collapseRequest} onCollapse={()=>setCollapseRequest(value=>value+1)}
+        treeProps={{cells,selectedEpochs:targets,setSelectedEpochs:setTargets,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cellUuid,epoch)=>{selectEpoch(epoch.epoch_uuid);setTargets([]);toggleMetadata(true);setCellTagRequest((cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});},predicate,splits,revision:preview.tree_revision,expectedRevision:preview.tree_revision,onRefreshPreview:onRefresh,selected:focused,onSelectEpoch:selectEpoch}}
+        listStatus={{data:cells,loading:!cells&&page.loading,error:page.error,retry:onRefresh}}
+        listProps={{cells:cells||[],source,revision:preview.tree_revision,focused:cellTagRequest?null:focused,onFocus:selectEpoch,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cell,epoch)=>{selectEpoch(epoch.epoch_uuid);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);},targets,setTargets,disabled:!!page.error}} childrenInTree>
+        {!metadataOpen&&<StableContent className="stable-tag-dock" data={detail} loading={detailLoading} error={epoch.error} retry={epoch.reload}>{tagEntry}</StableContent>}
+      </EpochTreePane>}
+      detail={<StableContent {...epoch} data={detail} blocked={!!page.error} loading={detailLoading} retry={epoch.reload}>{targets.length>0?<SelectionOverview count={targets.length}/>:detail?<><EpochDetailHeading epoch={detail} onExported={epoch.reload} predicate={predicate} splits={splits} disabled={!currentPage||epoch.loading}/><EpochNavigation position={index<0?-1:offset+index} total={page.data?.total||0} loading={page.loading} onMove={move}/><Trace epoch={detail} revision={detailRevision}/>{!metadataOpen&&!treeOpen&&tagEntry}</>:<Empty title="Choose an epoch">Select an epoch from the tree to inspect its response and metadata.</Empty>}</StableContent>}
+      metadata={<StableContent className="stable-metadata" data={detail} blocked={!!page.error} loading={detailLoading} error={epoch.error} retry={epoch.reload}><MetadataPanel selectionCell={cellTagRequest} selectedEpochs={targets} onClearSelection={()=>setTargets([])} tags={tagEntry} epoch={detail} catalog={{data:preview.catalog}} onClose={()=>toggleMetadata(false)} connections={detail&&<EpochConnections epoch={detail} protocolName={humanize(detail.protocol_name)} contextLabel="Acquisition protocol"/>}/></StableContent>}/>
+
   </section>;
 }
 export default function MatchingEpochs(props){return <NavigationLoadingProvider><MatchingEpochsContent {...props}/></NavigationLoadingProvider>;}

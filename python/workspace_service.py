@@ -52,8 +52,8 @@ def _fingerprint(epoch):
 
 def validate_filters(filters):
     filters = {} if filters is None else filters
-    if not isinstance(filters, dict) or set(filters) - {'cell_uuid', 'cell_type', 'group_label', 'tag', 'tagged', 'tag_predicate'}:
-        raise ValueError('Unsupported filter; use cell_uuid, cell_type, group_label, tag, tagged, or tag_predicate')
+    if not isinstance(filters, dict) or set(filters) - {'epoch_uuid', 'cell_uuid', 'cell_type', 'group_label', 'tag', 'tagged', 'tag_predicate'}:
+        raise ValueError('Unsupported filter; use epoch_uuid, cell_uuid, cell_type, group_label, tag, tagged, or tag_predicate')
     if any(not isinstance(value, str) for value in filters.values()):
         raise ValueError('Filter values must be text')
     if 'tag' in filters:
@@ -65,6 +65,8 @@ def validate_filters(filters):
         predicate = validate_tag_filter_predicate(filters['tag_predicate'])
         filters = {**filters, 'tag_predicate': json.dumps(predicate, sort_keys=True, separators=(',', ':'), allow_nan=False)}
     cleaned = {k: v for k, v in filters.items() if v}
+    if 'epoch_uuid' in cleaned:
+        cleaned['epoch_uuid'] = _uuid(cleaned['epoch_uuid'])
     if 'cell_uuid' in cleaned:
         cleaned['cell_uuid'] = _uuid(cleaned['cell_uuid'])
     return cleaned

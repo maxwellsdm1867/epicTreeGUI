@@ -1,7 +1,8 @@
+import EpochDetailHeading from './EpochDetailHeading.jsx';
 import {clearTagFilters,tagFilterLabel} from '../protocolViewFilter.js';
 import ProtocolViewFilter from './ProtocolViewFilter.jsx';
 import SelectionMaskDialog from './SelectionMaskDialog.jsx';
-import {NavigationLoadingProvider,NavigationLoadingNotice} from './NavigationLoading.jsx';
+import {NavigationLoadingProvider} from './NavigationLoading.jsx';
 import StableContent from './StableContent.jsx';
 import {advanceEpochIntent,epochIntentAt,epochAtIntent} from '../epochNavigationIntent.js';
 import {SourceEligibilityNotice} from './Common.jsx';
@@ -15,8 +16,8 @@ import TreePreview from './TreePreview.jsx';
 import './InspectorPolish.css';
 import './MatlabMaskImport.css';
 import MetadataPanel from './MetadataPanel.jsx';
-import InspectionCellTree from './InspectionCellTree.jsx';
-import {EpochBrowserToolbar,EpochSelectionBar,EpochNavigation,EpochListHeading} from './EpochBrowserChrome.jsx';
+import EpochTreePane from './EpochTreePane.jsx';
+import {EpochBrowserToolbar,EpochSelectionBar,EpochNavigation} from './EpochBrowserChrome.jsx';
 import EpochTags from './EpochTags.jsx';
 import SelectionOverview from './SelectionOverview.jsx';
 import AnnotationTags from './AnnotationTags.jsx';
@@ -29,7 +30,7 @@ import {datedCellLabel} from '../recordingIdentity.js';
 import {restoredEpochFocus} from '../workspaceNavigation.js';
 import {boundedTreePage,inspectionTreeFocus} from '../boundedTree.js';
 import Trace from './TraceViewer.jsx';
-import PaneDivider from './PaneDivider.jsx';
+import EpochBrowserLayout from './EpochBrowserLayout.jsx';
 import PagedTree from './PagedTree.jsx';
 import {inspectorPaneSizes,epochShortcutDirection,resourceForPath} from '../inspectorInteraction.js';
 export {Trace};
@@ -308,25 +309,21 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
     </SelectionMaskDialog>}
     </>}{!designMode&&maskMessage&&<div className="mask-result" role="status"><Check size={15}/><span>{maskMessage}</span><button className="icon-button" onClick={()=>setMaskMessage('')} aria-label="Dismiss mask result"><X size={14}/></button></div>}
     {error&&<div className="inspector-operation-error" role="alert">{error}<button className="icon-button" onClick={()=>setError('')} aria-label="Dismiss operation error"><X size={14}/></button></div>}
-    <div ref={layoutRef} style={{gridTemplateColumns:paneSizes.columns,'--metadata-width':`${paneSizes.metadata}px`}} className={`inspection-layout resizable-layout ${treeOpen?'':'without-tree'} ${!designMode&&metadataOpen?'metadata-open':''} ${paneSizes.overlay?'metadata-overlay':''}`}>
-      <NavigationLoadingNotice/>
-      {treeOpen&&<aside className="inspection-tree">
-        {!designMode&&<EpochListHeading onCollapse={()=>setCollapseRequest(value=>value+1)} onDesign={()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);}} designDisabled={busy} treeMode={treeMode} onTreeMode={value=>{setTreeMode(value);if(value)changePane('tree',Math.max(420,paneSizes.tree));}}/>}
-        {designMode?<TreeBuilder protocolId={id} queryString={protocolSearch} revision={revision}
+    <EpochBrowserLayout layoutRef={layoutRef} sizes={paneSizes} treeOpen={treeOpen} metadataOpen={metadataOpen} editing={designMode}
+      onResize={changePane} onResizeCommit={savePane}
+      tree={designMode?<TreeBuilder protocolId={id} queryString={protocolSearch} revision={revision}
             value={splits.split(',').filter(Boolean)} onChange={changeSplits}
-            preview={tree.data} loading={tree.loading} error={tree.error}/>:treeMode?<>
-          <PagedTree collapseRequest={collapseRequest} externalCollapseControl actionsDisabled={busy} onToggleInclusion={(item,included)=>curate({included},'focused',item.epoch_uuid)} cells={protocol.cells} selectedEpochs={targets} setSelectedEpochs={selectOverviewTargets} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});}} presentation="tree" protocolId={id} filters={filters} splits={splits} revision={revision} selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onSelectEpoch={focusTreeEpoch} onMetadata={receiveTree} onStatus={setTreeStatus}/>
-        </>:<>
-          <div ref={epochListRef} className="tree-scroll" aria-label="Date, cell and epoch overview"><InspectionCellTree collapseRequest={collapseRequest} key={`${id}:${protocolSearch}`} cells={protocol.cells||[]} source={{kind:'protocol',protocolId:id,query:protocolSearch}} revision={revision} focused={cellTagRequest?null:focused} onFocus={focusTreeEpoch} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cell,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);}} targets={targets} setTargets={selectOverviewTargets} disabled={busy} onToggleInclusion={(epoch,included)=>curate({included},'focused',epoch.epoch_uuid)}/></div>
+            preview={tree.data} loading={tree.loading} error={tree.error}/>:<EpochTreePane
+          treeMode={treeMode} onTreeMode={value=>{setTreeMode(value);if(value)changePane('tree',Math.max(420,paneSizes.tree));}}
+          onDesign={()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);}} designDisabled={busy}
+          collapseRequest={collapseRequest} onCollapse={()=>setCollapseRequest(value=>value+1)}
+          treeProps={{actionsDisabled:busy,onToggleInclusion:(item,included)=>curate({included},'focused',item.epoch_uuid),cells:protocol.cells,selectedEpochs:targets,setSelectedEpochs:selectOverviewTargets,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});},protocolId:id,filters,splits,revision,selected:focused,initialNavigation:designNavigation,onNavigationChange:setDesignNavigation,onSelectEpoch:focusTreeEpoch,onMetadata:receiveTree,onStatus:setTreeStatus}}
+          listRef={epochListRef} listKey={`${id}:${protocolSearch}`}
+          listProps={{cells:protocol.cells||[],source:{kind:'protocol',protocolId:id,query:protocolSearch},revision,focused:cellTagRequest?null:focused,onFocus:focusTreeEpoch,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cell,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);},targets,setTargets:selectOverviewTargets,disabled:busy,onToggleInclusion:(epoch,included)=>curate({included},'focused',epoch.epoch_uuid)}}>
           {!metadataOpen&&<StableContent className="stable-tag-dock" scope={id} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} error={epoch.error} retry={epoch.reload}>{tagEntry}</StableContent>}
-        </>}
-      </aside>}
-      {treeOpen&&<PaneDivider label={designMode?'Resize tree editor pane':'Resize epoch tree pane'} value={paneSizes.tree} min={180} max={paneSizes.treeMax} onChange={value=>changePane('tree',value)} onCommit={value=>savePane('tree',value)}/>}
-      {designMode?<PagedTree collapseRequest={collapseRequest} externalCollapseControl actionsDisabled={busy} onToggleInclusion={(item,included)=>curate({included},'focused',item.epoch_uuid)} cells={protocol.cells} selectedEpochs={targets} setSelectedEpochs={selectOverviewTargets} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});}} presentation="columns" protocolId={id} filters={filters} splits={splits} revision={revision} design selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onMetadata={receiveTree} onStatus={setTreeStatus} onSelectEpoch={(uuid,info)=>{focusTreeEpoch(uuid,info);setTreeMode(false);setDesignMode(false);}}/>:<div className="inspection-detail"><StableContent scope={id} {...epoch} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} retry={epoch.reload}>{targets.length>0?<SelectionOverview count={targets.length}/>:focusedEpoch?<>
-        <div className="epoch-heading"><div>
-          <h2>{datedCellLabel(focusedEpoch)}</h2>
-          <p>{humanize(focusedEpoch.protocol_name?.split('.').at(-1)) || 'Protocol not recorded'} · Epoch {focusedEpoch.epoch_number ?? '—'} within block · {focusedEpoch.start_time?.split(/[T ]/)[1]?.slice(0,8) || 'Time not recorded'}</p>
-        </div><div className="epoch-heading-badges">{onQC&&<button disabled={busy} onClick={()=>onQC(focusedEpoch.cell_uuid)} title="Open quality-control recordings linked to this cell">Cell QC</button>}<Badge kind={focusedEpoch.curation?.included===false?'neutral':'info'}>{focusedEpoch.curation?.included===false?'Excluded':'Included'}</Badge><Badge>{focusedEpoch.exports?.length?`${focusedEpoch.exports.length} saved exports`:'No saved export'}</Badge></div></div>
+        </EpochTreePane>}
+      detail={designMode?<PagedTree collapseRequest={collapseRequest} externalCollapseControl actionsDisabled={busy} onToggleInclusion={(item,included)=>curate({included},'focused',item.epoch_uuid)} cells={protocol.cells} selectedEpochs={targets} setSelectedEpochs={selectOverviewTargets} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});}} presentation="columns" protocolId={id} filters={filters} splits={splits} revision={revision} design selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onMetadata={receiveTree} onStatus={setTreeStatus} onSelectEpoch={(uuid,info)=>{focusTreeEpoch(uuid,info);setTreeMode(false);setDesignMode(false);}}/>:<StableContent scope={id} {...epoch} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} retry={epoch.reload}>{targets.length>0?<SelectionOverview count={targets.length}/>:focusedEpoch?<>
+        <EpochDetailHeading epoch={focusedEpoch} onExported={()=>{epoch.reload();onChange();}} onQC={onQC} disabled={busy} protocolId={id} queryRevision={protocol.query_revision} filters={filters} splits={splits}/>
         <EpochNavigation position={focusedPageIndex<0?-1:offset+focusedPageIndex} total={rows.data?.total||0} loading={!!pendingNavigation||rows.loading} disabled={busy} onMove={moveEpoch}/>
 
         <Trace epoch={focusedEpoch} revision={revision}/>
@@ -347,9 +344,9 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
             {targets.length?`Mark ${actionScope} reviewed`:focusedEpoch.curation?.review_state==='approved'?'Clear focused epoch review marker':'Mark focused epoch reviewed'}
           </button>
         </details>
-      </>:<Empty title="Choose an epoch">Select an epoch from the tree to inspect its response and metadata.</Empty>}</StableContent></div>}
-      {!designMode&&metadataOpen&&<><PaneDivider label="Resize metadata pane" value={paneSizes.metadata} min={240} max={paneSizes.metadataMax} reverse className={paneSizes.overlay?'metadata-overlay-divider':''} style={paneSizes.overlay?{right:paneSizes.metadata}:undefined} onChange={value=>changePane('metadata',value)} onCommit={value=>savePane('metadata',value)}/><StableContent className="stable-metadata" scope={id} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} error={epoch.error} retry={epoch.reload}><MetadataPanel selectionCell={cellTagRequest} selectedEpochs={targets} onClearSelection={()=>setTargets([])} tags={tagEntry} epoch={focusedEpoch} catalog={metadataCatalog} onClose={()=>toggleMetadata(false)} context={focusedEpoch&&<ScientificContext epoch={focusedEpoch}/>} connections={focusedEpoch&&<EpochConnections epoch={focusedEpoch} protocolName={humanize(protocol.definition?.name)}/>}/></StableContent></>}
-    </div>
+      </>:<Empty title="Choose an epoch">Select an epoch from the tree to inspect its response and metadata.</Empty>}</StableContent>}
+      metadata={<StableContent className="stable-metadata" scope={id} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} error={epoch.error} retry={epoch.reload}><MetadataPanel selectionCell={cellTagRequest} selectedEpochs={targets} onClearSelection={()=>setTargets([])} tags={tagEntry} epoch={focusedEpoch} catalog={metadataCatalog} onClose={()=>toggleMetadata(false)} context={focusedEpoch&&<ScientificContext epoch={focusedEpoch}/>} connections={focusedEpoch&&<EpochConnections epoch={focusedEpoch} protocolName={humanize(protocol.definition?.name)}/>}/></StableContent>}/>
+
   </div>;
 }
 

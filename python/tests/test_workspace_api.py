@@ -418,6 +418,27 @@ class WorkspaceAPITests(unittest.TestCase):
         self.assertEqual(saved['recipe']['options']['split_order'], 'cell, parameters/frequencyCutoff, block')
         self.assertEqual({row['uuid'] for row in saved['recipe']['epochs']}, set(self.service.ids))
 
+    def test_focused_epoch_export_freezes_exact_uuid_with_repeated_numbers(self):
+        key = self.service.ids[1]  # Both fixture rows are Epoch 1.
+        response = self.client.post(self.base + '/exports', json={
+            'query_revision': self.revision(), 'filters': {'epoch_uuid': key},
+            'review_policy': 'include_unreviewed'}, headers=self.headers)
+        self.assertEqual(response.status_code, 201, response.get_json())
+        saved = self.store.get_dataset_revision(response.get_json()['dataset_uuid'])
+        self.assertEqual([row['uuid'] for row in saved['recipe']['epochs']], [key])
+        self.assertEqual(response.get_json()['epoch_count'], 1)
+
+    def test_focused_export_rejects_excluded_and_out_of_view_without_artifacts(self):
+        initial_exports = set((Path(self.temp.name) / 'exports').rglob('*'))
+        key = self.service.ids[0]
+        self.client.post(self.base + '/curation', json=self.curation_body({'included': False}, [key]), headers=self.headers)
+        for filters in ({'epoch_uuid': key}, {'epoch_uuid': self.service.ids[1], 'cell_uuid': self.service.cell_ids[0]}):
+            response = self.client.post(self.base + '/exports', json={
+                'query_revision': self.revision(), 'filters': filters}, headers=self.headers)
+            self.assertEqual(response.status_code, 400, response.get_json())
+        self.assertFalse(self.datasets.rows)
+        self.assertEqual(set((Path(self.temp.name) / 'exports').rglob('*')), initial_exports)
+
     def test_selection_export_defaults_to_optional_review_and_links_exact_members(self):
         counts = self.client.get(self.base).get_json()['counts']
         self.assertEqual((counts['exportable'], counts['approved_exportable']), (2, 0))

@@ -131,9 +131,9 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
     def filters(allowed=()):
         if any(len(request.args.getlist(key)) != 1 for key in ('tag', 'tagged', 'tag_predicate') if key in request.args):
             raise ValueError('Tag filters must be specified once')
-        if set(request.args) - {"cell_uuid", "cell_type", "group_label", "tag", "tagged", "tag_predicate", "offset", "limit", "splits"} - set(allowed):
+        if set(request.args) - {"epoch_uuid", "cell_uuid", "cell_type", "group_label", "tag", "tagged", "tag_predicate", "offset", "limit", "splits"} - set(allowed):
             raise ValueError("Unknown query filter; no unrestricted fallback was applied")
-        return {key: request.args[key] for key in ("cell_uuid", "cell_type", "group_label", "tag", "tagged", "tag_predicate")
+        return {key: request.args[key] for key in ("epoch_uuid", "cell_uuid", "cell_type", "group_label", "tag", "tagged", "tag_predicate")
                 if key in request.args}
 
     def state(protocol_uuid):
@@ -1047,6 +1047,8 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             field_catalog = {field["id"]: field for field in service.tree_fields(protocol_uuid, splits=split_order)["fields"]}
             rows = service.filtered_rows(protocol_uuid, query_filters)
             included = [r["epoch_uuid"] for r in rows if curation[r["epoch_uuid"]]["included"]]
+            if 'epoch_uuid' in query_filters and included != [str(uuid.UUID(query_filters['epoch_uuid']))]:
+                raise ValueError('The focused epoch is excluded or no longer matches this protocol view')
             approved = [key for key, value in curation.items() if value["review_state"] == "approved"]
             name = str(body.get("name") or definition["name"]).strip()[:120]
             recipe = prepare_export(snapshot, included, destination=export_format,
