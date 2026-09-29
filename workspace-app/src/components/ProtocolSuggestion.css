@@ -6,3 +6,50 @@
 .import-compare-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0 16px}.import-compare-card{border:1px solid #e3dce9;border-radius:10px;background:#fbf9fd;padding:13px 15px}.import-compare-card header{display:flex;align-items:center;gap:8px;color:#725887}.import-compare-card header strong{font-size:12px;flex:1}.import-compare-card header>span{font-size:11px;background:#e7f3ec;color:#386a50;border-radius:12px;padding:4px 7px}.import-compare-card header>span.is-removal{background:#faeaea;color:#a05b58}.import-before-after{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:15px}.import-before-after>div{min-width:0}.import-before-after>div:last-child{text-align:right}.import-before-after small{display:block;font-size:10px;color:#94839e;margin-bottom:4px}.import-before-after strong{font-size:26px;font-weight:600;letter-spacing:-.6px;color:#66546f}.import-before-after>div:last-child strong{color:#356d53}.import-before-after>svg{color:#a99ab4;flex-shrink:0}.import-membership-comparison{display:grid;gap:8px}.import-membership-comparison>div{display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center}.import-membership-comparison>div>span{font-size:10px;color:#8c7a98}.import-membership-bar i.removed,.import-membership-caption i.removed{background:#d7938d}.import-cell-preview{margin-top:17px;border-top:1px solid #eee8f2;padding-top:12px}.import-cell-preview h4{display:flex;align-items:center;gap:7px;font-size:11px;color:#81708e;margin:0 0 9px}.import-cell-preview-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f1edf4}.import-cell-preview-row>div{flex:1;min-width:0}.import-cell-preview-row strong{font-size:12px;color:#66536f}.import-cell-preview-row small{display:block;font-size:10px;color:#96869f;margin-top:3px}.import-cell-change-icon{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:#eaf4ee;color:#4b8967;flex-shrink:0}.import-cell-preview-row.updated .import-cell-change-icon{background:#efe9f6;color:#8b6b9e}.import-cell-preview-row.removed .import-cell-change-icon{background:#f9eae8;color:#ac6b65}.import-cell-preview-row>span:last-child{display:flex;align-items:center;gap:6px;font-size:11px;color:#7b6988}.import-cell-preview>small{display:block;margin-top:9px;color:#998bA1;font-size:10px}.import-comparison-context{display:flex;flex-wrap:wrap;gap:13px;margin-top:14px;color:#93819e;font-size:10px}.import-comparison-context>span{display:flex;gap:5px;align-items:center}@media(max-width:540px){.import-compare-cards{grid-template-columns:1fr}.import-before-after strong{font-size:23px}.import-cell-preview-row{flex-wrap:wrap}}
 
 .import-readiness{overflow:clip}.import-readiness-heading{position:sticky;top:0;z-index:2;padding:16px 24px}.import-heading-actions{display:flex;align-items:center;gap:12px;flex-shrink:0}.import-heading-actions>.primary{white-space:nowrap}.import-review-dialog>header{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid #e7e0ec}.import-review-dialog .import-readiness-heading{position:static}@media(max-width:650px){.import-heading-actions{gap:8px;flex-wrap:wrap}.import-ready-total{white-space:normal}.import-readiness-heading{align-items:flex-start}.import-review-dialog>header p{display:none}}
+
+/* Keep review content inside consistent gutters, including empty states/history. */
+.import-review-dialog{box-sizing:border-box;width:min(960px,calc(100vw - 48px));max-height:calc(100dvh - 48px);overflow-x:hidden;scrollbar-gutter:stable}
+.import-review-dialog .import-readiness{margin:20px;border:1px solid #e5dfea;border-radius:12px}
+.import-review-dialog>header{padding:22px 24px;flex-wrap:wrap}
+.import-review-dialog>header>div:first-child{flex:1;min-width:220px}
+.import-review-dialog>footer{position:sticky;bottom:0;background:var(--surface,#fff);z-index:4}
+.import-readiness-heading>div:first-child{min-width:0;flex:1}
+.import-readiness-heading h2{line-height:1.35;overflow-wrap:anywhere}
+.import-readiness-heading h2>svg{flex-shrink:0}
+.import-readiness-heading .import-heading-actions{flex-shrink:1;min-width:0}
+.import-ready-total{white-space:normal;line-height:1.45;text-align:center}
+.import-source-summary{flex-wrap:wrap;gap:12px 20px;padding:20px 24px;line-height:1.55}
+.import-source-summary>svg{flex-shrink:0}
+.import-source-summary>div{flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
+.import-source-summary>span{flex:0 1 auto}
+.import-source-summary .import-checked{margin-left:auto}
+.import-review-empty{margin:20px 24px;padding:14px 16px;background:#f7f5f9;border-radius:8px;color:var(--ink-secondary);line-height:1.5}
+.import-approved-entry{margin:10px 0;border:1px solid #e5dfea;border-radius:9px;padding:0 14px;background:#fff}
+.import-approved-entry>summary{display:flex;align-items:center;gap:8px;cursor:pointer;padding:14px 0;font-size:12px;line-height:1.6;color:var(--ink-secondary);overflow-wrap:anywhere}
+.import-approved-entry>summary>svg{flex-shrink:0;color:#497554}
+.import-approved-entry[open]>summary{border-bottom:1px solid #eee8f2;margin-bottom:14px}
+.import-ready-protocol{padding:20px;margin-bottom:16px}
+.protocol-new-data-heading{flex-wrap:wrap;row-gap:10px}
+.protocol-new-data-heading>div{flex:1 1 160px}
+.import-ready-state{flex-shrink:0}
+.import-compare-card{min-width:0;padding:16px}
+.import-compare-card header{flex-wrap:wrap}
+.import-compare-card header>span{margin-left:auto}
+.import-before-after{gap:10px}
+.import-before-after strong{font-size:clamp(20px,3vw,26px);overflow-wrap:anywhere}
+.import-before-after small{line-height:1.5}
+.import-page .page-heading,.data-stores .page-heading{flex-wrap:wrap;gap:20px}
+.import-page .page-heading>div:first-child,.data-stores .page-heading>div:first-child{flex:1 1 340px;min-width:0}
+.ds-heading-actions{flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+@media(max-width:650px){
+  .import-review-dialog{width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}
+  .import-review-dialog .import-readiness{margin:12px}
+  .import-review-dialog>header,.import-review-dialog>footer{padding:16px}
+  .import-readiness-heading{flex-direction:column;padding:18px}
+  .import-source-summary{padding:18px}
+  .import-priority-group,.import-other-protocols,.import-review-empty{margin:18px}
+  .import-approved-entry{padding:0 10px}
+  .import-ready-protocol{padding:16px}
+  .import-compare-cards{grid-template-columns:1fr}
+  .ds-heading-actions{justify-content:flex-start}
+}
