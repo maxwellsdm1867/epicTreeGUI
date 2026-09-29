@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {localProjectUrl,verifiedTransferResult} from './projectTransfer.js';
+
+test('only a verified transfer with a destination can be presented as ready',()=>{
+  const result={verified:true,directory:'/research/shared-project',project_uuid:'project'};
+  assert.equal(verifiedTransferResult(result),result);
+  for(const invalid of [null,{}, {...result,verified:false},{...result,directory:''},{...result,verified:undefined}]){
+    assert.throws(()=>verifiedTransferResult(invalid),/did not confirm/);
+  }
+});
+
+test('opening restored projects accepts local HTTP URLs and rejects remote or executable destinations',()=>{
+  assert.equal(localProjectUrl('http://127.0.0.1:8123','http://localhost:8000'),'http://127.0.0.1:8123/');
+  assert.equal(localProjectUrl('http://[::1]:8123/','http://localhost:8000'),'http://[::1]:8123/');
+  for(const url of [null,'javascript:alert(1)','https://example.com','file:///tmp/project','http://localhost.example.com','http://user:secret@localhost:8123']){
+    assert.throws(()=>localProjectUrl(url,'http://localhost:8000'));
+  }
+});
+
+test('transfer monitors a job until verification completes and surfaces server failures',async()=>{
+  const {runProjectTransfer}=await import('./projectTransfer.js');
+  const calls=[];
+  const result={verified:true,directory:'/new/project'};
+  const replies=[{job_id:'one/two',state:'running'},{state:'running'},{state:'complete',result}];
+  const request=async(path,options)=>{calls.push({path,options});return replies.shift();};
+  assert.equal(await runProjectTransfer({mode:'restore',directory:'/transfer',destination:'/new/project',request,pause:async()=>{}}),result);
+  assert.equal(calls[0].path,'/projects/restore-transfer');
+  assert.deepEqual(calls[0].options.body,{directory:'/transfer',destination:'/new/project'});
+  assert.equal(calls[1].path,'/projects/transfers/one%2Ftwo');
+  const failedReplies=[{job_id:'failed'},{state:'failed',error:'Project service is still running.'}];
+  await assert.rejects(runProjectTransfer({mode:'prepare',request:async()=>failedReplies.shift()}),/service is still running/);
+  const unverifiedReplies=[{job_id:'unverified'},{state:'complete',result:{directory:'/new/project'}}];
+  await assert.rejects(runProjectTransfer({mode:'restore',request:async()=>unverifiedReplies.shift()}),/did not confirm/);
+});

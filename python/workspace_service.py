@@ -128,6 +128,12 @@ from workspace_tree import materialize_combinations, predicate_scope, component_
 class WorkspaceService:
     def __init__(self, project_dir, curation_provider=None):
         self.project_dir = Path(project_dir).resolve()
+        if (self.project_dir / '.portable-restore.pending').exists():
+            raise ValueError('Project transfer restore is incomplete; finish recovery before opening it')
+        config = json.loads((self.project_dir / 'catalog.json').read_text())
+        if config.get('connection', {}).get('credential_provider', {}).get('kind') == 'native-project':
+            from workspace_portability import rebase_project_paths
+            rebase_project_paths(self.project_dir)
         self.curation_provider = curation_provider
         self._loaded = False
         self._source_signatures = {}
@@ -144,7 +150,7 @@ class WorkspaceService:
         self.annotation_provider = provider
 
     def _with_annotation_fields(self, data):
-        if not getattr(self, 'annotation_provider', None):
+        if not getattr(self, 'annotation_provider', None) and not getattr(self, 'shared_annotations', None):
             return data
         from workspace_tag_predicates import TagPredicates
         fields = TagPredicates(self).catalog_fields([row['epoch_uuid'] for row in self._tree_rows(None)])
@@ -334,9 +340,10 @@ class WorkspaceService:
         if hasattr(self, 'project') and self.project['project_uuid'] != project['project_uuid']:
             raise ValueError('Project identity changed; open that project in a separate workspace session')
         provider = config['connection']['credential_provider']
-        if provider['kind'] != 'docker-container-env':
+        if provider['kind'] not in {'docker-container-env', 'native-project'}:
             raise ValueError('Unsupported credential provider')
-        dj = connect(provider['container'])
+        dj = (connect(provider, project_dir=self.project_dir) if provider['kind'] == 'native-project'
+              else connect(provider['container']))
         _, Source, Event, _ = workspace_tables(dj)
         source_records = (Source & {'project_uuid': project['project_uuid']}).to_dicts()
         rows, cells, sources, manifests, fingerprints = {}, {}, [], {}, {}
@@ -547,6 +554,8 @@ class WorkspaceService:
         original = copy.deepcopy(self.protocols[protocol_uuid]['result'])
         binding = self.binding(protocol_uuid)
         if binding is None:
+            if self.protocols[protocol_uuid]['definition'].get('initial_revision_uuid'):
+                raise ValueError('Pinned protocol creation was interrupted. Retry creating it from the same saved selection and name.')
             return original
         recipe = binding['recipe']
         identities = [member['uuid'] for member in recipe['epochs']]

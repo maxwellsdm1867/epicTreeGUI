@@ -6,6 +6,7 @@ remain in recording_workspace / RetinAnalysis; this module owns HTTP and jobs.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import datetime as dt
 import gzip
@@ -31,6 +32,7 @@ from recording_workspace import digest, now, write_json
 from workspace_recipes import capture_query, checksum, compare_query, parse_splits, prepare_export, save_snapshot
 from workspace_storage import ManagedStorage, log_dir
 from workspace_diff import summarize_diff
+from workspace_protocol_identity import selection_protocols, protocol_compatibility, require_protocol_compatibility
 from workspace_import_check import classify_source
 from workspace_audit import build_audit_payload, normalize_event, normalize_events, repeat_suggestions
 
@@ -68,7 +70,7 @@ class ExactMetadataJSON(DefaultJSONProvider):
         return super().dumps(browser_safe(obj), **kwargs)
 
 
-def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, explorer_history=None, data_stores=None, protocol_suggestions=None):
+def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, explorer_history=None, data_stores=None, protocol_suggestions=None, shared_annotations=None):
     from workspace_service import WorkspaceService
     from workspace_curation import CurationStore, RevisionConflict
     from workspace_explorer import ExplorerHistory
@@ -77,9 +79,25 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
     from workspace_tag_predicates import annotation_locks
 
     project_dir, retinanalysis_dir = Path(project_dir).resolve(), Path(retinanalysis_dir).resolve()
+    if (project_dir / '.app-state-restore.pending').exists():
+        raise ValueError('An app-state restore was interrupted. Complete offline recovery before opening this project.')
+    from workspace_export_folder import prepare_export_root
+    export_root = prepare_export_root(project_dir)
     app = Flask(__name__, static_folder=None)
     app.json = ExactMetadataJSON(app)
     app.config.update(MAX_CONTENT_LENGTH=16 * 1024**3, MAX_FORM_MEMORY_SIZE=1024**2)
+    if service is None or hasattr(service.dj, 'Schema'):
+        import fcntl
+        state_lock_path = project_dir / '.app-state-session.lock'
+        if state_lock_path.is_symlink():
+            raise ValueError('App state lock cannot be a symbolic link')
+        session_lock = state_lock_path.open('a')
+        try:
+            fcntl.flock(session_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            session_lock.close()
+            raise ValueError('App state recovery is running; open the project after it finishes') from None
+        app.extensions['app_state_session_lock'] = session_lock
     db_lock = threading.RLock()
     importing = threading.Lock()
     from workspace_import_progress import ProgressReporter, read_jobs, recover_jobs, progress_for, load_json
@@ -101,6 +119,11 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
     if hasattr(service, 'set_annotation_provider'):
         service.set_annotation_provider(lambda protocol_uuid, fingerprints:
             store.read(protocol_uuid, list(fingerprints), fingerprints))
+    if shared_annotations is None and hasattr(service.dj,'Schema'):
+        from workspace_annotations import SharedAnnotations
+        shared_annotations=SharedAnnotations(service)
+    service.shared_annotations=shared_annotations
+    app.extensions['shared_annotations']=shared_annotations
     frontend = Path(__file__).resolve().parents[1] / "workspace-app/dist"
     app.extensions["workspace_service"] = service
     app.extensions["curation_store"] = store
@@ -118,6 +141,8 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             row["metadata_hash"] = fingerprints[row["uuid"]]
         result["metadata_fingerprint_version"] = 2
         result["source_scope"] = service.source_scope()
+        if shared_annotations:
+            result['shared_annotations_revision']=shared_annotations.snapshot()['revision']
         curation = store.read(protocol_uuid, list(fingerprints), fingerprints)
         revision = checksum({"query": {**result, "source_scope": {"revision": result["source_scope"]["revision"]}}, "curation": curation})
         return result, curation, revision
@@ -129,6 +154,7 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
         result, curation, revision = state(protocol_uuid)
         rows = service.filtered_rows(protocol_uuid, query_filters)
         ids = [r["epoch_uuid"] for r in rows]
+        payload["source_sha256s"] = sorted({row["source_sha256"] for row in rows})
         export_memberships = store.export_memberships() if export_memberships is None else export_memberships
         exported_ids = {key for key, links in export_memberships.items()
                         if any(link["protocol_uuid"] == protocol_uuid for link in links)}
@@ -161,7 +187,21 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                 {key for key in ids if curation[key]['included']})
             for cell in payload['cells']:
                 cell.update(cell_counts[cell['cell_uuid']])
+        if shared_annotations:
+            summary=shared_annotations.summary(rows)
+            payload['counts'].update({key:summary[key] for key in ('shared_tagged_cells','shared_tagged_epochs')})
+            payload['annotation_summary']={key:summary[key] for key in ('tags','total_tags','truncated')}
+            add_cell_annotations(payload.get('cells',[]))
         return payload
+
+    def add_cell_annotations(cells):
+        if not shared_annotations or not cells:return
+        records={}
+        for start in range(0,len(cells),1000):
+            records.update(shared_annotations.read_targets('cell',[cell['cell_uuid'] for cell in cells[start:start+1000]]))
+        for cell in cells:
+            record=records[cell['cell_uuid']]
+            cell['annotations']={'cell_tags':record['tags'],'revisions':record['revisions']}
 
     @app.before_request
     def local_boundary():
@@ -210,11 +250,14 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
 
     @app.get("/api/health")
     def health():
-        return jsonify(status="ready", project_uuid=service.project["project_uuid"])
+        from workspace_updates import release_metadata
+        return jsonify(status="ready", project_uuid=service.project["project_uuid"],
+                       app_release=release_metadata()['version'], project_path=str(project_dir))
 
     @app.get('/api/metadata/status')
     def metadata_status():
         return jsonify(status='ready' if service._loaded else 'needs_refresh',
+                       masks=app.extensions['mask_refresh'].latest if 'mask_refresh' in app.extensions else None,
                        last_refresh=getattr(service, 'last_successful_refresh', None),
                        latest_attempt=getattr(service, 'last_refresh', None))
 
@@ -233,12 +276,17 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                 service.last_refresh = result
                 service.last_successful_refresh = result
                 warnings = []
+                masks = None
+                try:
+                    masks = app.extensions['mask_refresh'].scan()
+                except Exception as error:
+                    warnings.append('Metadata refreshed, but MATLAB masks could not be checked: ' + str(error))
                 try:
                     record_event('metadata_refreshed', result)
                 except Exception as error:
                     warnings.append('Metadata refreshed, but its SQL audit record could not be saved: ' + str(error))
                     app.logger.exception('Metadata refresh audit failed')
-                return jsonify(refresh=result, warnings=warnings)
+                return jsonify(refresh=result, warnings=warnings, masks=masks)
         except Exception as error:
             with db_lock:
                 try:
@@ -391,6 +439,11 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             cell_counts = summarize_cell_membership(service.rows.values(), approved, exported_ids)
             for cell in payload['cells']:
                 cell.update(cell_counts[cell['cell_uuid']])
+            add_cell_annotations(payload.get('cells',[]))
+            if shared_annotations:
+                summary=shared_annotations.summary(service.rows.values())
+                payload['counts'].update({key:summary[key] for key in ('shared_tagged_cells','shared_tagged_epochs')})
+                payload['annotation_summary']={key:summary[key] for key in ('tags','total_tags','truncated')}
             payload["exports"] = store.list_dataset_revisions()
             return jsonify(payload)
 
@@ -410,6 +463,41 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             return jsonify(enrich_protocol(copy.deepcopy(service.protocol(protocol_uuid, filters())),
                                            protocol_uuid, filters()))
 
+    def tree_layout_store():
+        if 'tree_layouts' not in app.extensions:
+            from workspace_tree_layouts import TreeLayouts
+            app.extensions['tree_layouts'] = TreeLayouts(store)
+        return app.extensions['tree_layouts']
+
+    @app.route("/api/protocols/<protocol_uuid>/tree-layout", methods=["GET", "PUT"])
+    def protocol_tree_layout(protocol_uuid):
+        with db_lock:
+            result = service.query_result(protocol_uuid)  # Validate project membership first.
+            layouts = tree_layout_store()
+            if request.args:
+                raise ValueError('Tree layouts belong to the complete protocol, not a filtered cell')
+            if request.method == 'GET':
+                saved = layouts.read(protocol_uuid)
+                if saved:
+                    return jsonify(saved)
+                definition = service.protocols[protocol_uuid]['definition']
+                fallback = result.get('dataset_binding', {}).get('splits')
+                fields = fallback.split(',') if fallback is not None else definition.get('view', {}).get('group_by', ['date', 'cell', 'block'])
+                fields = service.validate_tree_splits(protocol_uuid, ','.join(fields))
+                return jsonify(project_uuid=service.project['project_uuid'], protocol_uuid=protocol_uuid,
+                               split_order=[field.strip() for field in fields if field.strip()], version=0)
+            body = request.get_json()
+            if not isinstance(body, dict) or set(body) != {'split_order', 'expected_version'}:
+                raise ValueError('Tree layout requires split_order and expected_version')
+            fields = body['split_order']
+            if not isinstance(fields, list) or any(not isinstance(field, str) for field in fields):
+                raise ValueError('Tree split order must be an array of field IDs')
+            validated = service.validate_tree_splits(protocol_uuid, ','.join(fields))
+            if validated != fields:
+                raise ValueError('Tree fields must use their exact registered identifiers')
+            return jsonify(layouts.save(protocol_uuid, fields, body['expected_version'],
+                                        os.environ.get('USER', 'local-user')))
+
     @app.get("/api/protocols/<protocol_uuid>/epochs")
     def epoch_page(protocol_uuid):
         with db_lock:
@@ -418,7 +506,9 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             _, curation, revision = state(protocol_uuid)
             page = copy.deepcopy(page)
             export_memberships = store.export_memberships()
+            shared=shared_annotations.for_epochs([service.rows[row['epoch_uuid']] for row in page['epochs']]) if shared_annotations else {}
             for row in page["epochs"]:
+                if shared:row['annotations']=shared[row['epoch_uuid']]
                 row["curation"] = status(curation[row["epoch_uuid"]])
                 row["export_count"] = len(export_memberships.get(row["epoch_uuid"], []))
             page["query_revision"] = revision
@@ -491,9 +581,13 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             return jsonify(compact_preview(preview) if body.get('summary_only') else preview)
 
     def compact_annotations(scope):
-        return {**scope, 'protocols': [{**{key:value for key,value in protocol.items() if key != 'records'},
+        result={**scope, 'protocols': [{**{key:value for key,value in protocol.items() if key != 'records'},
                                       'record_count': len(protocol['records']) if 'records' in protocol else protocol.get('record_count', 0)}
                                      for protocol in scope.get('protocols', [])]}
+        if 'shared' in result:
+            result['shared']={key:value for key,value in scope['shared'].items() if key!='records'}
+            result['shared']['record_count']=len(scope['shared'].get('records',[]))
+        return result
 
     def compact_binding(binding):
         if binding is None:
@@ -532,6 +626,100 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             return jsonify(**(compact_revision(result) if body.get('summary_only') else result),
                            preview=compact_preview(preview) if body.get('summary_only') else preview), 201
 
+    def search_preset_store():
+        if 'search_presets' not in app.extensions:
+            from workspace_search_presets import SearchPresets
+            app.extensions['search_presets'] = SearchPresets(store)
+        return app.extensions['search_presets']
+
+    @app.post('/api/search-presets/resolve')
+    def resolve_search_preset():
+        body = explorer_request({'predicate'}, {'predicate'})
+        with db_lock:
+            validated, _, _ = service.match_predicate(body['predicate'], [])
+            return jsonify(preset=search_preset_store().resolve(validated))
+
+    @app.get('/api/search-presets/<preset_uuid>/versions')
+    def search_preset_versions(preset_uuid):
+        if set(request.args) - {'limit', 'offset'}:
+            raise ValueError('Unsupported version pagination option')
+        with db_lock:
+            return jsonify(search_preset_store().versions(str(uuid.UUID(preset_uuid)),
+                int(request.args.get('limit',20)), int(request.args.get('offset',0))))
+
+    @app.post('/api/explore/run')
+    def run_search_query():
+        body = explorer_request({'predicate', 'splits'}, {'predicate', 'splits'})
+        with db_lock, data_stores.registration_locks(), annotation_locks(service, body['predicate']):
+            preview = service.explore_preview(body['predicate'], body['splits'], include_tree=False)
+            result = search_preset_store().record_run(preview, service.rows, os.environ.get('USER', 'local-user'))
+            return jsonify(**compact_preview(preview), last_run=result)
+
+    @app.route('/api/search-presets', methods=['GET', 'POST'])
+    @app.route('/api/search-presets/<preset_uuid>', methods=['GET', 'PUT'])
+    def search_presets(preset_uuid=None):
+        body = None
+        if request.method != 'GET':
+            if not request.is_json:
+                raise ValueError('Saved query requests require JSON')
+            raw = request.stream.read(65537)
+            if len(raw) > 65536:
+                raise ValueError('Saved query request exceeds 64 KiB')
+            try:
+                body = json.loads(raw)
+            except (ValueError, RecursionError, OverflowError) as error:
+                raise ValueError('Saved query JSON is invalid or exceeds nesting limits') from error
+        with db_lock:
+            presets = search_preset_store()
+            if request.method == 'GET':
+                if preset_uuid:
+                    if request.args:
+                        raise ValueError('Preset detail does not accept query options')
+                    return jsonify(presets.read(preset_uuid))
+                if set(request.args) - {'limit', 'offset'}:
+                    raise ValueError('Unsupported preset pagination option')
+                return jsonify(presets.list(int(request.args.get('limit', 100)), int(request.args.get('offset', 0))))
+            if request.args:
+                raise ValueError('Preset writes do not accept query options')
+            presets.validate(body, update=preset_uuid is not None)
+            # Validate query methods against the catalog without loading traces or
+            # materializing any selection. Membership is always determined at run time.
+            validated, _, _ = service.match_predicate(body['predicate'], [])
+            fields = service.validate_tree_splits(None, body['splits'])
+            body = {**body, 'predicate': validated, 'splits': ','.join(fields)}
+            result = presets.save(body, os.environ.get('USER', 'local-user'), preset_uuid)
+            return jsonify(result), 200 if preset_uuid or result.get('reused') else 201
+
+    @app.get('/api/search-presets/<preset_uuid>/download')
+    def download_search_preset(preset_uuid):
+        if set(request.args) != {'version'} or len(request.args.getlist('version')) != 1:
+            raise ValueError('Choose an exact saved query version to download')
+        version = int(request.args['version'])
+        with db_lock:
+            presets = search_preset_store()
+            presets.read(preset_uuid)
+            rows = (presets.Version & dict(project_uuid=store.project_uuid,
+                       preset_uuid=str(uuid.UUID(preset_uuid)), version=version)).to_dicts()
+            if not rows:
+                raise KeyError('Saved query version not found')
+            response = jsonify(rows[0]['recipe'])
+            response.headers['Content-Disposition'] = f'attachment; filename="query-{preset_uuid}-v{version}.json"'
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+
+    @app.get('/api/search-presets/<preset_uuid>/versions/<int:version>')
+    def search_preset_version(preset_uuid, version):
+        if request.args:
+            raise ValueError('Preset versions do not accept query options')
+        with db_lock:
+            presets = search_preset_store()
+            presets.read(preset_uuid)
+            rows = (presets.Version & dict(project_uuid=store.project_uuid,
+                       preset_uuid=str(uuid.UUID(preset_uuid)), version=version)).to_dicts()
+            if not rows:
+                raise KeyError('Saved query version not found')
+            return jsonify(rows[0]['recipe'])
+
     @app.get('/api/explore/revisions')
     def explorer_revisions():
         if set(request.args) - {'limit', 'offset'}:
@@ -551,7 +739,7 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
         recipe = explorer_history.get(revision_uuid)['recipe']
         return annotation_locks(service, recipe['predicate'], extra_protocols=(protocol_uuid,))
 
-    def compare_protocol_candidate(revision_uuid, protocol_uuid):
+    def validated_candidate(revision_uuid):
         record = explorer_history.get(revision_uuid)
         recipe = record['recipe']
         preview = service.explore_preview(recipe['predicate'], recipe['splits'])
@@ -564,7 +752,12 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                 (recipe.get('source_scope', {}).get('revision') != scope['revision']
                  if recipe.get('source_scope') else bool(scope['excluded_source_revisions']))):
             raise StaleWorkspace('This saved source query is stale. Rerun it and save a new revision before applying.')
+        return record, candidate
+
+    def compare_protocol_candidate(revision_uuid, protocol_uuid):
+        record, candidate = validated_candidate(revision_uuid)
         result, _, query_revision = state(protocol_uuid)
+        compatibility = protocol_compatibility(service, protocol_uuid, candidate)
         binding = explorer_history.protocol_binding(protocol_uuid)
         previous = ({row['uuid']: row['metadata_hash'] for row in binding['recipe']['epochs']} if binding else
                     {row['uuid']: row['metadata_hash'] for row in result['epochs']})
@@ -573,10 +766,36 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                  'changed': sorted(key for key in candidate.keys() & previous.keys() if candidate[key] != previous[key])}
         return {'protocol_uuid': protocol_uuid, 'revision_uuid': revision_uuid,
                 'previous_count': len(previous), 'next_count': len(candidate), 'diff': delta,
+                'compatibility': compatibility,
                 'diff_summary': summarize_diff(service.rows, previous, candidate),
                 'diff_counts': {key: len(value) for key, value in delta.items()},
                 'expected_binding_version': binding['version'] if binding else 0,
                 'expected_query_revision': query_revision, 'binding': compact_binding(result.get('dataset_binding'))}
+
+    @app.get('/api/explore/revisions/<revision_uuid>/protocol-options')
+    def protocol_options(revision_uuid):
+        if request.args:
+            raise ValueError('Protocol choices do not accept query options')
+        recipe = explorer_history.get(revision_uuid)['recipe']
+        with db_lock, data_stores.registration_locks(), annotation_locks(service, recipe['predicate']):
+            record, candidate = validated_candidate(revision_uuid)
+            return jsonify(**selection_protocols(service, candidate),
+                expected_recipe_sha256=record['recipe']['content_sha256'])
+
+    @app.post('/api/explore/revisions/<revision_uuid>/create-protocol')
+    def create_protocol_from_candidate(revision_uuid):
+        from workspace_protocol_identity import create_pinned_protocol
+        body = explorer_request({'name', 'protocol_id', 'expected_recipe_sha256'},
+                                {'name', 'protocol_id', 'expected_recipe_sha256'})
+        recipe = explorer_history.get(revision_uuid)['recipe']
+        with db_lock, data_stores.registration_locks(), annotation_locks(service, recipe['predicate']):
+            service.refresh()
+            record, candidate = validated_candidate(revision_uuid)
+            if body['expected_recipe_sha256'] != record['recipe']['content_sha256']:
+                raise StaleWorkspace('The saved selection changed. Review it again before creating a protocol.')
+            result = create_pinned_protocol(service, explorer_history, record, body['name'],
+                                            body['protocol_id'], os.environ.get('USER', 'local-user'))
+            return jsonify(result), 201 if result['created'] else 200
 
     @app.post('/api/explore/revisions/<revision_uuid>/compare-to-protocol')
     def compare_protocol_revision(revision_uuid):
@@ -598,6 +817,8 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             if (body['expected_binding_version'] != comparison['expected_binding_version'] or
                     body['expected_query_revision'] != comparison['expected_query_revision']):
                 raise StaleWorkspace('The protocol working dataset or curation changed. Compare again before applying.')
+            require_protocol_compatibility(service, body['protocol_uuid'],
+                [row['uuid'] for row in explorer_history.get(revision_uuid)['recipe']['epochs']])
             saved = explorer_history.bind(revision_uuid, body['protocol_uuid'], body['expected_binding_version'],
                 os.environ.get('USER', 'local-user'), comparison['diff'], comparison['previous_count'],
                 expected_query_revision=body['expected_query_revision'],
@@ -639,6 +860,9 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                 link["metadata_matches"] = current_hash == link["metadata_hash"] if current_hash else None
                 link["download_url"] = "/api/exports/" + link["dataset_uuid"] + "/download"
             row["exports"] = links
+            if shared_annotations:
+                row['annotations']=shared_annotations.for_epochs([service.rows[epoch_uuid]])[epoch_uuid]
+                row['annotations']['cell_epoch_count']=sum(item['cell_uuid']==row['cell_uuid'] for item in service.rows.values())
             return jsonify(row)
 
     @app.get("/api/epochs/<epoch_uuid>/trace")
@@ -799,11 +1023,12 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
         export_format = body.get('format', 'reference-json')
         if not isinstance(export_format, str) or export_format not in {'reference-json', 'epictree-mat', 'wheeler-sqlite'}:
             raise ValueError('Unsupported export format')
-        with db_lock, data_stores.registration_locks():
+        with db_lock, data_stores.registration_locks(), (shared_annotations.lock() if shared_annotations else contextlib.nullcontext()):
             service.refresh()  # Recheck source identity and live query before publication.
             result, curation, revision = state(protocol_uuid)
             if body.get("query_revision") != revision:
                 raise StaleWorkspace("The query or curation changed. Refresh before exporting.")
+            require_protocol_compatibility(service, protocol_uuid, [row['uuid'] for row in result['epochs']])
             archived = set(result['source_scope']['excluded_source_revisions'])
             if any(service.rows[row['uuid']]['source_sha256'] in archived for row in result['epochs']):
                 raise StaleWorkspace('This working dataset contains sources excluded from new queries. Propagate source changes before creating a new export. Saved exports are unchanged.')
@@ -816,6 +1041,7 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             if not isinstance(split_order, str):
                 raise ValueError("Tree split order must be text")
             grouping = service.validate_tree_splits(protocol_uuid, split_order)
+            split_order = ', '.join(grouping)
             field_catalog = {field["id"]: field for field in service.tree_fields(protocol_uuid, splits=split_order)["fields"]}
             rows = service.filtered_rows(protocol_uuid, query_filters)
             included = [r["epoch_uuid"] for r in rows if curation[r["epoch_uuid"]]["included"]]
@@ -840,6 +1066,9 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                        "sources": [{"source_sha256": s["source_sha256"], "source_path": s["source_path"]}
                                    for s in service.sources if s['source_sha256'] in snapshot['source_revisions']],
                        "waveforms": "references-only; original H5 files must remain accessible"}
+            if shared_annotations:
+                annotations=shared_annotations.for_epochs([service.rows[item['epoch_uuid']] for item in package['epochs']])
+                for item in package['epochs']:item['annotations']=annotations[item['epoch_uuid']]
             artifact = output / "recordings.json"
             write_json(artifact, package)
             try:
@@ -847,6 +1076,8 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                     from workspace_sqlite import build_sqlite_export
                     artifact = output / 'recordings.sqlite'
                     build_sqlite_export(package, artifact)
+                    from workspace_external_tags import prepare_return_folder
+                    prepare_return_folder(output, package)
                 elif export_format == 'epictree-mat':
                     from workspace_matlab import build_matlab_export
                     from workspace_matlab_masks import write_ugm
@@ -895,7 +1126,7 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
     @app.get("/api/exports")
     def exports():
         with db_lock:
-            return jsonify(exports=[{**row, "download_url": "/api/exports/" + row["dataset_uuid"] + "/download"}
+            return jsonify(export_directory=str(export_root), exports=[{**row, "download_url": "/api/exports/" + row["dataset_uuid"] + "/download"}
                 for row in store.list_dataset_revisions(request.args.get("protocol_uuid"))])
 
     @app.get("/api/exports/<dataset_uuid>/download")
@@ -1002,6 +1233,13 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                         job['duplicate_staging_removed'] = False
                         job['staging_cleanup_error'] = str(cleanup_error)
                 return
+            if service.config.get('connection', {}).get('credential_provider', {}).get('kind') == 'native-project':
+                from workspace_recording_files import retain_recording
+                original_source = source
+                source = retain_recording(project_dir, source, check['source_sha256'])
+                if source != original_source:
+                    job.update(source=str(source), original_source=str(original_source), retained_in_project=True)
+                    write_json(job_file, job)
             job.update(status='freezing_baselines')
             reporter.emit('freezing_baselines')
             write_json(job_file, job)
@@ -1016,8 +1254,10 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             job['log_path'] = str(log_file)
             command = [sys.executable, str(Path(__file__).with_name("recording_workspace.py")), str(source),
                        "--project-dir", str(project_dir), "--retinanalysis", str(retinanalysis_dir),
-                       "--container", service.config["connection"]["credential_provider"]["container"],
                        "--progress-file", str(progress_file), "--expected-sha256", check['source_sha256']]
+            provider = service.config['connection']['credential_provider']
+            if provider.get('container'):
+                command.extend(['--container', provider['container']])
             with log_file.open("w") as log:
                 job['catalog_committed'] = None
                 completed = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
@@ -1159,6 +1399,13 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             return "Build workspace-app first with npm run build.", 503
         return send_from_directory(frontend, path)
 
+    if shared_annotations:
+        from workspace_external_tags import register_external_tag_routes
+        register_external_tag_routes(app,service,store,shared_annotations,db_lock)
+        from workspace_annotations import register_annotation_routes
+        register_annotation_routes(app,service,shared_annotations,db_lock)
+        from workspace_tag_exchange import register_tag_exchange_routes
+        register_tag_exchange_routes(app,service,shared_annotations,db_lock)
     from workspace_qc import register_qc_routes
     register_qc_routes(app, service, db_lock)
     from workspace_search import register_search_routes
@@ -1172,6 +1419,40 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
     register_matching_epoch_routes(app, service, db_lock, data_stores.registration_locks, explorer_request)
     from workspace_candidate_exports import register_candidate_export_routes
     register_candidate_export_routes(app, service, store, explorer_history, db_lock, data_stores.registration_locks)
+    # Current-state recovery is independent of the action log. Fake services in
+    # route tests have no SQL schema; real servers always enable these backups.
+    if hasattr(service.dj, 'Schema'):
+        from workspace_state_snapshot import save as save_app_state
+        with db_lock:
+            save_app_state(project_dir, service.dj.conn(), service=service)
+
+        @app.after_request
+        def backup_saved_state(response):
+            if request.path != '/api/project/close' and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and 200 <= response.status_code < 300:
+                try:
+                    with db_lock:
+                        save_app_state(project_dir, service.dj.conn(), service=service)
+                except Exception:
+                    app.logger.exception('App state was saved to SQL but its recovery snapshot failed')
+                    failure = jsonify(error='Saved to the database, but the app-state backup failed. '
+                        'Check project disk space and permissions before closing the app.', saved=True)
+                    failure.status_code = 507
+                    return failure
+            return response
+
+    if service.config.get('connection', {}).get('credential_provider', {}).get('kind') == 'native-project':
+        from workspace_lifecycle import register_project_lifecycle
+        def stop_project_database():
+            with db_lock:
+                with contextlib.suppress(Exception):
+                    service.dj.conn().close()
+                from workspace_native_mysql import stop_native_database
+                stop_native_database(project_dir)
+                owner = json.loads((project_dir / 'database/native-owner.json').read_text())
+                if owner.get('clean_shutdown') is not True:
+                    raise ValueError('A clean database shutdown could not be verified')
+        register_project_lifecycle(app, busy=lambda: bool(active_jobs) or importing.locked(),
+                                   stop_database=stop_project_database)
     return app
 
 
@@ -1196,7 +1477,13 @@ def main():
     app.logger.info('Workspace started; managed project directory: %s', args.project_dir.resolve())
     from workspace_project_servers import write_server_record
     write_server_record(args.project_dir, app.extensions["workspace_service"].project["project_uuid"], args.port)
-    app.run(host="127.0.0.1", port=args.port, debug=False, threaded=True, use_reloader=False)
+    from werkzeug.serving import make_server
+    server = make_server('127.0.0.1', args.port, app, threaded=True)
+    app.extensions['shutdown_project_server'] = server.shutdown
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

@@ -31,6 +31,8 @@ def _identity(value):
 
 
 def _project_record(directory, *, current=False):
+    if (directory / '.portable-restore.pending').exists():
+        raise ValueError('Project transfer restore is incomplete; finish recovery before opening it')
     project = _read_manifest(directory / 'project.json')
     if project.get('format') != 'recording-project' or type(project.get('version')) is not int or project['version'] != 1:
         raise ValueError('Unsupported recording project manifest')
@@ -48,6 +50,7 @@ def _project_record(directory, *, current=False):
             raise ValueError('Unsupported recording catalog reference')
         if _identity(catalog.get('project_uuid')) != identity:
             raise ValueError('Project and catalog UUIDs do not match')
+        record['database_kind'] = (catalog.get('managed_database') or {}).get('kind', 'legacy-mysql')
     except (OSError, ValueError, UnicodeError) as error:
         if not current:
             raise
@@ -79,14 +82,14 @@ def list_projects(project_dir):
             if directory == current_dir or directory.is_symlink() or not directory.is_dir():
                 continue
             candidate = _project_record(directory)
-            if candidate['uuid'] != current['uuid']:
+            if candidate['uuid'] != current['uuid'] or candidate.get('database_kind') == 'native-mysql':
                 candidates.append(candidate)
         except (OSError, ValueError, UnicodeError):
             continue
     occurrences = {}
     for candidate in candidates:
         occurrences[candidate['uuid']] = occurrences.get(candidate['uuid'], 0) + 1
-    projects = [candidate for candidate in candidates if occurrences[candidate['uuid']] == 1]
+    projects = [candidate for candidate in candidates if candidate.get('database_kind') == 'native-mysql' or occurrences[candidate['uuid']] == 1]
     projects.sort(key=lambda item: (item['name'].casefold(), item['name'], item['path']))
     from workspace_startup_registry import read_registry
     saved = read_registry(current_dir.parent)
@@ -118,14 +121,15 @@ def list_managed_projects(root, current_project=None):
     counts = {}
     for project in projects:
         counts[project['uuid']] = counts.get(project['uuid'], 0) + 1
-    projects = [p for p in projects if counts[p['uuid']] == 1]
+    projects = [p for p in projects if p.get('database_kind') == 'native-mysql' or counts[p['uuid']] == 1]
     projects.sort(key=lambda p: (not p['current'], p['name'].casefold(), p['path']))
     from workspace_startup_registry import read_registry
     saved = read_registry(root)
     identities = {p['uuid'] for p in projects}
     return {'current_project_uuid': next((p['uuid'] for p in projects if p['current']), None),
             'projects': projects, 'managed_root': str(root),
-            'last_project_uuid': saved.get('last_project_uuid') if saved.get('last_project_uuid') in identities else None}
+            'workspace_initialized': (root / '.rieke-workspace.json').is_file(),
+            'last_project_uuid': saved.get('last_project_uuid') if saved.get('last_project_uuid') in identities and counts.get(saved.get('last_project_uuid')) == 1 else None}
 
 
 def create_project(root, name, *, directory=None, code_root=None):
@@ -166,14 +170,16 @@ def create_project(root, name, *, directory=None, code_root=None):
         project = {'format':'recording-project','version':1,'project_uuid':identity,
                    'name':name,'display_name':name,'catalog_ref':'catalog.json',
                    'created_at':dt.datetime.now(dt.timezone.utc).isoformat()}
-        container = 'rieke-os-' + identity.replace('-', '')
+        instance = str(uuid.uuid4())
+        native = {'version':1,'kind':'native-mysql','project_uuid':identity,'instance_uuid':instance,
+                  'storage_ref':'database/mysql','runtime_ref':'database/native-runtime.json',
+                  'credentials_ref':'database/native-credentials.json'}
         catalog = {'format':'recording-catalog-reference','version':1,'project_uuid':identity,
                    'catalog_id':'retinanalysis-local','adapter':'datajoint','database':'schema',
                    'workspace_database':'recording_workspace',
                    'connection':{'host':'127.0.0.1','port':None,
-                     'credential_provider':{'kind':'docker-container-env','container':container}},
-                   'managed_database':{'version':1,'project_uuid':identity,'container':container,
-                       'image':'datajoint/mysql:8.0','storage_ref':'database/mysql'}}
+                     'credential_provider':{'kind':'native-project','credentials_ref':'database/native-credentials.json'}},
+                   'managed_database':native}
         initialize_layout(target, identity, code_root)
         write_json(target / 'database/service.json', catalog['managed_database'])
         write_json(target / 'catalog.json', catalog)

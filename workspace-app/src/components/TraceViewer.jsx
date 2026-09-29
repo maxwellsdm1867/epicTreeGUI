@@ -1,8 +1,9 @@
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {Activity,ArrowLeft,ArrowRight,Hand,LoaderCircle,MousePointer2,RotateCcw,ZoomIn,ZoomOut} from 'lucide-react';
 import {number,useResource} from '../api.js';
 import {clampWindow,dragWindow,finiteExtent,formatTick,MAX_TRACE_SAMPLES,sampleAtPixel,ticks,timeRange,zoomWindow} from './traceGeometry.js';
 import './TraceViewer.css';
+import {useNavigationLoading,useDelayedLoading} from './NavigationLoading.jsx';
 
 function paintTrace(canvas,data){
   const rect=canvas.getBoundingClientRect(),ratio=window.devicePixelRatio || 1;
@@ -37,23 +38,31 @@ function paintTrace(canvas,data){
   return {left,top,w,h,width:rect.width,height:rect.height,ratio,extent,range,x,y,data};
 }
 
-// A keyed instance resets all requests, drag state and viewport when the epoch changes.
-export default function Trace({epoch}){return <TraceViewer key={epoch?.epoch_uuid || 'none'} epoch={epoch}/>;}
-function TraceViewer({epoch}){
+// Keep the canvas mounted while resetting stream/window state for each identity.
+export default function Trace({epoch,revision=0}){return <TraceViewer epoch={epoch} revision={revision}/>;}
+function TraceViewer({epoch,revision}){
   const streams=(epoch?.streams || []).filter(stream=>stream.kind==='responses'&&stream.sample_count>0);
-  const [selectedStream,setSelectedStream]=useState(streams[0]?.uuid || '');
+  const [selection,setSelection]=useState({epoch:epoch?.epoch_uuid,stream:streams[0]?.uuid || ''});
+  const sameEpoch=selection.epoch===epoch?.epoch_uuid;
+  const selectedStream=sameEpoch?selection.stream:streams[0]?.uuid;
+  const setSelectedStream=stream=>setSelection({epoch:epoch?.epoch_uuid,stream});
   const stream=streams.find(item=>item.uuid===selectedStream) || streams[0];
   const [viewport,setViewport]=useState(()=>clampWindow(0,MAX_TRACE_SAMPLES,stream?.sample_count));
   const [mode,setMode]=useState('zoom'),[entryStart,setEntryStart]=useState('0'),[entryCount,setEntryCount]=useState(String(viewport.count));
   const [entryError,setEntryError]=useState('');
-  const bounded=clampWindow(viewport.start,viewport.count,stream?.sample_count);
+  const bounded=clampWindow(sameEpoch?viewport.start:0,sameEpoch?viewport.count:MAX_TRACE_SAMPLES,stream?.sample_count);
+  useEffect(()=>{if(!sameEpoch){setSelection({epoch:epoch?.epoch_uuid,stream:streams[0]?.uuid || ''});setViewport(clampWindow(0,MAX_TRACE_SAMPLES,streams[0]?.sample_count));setEntryError('');}},[epoch?.epoch_uuid,sameEpoch]);
   const requestPath=stream?`/epochs/${epoch.epoch_uuid}/trace?stream_uuid=${stream.uuid}&start=${bounded.start}&count=${bounded.count}`:null;
-  const resource=useResource(requestPath);
+  const resource=useResource(requestPath,revision,0,{cache:true});
   const data=resource.path===requestPath&&resource.data?.epoch_uuid===epoch?.epoch_uuid&&resource.data?.stream_uuid===stream?.uuid&&resource.data?.start===bounded.start&&resource.data?.count===bounded.count?resource.data:null;
   const valid=data&&data.sample_rate>0&&Number.isFinite(data.sample_rate)&&data.values?.length===data.count;
   const base=useRef(null),overlay=useRef(null),geometry=useRef(null),cursor=useRef(null),drag=useRef(null),frame=useRef(null),readout=useRef(null),cursorInput=useRef(null),surface=useRef(null);
+  const painted=useRef(false);
   const dataRef=useRef(null);dataRef.current=valid?data:null;
-  const pending=!!stream&&!resource.error&&(resource.loading||resource.path!==requestPath||!resource.data);
+  const currentError=resource.path===requestPath?resource.error:null;
+  const pending=!!stream&&!currentError&&(resource.loading||resource.path!==requestPath||!resource.data);
+  const coordinated=useNavigationLoading(pending);
+  const showLoading=useDelayedLoading(pending&&!coordinated);
   const invalidResponse=resource.path===requestPath&&resource.data&&(!data||!valid);
   const range=valid?timeRange(data.start,data.count,data.sample_rate):null;
   const gapCount=valid?data.values.filter(value=>typeof value!=='number'||!Number.isFinite(value)).length:0;
@@ -87,14 +96,17 @@ function TraceViewer({epoch}){
     if(readout.current)readout.current.textContent=`Sample ${number(absolute)} · ${String(time)} s · ${finite?String(value):'Missing sample'}${finite&&d.units?` ${d.units}`:''}`;
     if(cursorInput.current&&document.activeElement!==cursorInput.current)cursorInput.current.value=String(absolute);
   }
-  useEffect(()=>{
-    if(!base.current||!overlay.current)return;
+  useLayoutEffect(()=>{
+    if(!base.current||!overlay.current){painted.current=false;return;}
     cursor.current=null;drag.current=null;
     if(readout.current)readout.current.textContent='Move over the plot or use the sample cursor to read a recorded value.';
     if(cursorInput.current)cursorInput.current.value=valid?String(data.start):'';
     let resizedFrame;
     const draw=()=>{
-      geometry.current=paintTrace(base.current,valid?data:null);
+      // A pending request keeps the previous bitmap visible but non-interactive.
+      // Failed/invalid responses clear it; only validated samples get new axes.
+      geometry.current=valid?paintTrace(base.current,data):pending?null:paintTrace(base.current,null);
+      if(valid)painted.current=true;else if(!pending)painted.current=false;
       const rect=base.current.getBoundingClientRect(),ratio=window.devicePixelRatio || 1;
       overlay.current.width=Math.round(rect.width*ratio);overlay.current.height=Math.round(rect.height*ratio);
       scheduleOverlay();
@@ -102,10 +114,10 @@ function TraceViewer({epoch}){
     const resize=()=>{cancelAnimationFrame(resizedFrame);resizedFrame=requestAnimationFrame(draw);};
     draw();const observer=new ResizeObserver(resize);observer.observe(base.current);window.addEventListener('resize',resize);
     return()=>{observer.disconnect();window.removeEventListener('resize',resize);cancelAnimationFrame(resizedFrame);if(frame.current!=null){cancelAnimationFrame(frame.current);frame.current=null;}};
-  },[data,valid]);
+  },[data,valid,pending]);
   function local(event){const rect=overlay.current.getBoundingClientRect(),g=geometry.current;return g?{x:Math.max(0,Math.min(g.w,event.clientX-rect.left-g.left)),inside:event.clientX-rect.left>=g.left&&event.clientX-rect.left<=g.left+g.w&&event.clientY-rect.top>=g.top&&event.clientY-rect.top<=g.top+g.h}:null;}
   function pointerMove(event){const at=local(event);if(!at||!dataRef.current)return;if(drag.current)drag.current.current=at.x;if(at.inside||drag.current)cursor.current=sampleAtPixel(at.x,geometry.current.w,dataRef.current.count);scheduleOverlay();}
-  function pointerDown(event){const at=local(event);if(event.button!==0||pending||!at?.inside)return;surface.current.focus();event.currentTarget.setPointerCapture(event.pointerId);drag.current={origin:at.x,current:at.x};cursor.current=sampleAtPixel(at.x,geometry.current.w,data.count);scheduleOverlay();}
+  function pointerDown(event){const at=local(event);if(event.button!==0||pending||!dataRef.current||!at?.inside)return;surface.current.focus({preventScroll:true});event.currentTarget.setPointerCapture(event.pointerId);drag.current={origin:at.x,current:at.x};cursor.current=sampleAtPixel(at.x,geometry.current.w,data.count);scheduleOverlay();}
   function pointerUp(event){
     if(!drag.current)return;const current=drag.current;drag.current=null;
     if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);
@@ -128,19 +140,22 @@ function TraceViewer({epoch}){
   }
   if(!streams.length)return <section className="trace-viewer trace-section"><h3><Activity size={16}/> Recorded response</h3><p className="tv-empty">This epoch has no indexed response stream.</p></section>;
   return <section className="trace-viewer trace-section" aria-label="Recorded response viewer">
-    <div className="tv-heading"><h3><Activity size={16}/> Recorded response</h3><label>Stream<select aria-label="Response stream" value={stream.uuid} onChange={event=>{setSelectedStream(event.target.value);const next=streams.find(item=>item.uuid===event.target.value);setViewport(clampWindow(0,MAX_TRACE_SAMPLES,next.sample_count));setEntryError('');drag.current=null;cursor.current=null;}}>{streams.map(item=><option key={item.uuid} value={item.uuid}>{item.device} · {item.units || 'unit not recorded'}</option>)}</select></label></div>
-    <div className="tv-data-info"><span className="tv-full-rate">Full sample rate</span><span>{number(valid?data.sample_rate:stream.sample_rate)} Hz</span><span>{number(total)} samples in stream</span><span>{bounded.count===total?'Entire stream':'Bounded window · up to 20,000 samples'}</span></div>
     <div className="tv-tools"><div className="tv-modes" aria-label="Drag interaction"><button className={mode==='zoom'?'active':''} aria-pressed={mode==='zoom'} onClick={()=>setMode('zoom')}><MousePointer2 size={13}/> Drag to zoom</button><button className={mode==='pan'?'active':''} aria-pressed={mode==='pan'} onClick={()=>setMode('pan')}><Hand size={13}/> Pan</button></div><div className="tv-zoom-buttons"><button disabled={pending||bounded.count<=Math.min(2,total)} onClick={()=>zoom(.5)} title="Zoom in around cursor or window center" aria-label="Zoom in"><ZoomIn size={15}/></button><button disabled={pending||bounded.count>=Math.min(MAX_TRACE_SAMPLES,total)} onClick={()=>zoom(2)} title="Zoom out, up to 20,000 full-rate samples" aria-label="Zoom out"><ZoomOut size={15}/></button><button disabled={pending} onClick={()=>moveWindow({start:0,count:MAX_TRACE_SAMPLES})} title="Return to the first bounded window"><RotateCcw size={13}/> Reset</button></div><span>Y-axis auto-scales per window</span></div>
     <div ref={surface} className={`tv-plot tv-${mode}`} tabIndex={0} role="group" aria-label="Trace plot. Arrow keys move the sample cursor. Shift and arrows pan. Plus and minus zoom. Home resets." onKeyDown={keyDown}>
       <canvas ref={base} className="tv-base" aria-hidden="true"/><canvas ref={overlay} className="tv-overlay" aria-hidden="true" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={()=>{drag.current=null;scheduleOverlay();}}/>
       {valid&&gapCount===data.count&&<div className="tv-status" role="status">No finite samples in this window.</div>}
-      {pending&&<div className="tv-status" role="status"><LoaderCircle size={16}/> Loading recorded samples…</div>}
-      {resource.error&&<div className="tv-status tv-error" role="alert"><span>{resource.error}</span><button onClick={resource.reload}>Retry trace</button></div>}
+      {pending&&painted.current&&<span className="tv-previous-trace">Previous trace · inactive</span>}
+      {showLoading&&<div className="tv-status tv-loading" role="status"><span><LoaderCircle size={16}/> Loading selected samples{painted.current?' · previous trace is inactive':'…'}</span></div>}
+      {currentError&&<div className="tv-status tv-error" role="alert"><span>{currentError}</span><button onClick={resource.reload}>Retry trace</button></div>}
       {invalidResponse&&<div className="tv-status tv-error" role="alert">Trace identity, sample rate or window does not match the request. No plot is shown.<button onClick={resource.reload}>Retry trace</button></div>}
     </div>
     <div className="tv-readout"><output ref={readout} aria-live="off"/><label>Sample cursor<input ref={cursorInput} type="number" step="1" min={bounded.start} max={bounded.start+bounded.count-1} disabled={!valid||pending} aria-label="Exact sample index for cursor" onChange={event=>{const sample=Number(event.target.value);if(event.target.value!==''&&Number.isInteger(sample)&&sample>=bounded.start&&sample<bounded.start+bounded.count){cursor.current=sample-bounded.start;scheduleOverlay();}}}/></label></div>
     {gapCount>0&&<div className="tv-warning">{number(gapCount)} missing or non-finite samples appear as gaps; they are not plotted as zero.</div>}
-    <div className="tv-window-navigation"><button disabled={pending||bounded.start===0} onClick={()=>moveWindow({...bounded,start:bounded.start-bounded.count})}><ArrowLeft size={14}/> Previous window</button><span>{range?`${formatTick(range.first,1/data.sample_rate)}–${formatTick(range.last,1/data.sample_rate)} s`:'Loading window'}<small>Samples {number(bounded.start)}–{number(bounded.start+bounded.count-1)} · zero-based, inclusive</small></span><button disabled={pending||bounded.start+bounded.count>=total} onClick={()=>moveWindow({...bounded,start:bounded.start+bounded.count})}>Next window <ArrowRight size={14}/></button></div>
+    <div className="tv-window-navigation"><button disabled={pending||bounded.start===0} onClick={()=>moveWindow({...bounded,start:bounded.start-bounded.count})}><ArrowLeft size={14}/> Previous window</button><span>{range?`${formatTick(range.first,1/data.sample_rate)}–${formatTick(range.last,1/data.sample_rate)} s`:'—'}<small>Samples {number(bounded.start)}–{number(bounded.start+bounded.count-1)} · zero-based, inclusive</small></span><button disabled={pending||bounded.start+bounded.count>=total} onClick={()=>moveWindow({...bounded,start:bounded.start+bounded.count})}>Next window <ArrowRight size={14}/></button></div>
     <details className="tv-window-settings"><summary>Window coordinates & keyboard controls</summary><form onSubmit={submitWindow}><label>Start sample<input type="number" value={entryStart} min="0" max={total-1} step="1" onChange={event=>setEntryStart(event.target.value)}/></label><label>Sample count<input type="number" value={entryCount} min="1" max={Math.min(total,MAX_TRACE_SAMPLES)} step="1" onChange={event=>setEntryCount(event.target.value)}/></label><button disabled={pending} type="submit">Show window</button></form>{entryError&&<p className="tv-warning" role="alert">{entryError}</p>}<p>Focus the plot: ← / → moves one sample; Shift + ← / → pans; + / − zooms; Home resets. Dragging requests samples only on release. No filtering or resampling is applied.</p></details>
+    <footer className="tv-recording-footer">
+    <div className="tv-heading"><h3><Activity size={16}/> Recorded response</h3><label>Stream<select aria-label="Response stream" value={stream.uuid} onChange={event=>{setSelectedStream(event.target.value);const next=streams.find(item=>item.uuid===event.target.value);setViewport(clampWindow(0,MAX_TRACE_SAMPLES,next.sample_count));setEntryError('');drag.current=null;cursor.current=null;}}>{streams.map(item=><option key={item.uuid} value={item.uuid}>{item.device} · {item.units || 'unit not recorded'}</option>)}</select></label></div>
+    <div className="tv-data-info"><span className="tv-full-rate">Full sample rate</span><span>{number(valid?data.sample_rate:stream.sample_rate)} Hz</span><span>{number(total)} samples in stream</span><span>{bounded.count===total?'Entire stream':'Bounded window · up to 20,000 samples'}</span></div>
+    </footer>
   </section>;
 }

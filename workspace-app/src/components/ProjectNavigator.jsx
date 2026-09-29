@@ -8,11 +8,11 @@ function initials(name){
   return words.length>1?words.slice(0,3).map(word=>Array.from(word)[0]).join('').toUpperCase():Array.from(words[0] || '?').slice(0,3).join('').toUpperCase();
 }
 export function projectColor(identity){let hash=0;for(const char of String(identity||''))hash=(Math.imul(hash,31)+char.charCodeAt(0))|0;return {background:`hsl(${Math.abs(hash)%360} 32% 85%)`,color:`hsl(${Math.abs(hash)%360} 30% 25%)`};}
-function currentProject(projects,identity){return projects.find(project=>project.uuid===identity) || projects.find(project=>project.current);}
+function currentProject(projects,identity){return projects.find(project=>project.current) || projects.find(project=>project.uuid===identity);}
 export function ProjectRail({projects=[],currentProjectUuid,onSelect,onAddProject,loading=false,disabled=false}){
   return <nav className="project-rail-list" aria-label="Research projects">{projects.map(project=>{
-    const active=project.uuid===currentProjectUuid;
-    return <button key={project.uuid} className={`project-rail-item ${active?'current':''}`} title={`${project.name}${project.available?'':' · unavailable'}`} aria-label={`${project.name}${active?', current project':''}${project.available?'':', unavailable'}`} aria-current={active?'page':undefined} disabled={disabled||!project.available} onClick={()=>{if(!active)onSelect?.(project);}}><span style={projectColor(project.uuid)}>{initials(project.name)}</span></button>;
+    const active=(project.current??project.uuid===currentProjectUuid);
+    return <button key={project.path||project.uuid} className={`project-rail-item ${active?'current':''}`} title={`${project.name}${project.available?'':' · unavailable'}`} aria-label={`${project.name}${active?', current project':''}${project.available?'':', unavailable'}`} aria-current={active?'page':undefined} disabled={disabled||!project.available} onClick={()=>{if(!active)onSelect?.(project);}}><span style={projectColor(project.uuid)}>{initials(project.name)}</span></button>;
   })}{onAddProject&&<button className="project-rail-add" disabled={disabled} onClick={onAddProject} title="Add project" aria-label="Add project"><Plus size={21}/></button>}{loading&&!projects.length&&<span className="project-rail-loading" role="status" aria-label="Loading projects"><LoaderCircle size={17} className="spin"/></span>}</nav>;
 }
 export default function ProjectNavigator({projects=[],currentProjectUuid,onSelect,onAddProject,loading=false,disabled=false,error=null,onRetry}){
@@ -20,7 +20,7 @@ export default function ProjectNavigator({projects=[],currentProjectUuid,onSelec
   const [open,setOpen]=useState(false),[active,setActive]=useState(0),[position,setPosition]=useState(null);
   const button=useRef(null),menu=useRef(null),listId=useId();
   function close(){setOpen(false);button.current?.focus();}
-  function choose(project){if(!project?.available||disabled)return;if(project.uuid!==currentProjectUuid)onSelect?.(project);close();}
+  function choose(project){if(!project?.available||disabled)return;if(!(project.current??project.uuid===currentProjectUuid))onSelect?.(project);close();}
   function move(direction){
     const available=projects.map((project,index)=>project.available?index:null).filter(index=>index!==null);
     if(!available.length)return;
@@ -30,7 +30,7 @@ export default function ProjectNavigator({projects=[],currentProjectUuid,onSelec
   useEffect(()=>{setOpen(false);},[currentProjectUuid]);
   useEffect(()=>{
     if(!open)return;
-    setActive(Math.max(0,projects.findIndex(project=>project.uuid===currentProjectUuid)));
+    setActive(Math.max(0,projects.findIndex(project=>(project.current??project.uuid===currentProjectUuid))));
     function place(){const box=button.current.getBoundingClientRect();const width=Math.min(365,window.innerWidth-24);setPosition({left:Math.max(12,Math.min(box.left,window.innerWidth-width-12)),top:box.bottom+7,width,maxHeight:Math.max(140,window.innerHeight-box.bottom-23)});}
     place();const click=event=>{if(!button.current?.contains(event.target)&&!menu.current?.contains(event.target))setOpen(false);};
     document.addEventListener('pointerdown',click);window.addEventListener('resize',place);window.addEventListener('scroll',place,true);
@@ -47,7 +47,7 @@ export default function ProjectNavigator({projects=[],currentProjectUuid,onSelec
       else if(event.key==='Tab'){button.current?.focus();setOpen(false);}
     }}><div className="project-menu-heading"><span>Research projects</span>{onRetry&&<button onClick={onRetry} disabled={loading} aria-label="Refresh project list"><RefreshCw size={13}/></button>}</div>
       {error&&<p className="project-menu-error" role="alert">{error}</p>}
-      <div role="listbox" tabIndex={-1} id={listId} aria-label="Choose research project" aria-activedescendant={projects[active]?`${listId}-${active}`:undefined}>{projects.map((project,index)=><button id={`${listId}-${index}`} data-project-index={index} key={project.uuid} role="option" aria-selected={project.uuid===currentProjectUuid} aria-disabled={!project.available||disabled} tabIndex={-1} className={`project-menu-item ${active===index?'focused':''}`} onMouseMove={()=>setActive(index)} onClick={()=>choose(project)}><span className="project-nav-monogram" style={projectColor(project.uuid)}>{initials(project.name)}</span><span><strong>{project.name}</strong><small title={project.path}>{project.path}</small>{!project.available&&<em>{project.unavailable_reason || 'Project manifests unavailable'}</em>}</span>{project.uuid===currentProjectUuid&&<Check size={15}/>}</button>)}</div>
+      <div role="listbox" tabIndex={-1} id={listId} aria-label="Choose research project" aria-activedescendant={projects[active]?`${listId}-${active}`:undefined}>{projects.map((project,index)=><button id={`${listId}-${index}`} data-project-index={index} key={project.path||project.uuid} role="option" aria-selected={(project.current??project.uuid===currentProjectUuid)} aria-disabled={!project.available||disabled} tabIndex={-1} className={`project-menu-item ${active===index?'focused':''}`} onMouseMove={()=>setActive(index)} onClick={()=>choose(project)}><span className="project-nav-monogram" style={projectColor(project.uuid)}>{initials(project.name)}</span><span><strong>{project.name}</strong><small title={project.path}>{project.path}</small>{!project.available&&<em>{project.unavailable_reason || 'Project manifests unavailable'}</em>}</span>{(project.current??project.uuid===currentProjectUuid)&&<Check size={15}/>}</button>)}</div>
       {!projects.length&&!loading&&<p className="project-menu-empty">No validated recording projects were returned.</p>}{loading&&<p className="project-menu-empty" role="status">Checking project manifests…</p>}
       <p className="project-menu-note">{onAddProject&&<button className="project-menu-add" disabled={disabled} onClick={()=>{close();onAddProject();}}><Plus size={15}/> Add project</button>}Each project has its own catalog, protocol workspaces and activity.</p>
     </div>,document.body)}

@@ -72,6 +72,8 @@ def capture_query(definition, result, catalog_ref):
                "view": copy.deepcopy(result.get("effective_view", definition.get("view", {}))),
                "source_revisions": sources,
                "epochs": [members[k] for k in sorted(members)]}
+    if 'shared_annotations_revision' in result:
+        payload['shared_annotations_revision']=result['shared_annotations_revision']
     if 'source_scope' in result:
         payload['source_scope'] = copy.deepcopy(result['source_scope'])
     if binding:
@@ -181,11 +183,18 @@ SPLIT_FIELDS = {"date": "date", "cell": "cell_uuid", "cell type": "cell_type",
                 "group label": "group_label", "block time": "block_start_time"}
 
 
+# These exact names were emitted by recording_workspace for starter protocol
+# views before the tree catalog used opaque field IDs. Preserve their meaning;
+# arbitrary dotted paths are still unsupported and every target is validated.
+LEGACY_SPLIT_FIELDS = {'cell.type': 'cell type', 'cell.start_time': 'metadata/cell/start_time'}
+
+
 def parse_splits(text, allowed_fields=None):
     import re
     if not isinstance(text, str):
         raise ValueError("Tree split order must be text")
     fields = [part.strip() for part in text.replace("→", ",").split(",") if part.strip()]
+    fields = [LEGACY_SPLIT_FIELDS.get(field, field) for field in fields]
     fields = [field.lower() if field.lower() in SPLIT_FIELDS else field for field in fields]
     def valid(field):
         if field.startswith('joint/'):

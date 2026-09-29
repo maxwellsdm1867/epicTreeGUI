@@ -19,6 +19,21 @@ class AuditTests(unittest.TestCase):
                 "occurred_at": f"2026-09-{day:02}T12:00:00+00:00", "actor": "scientist",
                 "action": action, "payload": {"protocol_uuid": self.protocol, **payload}}
 
+    def test_tag_activity_attributes_changes_to_profiles_not_os_actor(self):
+        rows=[{'profile_uuid':'alice','author_name':'Alice','target_kind':'epoch','target_uuid':key,'tags':['old']} for key in ['one','two']]
+        after=[{**row,'tags':['new']} for row in rows]
+        after.append({'profile_uuid':'bob','author_name':'Bob','target_kind':'cell','target_uuid':'cell','tags':['new']})
+        event=self.event(action='shared_annotations_updated',before=rows,after=after)
+        snapshot=copy.deepcopy(event)
+        summary=audit.normalize_event(event)['tag_activity']
+        self.assertEqual([author['name'] for author in summary['authors']],['Alice','Bob'])
+        self.assertEqual([(row['author'],row['operation'],row['tag'],row['targets']) for row in summary['changes']],
+                         [('Alice','added','new',2),('Alice','removed','old',2),('Bob','added','new',1)])
+        self.assertEqual(event,snapshot)
+        missing=audit.normalize_event(self.event(action='shared_annotations_updated',before=[],after=[{'target_uuid':'one','tags':['x']}]))
+        self.assertEqual(missing['tag_activity']['authors'][0]['name'],'Author not recorded')
+        self.assertNotIn('tag_activity',audit.normalize_event(self.event()))
+
     def test_envelope_preserves_scientific_evidence_and_operation_identity(self):
         operation = str(uuid.uuid4())
         old = {"protocol_uuid": self.protocol, "before": {"included": True}, "after": {"included": False}}

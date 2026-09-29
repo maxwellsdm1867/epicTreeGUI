@@ -16,6 +16,7 @@ import numpy as np
 import scipy.io
 
 from field_mapper import build_response_struct, build_stimulus_struct, flatten_json_params
+from workspace_tag_exchange import frozen_annotation_entries, frozen_document
 from workspace_recipes import verify, parse_splits, SPLIT_FIELDS
 from workspace_tree import catalog, value_key, field_value_order, materialize_combinations
 from workspace_tree_code import matlab_tree_command, matlab_split_fields
@@ -124,6 +125,12 @@ def build_matlab_export(service, recipe, output_dir, *, epoch_records=None):
             raise ValueError('Frozen epoch records must exactly match export membership')
     else:
         warnings.add('No frozen protocol tags supplied; live curation was not read.')
+    frozen_tag_records = [{**service.rows[key], **records.get(key, {})} for key in ids]
+    for record in frozen_tag_records:
+        expected = service.rows[record['epoch_uuid']]
+        if any(record.get(field) != expected.get(field) for field in ('cell_uuid', 'source_sha256')):
+            raise ValueError('Frozen annotation record differs from exported acquisition identity')
+    annotations = {(item['target_kind'], item['target_uuid']): item for item in frozen_annotation_entries(frozen_tag_records)}
     sources = {source['source_sha256']: source for source in service.sources}
     used_sources = {service.rows[key]['source_sha256'] for key in ids}
     if used_sources - sources.keys() or used_sources - set(recipe['source_revisions']):
@@ -209,7 +216,9 @@ def build_matlab_export(service, recipe, output_dir, *, epoch_records=None):
                             streams[kind].append(result)
                         curation = records.get(key, {}).get('curation', {})
                         # Frozen tags have no per-tag author; do not invent one from the export actor.
-                        tags = [{'user': '', 'tag': tag} for tag in curation.get('tags', [])]
+                        tags = [{'user': '', 'tag': tag, 'profile_uuid': '', 'scope': 'protocol'} for tag in curation.get('tags', [])]
+                        tags += [{'user': tag['author_name'], 'tag': tag['tag'], 'profile_uuid': tag['profile_uuid'], 'scope': 'epoch'}
+                                 for tag in annotations.get(('epoch', key), {}).get('tags', [])]
                         grouping = {}
                         for index, field in enumerate(order, 1):
                             # Canonical JSON keeps bool/string/number/array/null
@@ -221,6 +230,7 @@ def build_matlab_export(service, recipe, output_dir, *, epoch_records=None):
                             'tags': _structs(tags), 'responses': _structs(streams['responses']), 'stimuli': _structs(streams['stimuli']),
                             'h5_file': source['source_path'], 'source_sha256': source_sha,
                             'source_metadata_json': _json(detail), 'curation_json': _json(curation),
+                            'workspace_annotations_json': _json(records.get(key, {}).get('annotations')),
                             'workspaceGrouping': grouping})
                         epoch_order.append(key)
                     block_items.append({'id': block_index, 'h5_uuid': block_uuid, 'label': block_meta.get('label') or '',
@@ -233,7 +243,9 @@ def build_matlab_export(service, recipe, output_dir, *, epoch_records=None):
                     'start_time': group_meta.get('start_time') or '', 'end_time': group_meta.get('end_time') or '',
                     'tags': _structs([]), 'source_metadata_json': _json(group_meta), 'epoch_blocks': _structs(block_items)})
             cell_items.append({'id': cell_index, 'h5_uuid': cell_uuid, 'label': representative['cell_label'],
-                'type': representative.get('cell_type') or '', 'tags': _structs([]),
+                'type': representative.get('cell_type') or '', 'tags': _structs([
+                    {'user': tag['author_name'], 'tag': tag['tag'], 'profile_uuid': tag['profile_uuid'], 'scope': 'cell'}
+                    for tag in annotations.get(('cell', cell_uuid), {}).get('tags', [])]),
                 'properties': _params(cell_meta.get('properties', {}), warnings),
                 'source_metadata_json': _json(cell_meta), 'epoch_groups': _structs(group_items)})
         if source_meta.get('rig_type') == 'MEA':
@@ -252,6 +264,7 @@ def build_matlab_export(service, recipe, output_dir, *, epoch_records=None):
                 'export_user': recipe['actor'], 'dataset_uuid': recipe['export_uuid'], 'recipe_json': _json(recipe),
                 'split_mapping_json': _json(mapping), 'split_value_order_json': _json(_grouping_order(rows, values, order)), 'epoch_order': np.array(epoch_order, dtype=object),
                 'epoch_sequence_json': _json(epoch_sequence),
+                'workspace_tags_json': _json(frozen_document(frozen_tag_records, service.project['project_uuid'])),
                 'split_display_json': _json(display),
                 'id_semantics': 'Numeric IDs are display ordinals; h5_uuid preserves acquisition identity.'}
     buffer = io.BytesIO()
@@ -275,6 +288,9 @@ addpath(exportFolder);
              'matlab_recipe.json': (_json(recipe) + '\n').encode(),
              'launchWorkspaceTree.m': helper.read_bytes(),
              'tree_layout.m': ('% Run from this extracted EpicTreeGUI bundle.\n'+command+'\n').encode()}
+    files['annotations.json'] = (_json(frozen_document(frozen_tag_records, service.project['project_uuid'])) + '\n').encode()
+    for helper_name in ('readWorkspaceTags', 'validateWorkspaceTags', 'workspaceTag', 'writeWorkspaceTags'):
+        files[helper_name + '.m'] = (helper.parent / (helper_name + '.m')).read_bytes()
     if any((output / name).exists() for name in files):
         raise ValueError('MATLAB export files already exist; refusing overwrite')
     written = []

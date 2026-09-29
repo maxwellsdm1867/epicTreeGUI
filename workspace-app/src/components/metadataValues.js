@@ -48,8 +48,10 @@ export function metadataClipboard(row,kind,field){
   if(kind==='key')return row.key;
   if(kind==='field'){if(!field)throw new Error('This metadata key has no registered predicate field.');return field.id;}
   if(!metadataValueSafe(row.value))throw new Error('This value cannot be copied exactly from the browser. Inspect the original source metadata.');
+  if(kind==='text')return typeof row.value==='string'?row.value:JSON.stringify(row.value,null,2);
   if(kind==='value')return JSON.stringify(row.value,null,2);
   if(kind==='pair')return JSON.stringify({[row.key]:row.value},null,2);
+  if(kind==='setting')return `${field?.id || row.path?.join('.') || row.key} = ${JSON.stringify(row.value)}`;
   if(kind==='predicate'){
     if(!field)throw new Error('This metadata key has no registered predicate field.');
     if(!metadataPredicateValueSupported(row.value))throw new Error('This value is not supported in source predicates.');

@@ -1,0 +1,14 @@
+{
+  "validation": "native-mysql-real-recording",
+  "epochs": 1915,
+  "sources": 1,
+  "real_import": true,
+  "api_overview": true,
+  "moved_folder_open": true,
+  "trace_samples": 16,
+  "annotation_write": true,
+  "close_project_clean_shutdown": true,
+  "docker_required": false,
+  "platform": "macOS arm64",
+  "mysql": "8.4.2"
+}

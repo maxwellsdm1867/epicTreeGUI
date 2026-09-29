@@ -37,6 +37,7 @@ export function CellList({cells = [], onInspect,onQC}) {
         <div className="cell-details"><div><strong>{humanize(type)}</strong><p className="mono">{cell.cell_uuid || cell.uuid}</p>
           <p>{Number.isFinite(cell.included)?`${number(cell.included)} included · ${number(Math.max(0,total-cell.included))} excluded · `:''}{number(exported)} of {number(total)} epochs in saved exports.</p>
           {Array.isArray(cell.tags)&&cell.tags.length>0&&<div className="tags" style={{marginTop:8}}>{cell.tags.map(tag=><Badge key={tag}>{tag}</Badge>)}</div>}
+          {cell.annotations?.cell_tags?.length>0&&<div className="tags" aria-label="Shared cell tags">{cell.annotations.cell_tags.map(chip=><Badge key={`${chip.profile_uuid}:${chip.tag}`}>{chip.tag} · {chip.author_name} · cell</Badge>)}</div>}
           <p>Recording identity is shared across this project’s protocols. Review is optional.</p>
         </div>{onQC&&<button onClick={()=>onQC(cell.cell_uuid || cell.uuid)}>Cell QC <ArrowRight size={15}/></button>}{onInspect && <button className="primary" onClick={() => onInspect(cell.cell_uuid || cell.uuid)}>Inspect & tag epochs <ArrowRight size={16}/></button>}</div>
       </details>;

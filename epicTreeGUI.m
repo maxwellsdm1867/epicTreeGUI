@@ -32,6 +32,10 @@ classdef epicTreeGUI < handle
         h5File                  % H5 file path for lazy loading
         matFilePath = ''        % Path to source .mat file (for .ugm file discovery)
         loadedMask = []         % Selection mask loaded at startup (for close comparison)
+        workspaceTags = []       % Validated UUID-based annotation exchange document
+        workspaceTagsDirty = false
+        workspaceTagProfile = ''
+        workspaceTagAuthor = ''
         workspaceMaskPath = '' % Explicit bundle mask; never use global latest-file discovery
 
         % UI Components
@@ -237,6 +241,51 @@ classdef epicTreeGUI < handle
         end
     end
 
+    methods
+        function loadWorkspaceTags(self, path)
+            % Validate against actual loaded identities, never labels or ordinals.
+            if self.workspaceTagsDirty
+                error('epicTreeGUI:UnsavedTags','Save current tag edits before loading another file.');
+            end
+            document = readWorkspaceTags(path);
+            entries = document.entries;
+            cellIds = self.workspaceTagIds('cell',self.allEpochs);
+            epochIds = self.workspaceTagIds('epoch',self.allEpochs);
+            keys = [strcat('cell:',cellIds);strcat('epoch:',epochIds)];
+            known = containers.Map(keys,true(size(keys)));
+            for k = 1:numel(entries)
+                if iscell(entries), entry = entries{k}; else, entry = entries(k); end
+                if ~isKey(known,[char(entry.target_kind) ':' char(entry.target_uuid)])
+                    error('epicTreeGUI:UnknownTagTarget','Tag file contains a %s UUID outside this loaded tree: %s',entry.target_kind,entry.target_uuid);
+                end
+            end
+            self.workspaceTags = document;
+        end
+
+        function count = tagWorkspaceIds(self, kind, identities, tag, profileUuid, authorName)
+            % Public/scriptable counterpart of Tags > Tag selected epochs/cells.
+            if isempty(self.workspaceTags)
+                error('epicTreeGUI:NoTagRegistry','Load the exported annotations.json through the Tags menu first.');
+            end
+            known = self.workspaceTagIds(kind, self.allEpochs);
+            if ischar(identities) || isstring(identities), identities = cellstr(identities); end
+            if ~iscell(identities) || isempty(identities) || any(~ismember(identities,known))
+                error('epicTreeGUI:UnknownTagTarget','Every target must be an exact UUID of the requested kind in this loaded tree.');
+            end
+            identities = unique(identities,'stable');
+            document = workspaceTag(self.workspaceTags,kind,identities,tag,profileUuid,authorName);
+            self.workspaceTags = document;
+            self.workspaceTagsDirty = true;
+            count = numel(identities);
+        end
+
+        function saveWorkspaceTags(self, path)
+            if isempty(self.workspaceTags), error('epicTreeGUI:NoTagRegistry','Load a tag document first.'); end
+            writeWorkspaceTags(self.workspaceTags,path);
+            self.workspaceTagsDirty = false;
+        end
+    end
+
     %% Private Methods - UI Building
     methods (Access = private)
         function buildUIComponents(self)
@@ -345,6 +394,12 @@ classdef epicTreeGUI < handle
             uimenu(fileMenu, 'Label', 'Close', 'Callback', @(src,evt) self.onClose(), 'Separator', 'on');
 
             % Analysis menu
+            tagsMenu = uimenu(self.figure,'Label','Tags');
+            uimenu(tagsMenu,'Label','Load tag JSON...','Callback',@(src,evt) self.onLoadWorkspaceTags());
+            uimenu(tagsMenu,'Label','Tag selected epochs...','Callback',@(src,evt) self.onTagWorkspaceSelection('epoch'));
+            uimenu(tagsMenu,'Label','Tag cells of selected epochs...','Callback',@(src,evt) self.onTagWorkspaceSelection('cell'));
+            uimenu(tagsMenu,'Label','Save tag JSON...','Callback',@(src,evt) self.onSaveWorkspaceTags());
+
             analysisMenu = uimenu(self.figure, 'Label', 'Analysis');
             uimenu(analysisMenu, 'Label', 'Mean Response Trace', 'Callback', @(src,evt) self.onAnalysisMeanTrace());
             uimenu(analysisMenu, 'Label', 'Response Amplitude', 'Callback', @(src,evt) self.onAnalysisAmplitude());
@@ -463,6 +518,14 @@ classdef epicTreeGUI < handle
     %% Private Methods - Callbacks
     methods (Access = private)
         function onClose(self)
+            if self.workspaceTagsDirty
+                choice = questdlg('Save edited tags as a JSON for import back into the workspace?', 'Unsaved tags', 'Save', 'Discard', 'Cancel', 'Save');
+                if strcmp(choice,'Save')
+                    if ~self.onSaveWorkspaceTags(), return; end
+                elseif ~strcmp(choice,'Discard')
+                    return;
+                end
+            end
             % Close handler: compare current selection to loaded mask, prompt to save changes
             try
                 % Build current mask from isSelected flags (one-time)
@@ -618,6 +681,76 @@ classdef epicTreeGUI < handle
             if ~isempty(self.tree)
                 self.tree.setSelected(false, true);
                 self.initTreeBrowser();
+            end
+        end
+
+        function identities = workspaceTagIds(~,kind,epochs)
+            identities = cell(numel(epochs),1);
+            for k = 1:numel(epochs)
+                ep = epochs{k};
+                if strcmp(kind,'epoch') && isfield(ep,'h5_uuid')
+                    value = ep.h5_uuid;
+                elseif strcmp(kind,'cell') && isfield(ep,'cellInfo') && isfield(ep.cellInfo,'h5_uuid')
+                    value = ep.cellInfo.h5_uuid;
+                else
+                    error('epicTreeGUI:MissingTagIdentity','Loaded epochs need exact cell and epoch H5 UUIDs; labels and positions cannot be used.');
+                end
+                value = char(string(value));
+                if isempty(regexp(value,'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$','once'))
+                    error('epicTreeGUI:InvalidTagIdentity','Loaded data contains a noncanonical tag identity.');
+                end
+                identities{k} = value;
+            end
+            identities = unique(identities,'stable');
+        end
+
+        function onLoadWorkspaceTags(self)
+            [file,path] = uigetfile('*.json','Load exported tag JSON');
+            if isequal(file,0),return;end
+            try
+                self.loadWorkspaceTags(fullfile(path,file));
+                msgbox('Tag identities verified against this loaded tree. Use Tags to edit or save annotations.','Tags loaded');
+            catch cause
+                errordlg(cause.message,'Tag import failed');
+            end
+        end
+
+        function onTagWorkspaceSelection(self,kind)
+            try
+                if isempty(self.workspaceTags)
+                    adjacent = fullfile(fileparts(self.matFilePath),'annotations.json');
+                    if isfile(adjacent),self.loadWorkspaceTags(adjacent);else,self.onLoadWorkspaceTags();end
+                    if isempty(self.workspaceTags),return;end
+                end
+                identities = self.workspaceTagIds(kind,self.getSelectedEpochs());
+                if isempty(identities),msgbox('Select epochs in the tree first.','Tag selection');return;end
+                answer = inputdlg({'Tag text','Author name'},sprintf('Tag %d exact %s UUIDs',numel(identities),kind),[1 65],{'',self.workspaceTagAuthor});
+                if isempty(answer),return;end
+                tag = strtrim(answer{1});author = strtrim(answer{2});
+                if isempty(tag)||isempty(author),error('epicTreeGUI:MissingTagText','Tag and author name are required.');end
+                if isempty(self.workspaceTagProfile)||~strcmp(author,self.workspaceTagAuthor)
+                    profile = char(java.util.UUID.randomUUID());
+                else
+                    profile = self.workspaceTagProfile;
+                end
+                count = self.tagWorkspaceIds(kind,identities,tag,profile,author);
+                self.workspaceTagProfile = profile;self.workspaceTagAuthor = author;
+                msgbox(sprintf('Added tag to %d %s identities. Save tag JSON, then import it into the web workspace.',count,kind),'Tags updated');
+            catch cause
+                errordlg(cause.message,'Tag update failed');
+            end
+        end
+
+        function saved = onSaveWorkspaceTags(self)
+            saved = false;
+            if isempty(self.workspaceTags),errordlg('Load an exported tag document first.','No tags loaded');return;end
+            [file,path] = uiputfile('*.json','Save reviewed tags','tags-reviewed.json');
+            if isequal(file,0),return;end
+            try
+                self.saveWorkspaceTags(fullfile(path,file));
+                saved=true;
+            catch cause
+                errordlg(cause.message,'Tag save failed');
             end
         end
 

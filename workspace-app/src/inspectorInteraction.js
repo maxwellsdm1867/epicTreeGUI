@@ -14,14 +14,16 @@ export function inspectorPaneSizes(width,requested={},treeOpen=true,metadataOpen
   return {tree,metadata,treeMax,metadataMax,overlay,columns};
 }
 
-// Arrow navigation belongs to epoch navigation regions, never editable controls,
-// native select widgets, dialogs, resize handles, or widgets that reserve them.
-// Trace-owned keys preventDefault before bubbling; unclaimed Up/Down can navigate.
-export function epochArrowDirection(event){
-  if(event.defaultPrevented||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return 0;
-  if(event.key!=='ArrowUp'&&event.key!=='ArrowDown')return 0;
-  if(event.target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="separator"],[role="dialog"],dialog,[role="listbox"],[role="menu"],[data-epoch-arrows="ignore"]'))return 0;
-  return event.key==='ArrowUp'?-1:1;
+// Epoch shortcuts stay in navigation regions; typing and native controls stay local.
+export function epochShortcutDirection(event){
+  if(event.isComposing||event.nativeEvent?.isComposing||event.defaultPrevented||event.altKey||event.ctrlKey||event.metaKey)return 0;
+  if(event.target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="combobox"],[role="separator"],[role="dialog"],dialog,[role="listbox"],[role="menu"],[data-epoch-arrows="ignore"]'))return 0;
+  if(event.key==='Tab'){
+    const navigation=event.target===event.currentTarget||event.target?.closest?.('.epoch-row button,.epoch-leaf,.epoch-navigation,[data-epoch-navigation]');
+    return navigation?(event.shiftKey?-1:1):0;
+  }
+  if(event.shiftKey||!['w','s'].includes(event.key))return 0;
+  return event.key==='w'?-1:1;
 }
 
 export function nextEpochAction({epochs=[],offset=0,total=0,focused,direction,pageSize=60}){

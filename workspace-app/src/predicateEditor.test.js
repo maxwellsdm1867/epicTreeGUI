@@ -44,3 +44,22 @@ test('array contains suggestions offer deduplicated typed elements without fabri
  assert.deepEqual(choices,[{value:'NBQX',type:'string',example_only:true},{value:25,type:'number',example_only:true},{value:'25',type:'string',example_only:true},{value:null,type:'null',example_only:true}]);
  assert.deepEqual(recordedValueChoices({choices:[{value:[],count:10}]},'contains'),[]);
 });
+
+test('choosing shared or dataset tags starts a single-tag membership search',async()=>{
+ const {fieldCondition,isTagField}=await import('./components/predicateEditor.js');
+ for(const id of ['annotations/effective/tags','annotations/cell/tags','annotations/epoch/tags','curation/protocol-uuid/tags']){
+  const field={id,types:['array'],operators:['eq','ne','contains'],choices:[{type:'array',value:['good','stable']}]};
+  const condition=fieldCondition(field);
+  assert.equal(isTagField(field),true);
+  assert.deepEqual(condition,{field:id,operator:'contains',valueType:'string',valueText:''});
+  assert.deepEqual(compilePredicate({...predicateToDraft({field:id,operator:'contains',value:'stable'}),...condition,valueText:'stable'}),{field:id,operator:'contains',value:'stable'});
+ }
+ // Exact array comparison remains the default for ordinary recorded arrays.
+ assert.equal(fieldCondition({id:'parameters/vector',types:['array'],operators:['eq','contains']}).operator,'eq');
+});
+
+
+test('live annotation catalogs without an operators list still default to text membership',async()=>{
+ const {fieldCondition}=await import('./components/predicateEditor.js');
+ assert.deepEqual(fieldCondition({id:'annotations/effective/tags',types:['array'],element_types:['string'],choices:[{type:'array',value:[]}]}),{field:'annotations/effective/tags',operator:'contains',valueType:'string',valueText:''});
+});

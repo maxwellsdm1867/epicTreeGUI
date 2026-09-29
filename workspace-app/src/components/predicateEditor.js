@@ -48,3 +48,13 @@ export function recordedValueChoices(field,operator){
   }
   return choices;
 }
+
+// Annotation arrays represent membership, so entering one tag should search for
+// that tag rather than compare an entire JSON array of tags.
+export function isTagField(field){return /^(annotations\/(cell|epoch|effective)|curation\/[^/]+)\/tags$/.test(typeof field==='string'?field:field?.id||'');}
+export function fieldCondition(field){
+  const operators=field.operators||(['array','string'].some(type=>field.types?.includes(type))?['eq','contains']:['eq']);
+  const operator=(field.id==='protocol'||isTagField(field))&&operators.includes('contains')?'contains':operators.includes('eq')?'eq':operators[0];
+  const valueType=preferredValueType(field,operator);
+  return {field:field.id,operator,valueType,valueText:blankValue(valueType)};
+}

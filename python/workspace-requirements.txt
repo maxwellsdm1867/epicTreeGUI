@@ -1,3 +1,5 @@
+# Existing-environment add-on only. Fresh clone: python3 rieke.py setup
+# The full source-pinned runtime is workspace-runtime.lock.
 # Install into the existing RetinAnalysis environment; its scientific dependencies
 # and DataJoint 2.2.x must already be installed.
 Flask==3.1.3

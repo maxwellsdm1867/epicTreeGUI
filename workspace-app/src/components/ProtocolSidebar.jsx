@@ -33,6 +33,12 @@ export default function ProtocolSidebar({ projectId, protocols, activeId, onNavi
   useEffect(() => {
     setPreferences(loadPreferences(storageKey));setStorageError(false);setDragging(null);setDropSpot(null);cancelDrag.current?.();cancelDrag.current=null;focusAfterMove.current=null;
   }, [storageKey]);
+  useEffect(()=>{
+    const reload=()=>setPreferences(loadPreferences(storageKey));
+    window.addEventListener('rieke-protocol-shortcuts-changed',reload);
+    window.addEventListener('storage',reload);
+    return()=>{window.removeEventListener('rieke-protocol-shortcuts-changed',reload);window.removeEventListener('storage',reload);};
+  },[storageKey]);
   const section = p => ['pinned', 'main', 'support'].includes(preferences[p.protocol_uuid]?.section)
     ? preferences[p.protocol_uuid].section : supportProtocol(p.name) ? 'support' : 'main';
   const ordered = useMemo(() => {

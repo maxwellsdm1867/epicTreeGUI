@@ -7,6 +7,7 @@ no protocol, binding, pin, or curation record is created.
 from __future__ import annotations
 
 import copy
+import contextlib
 import os
 from pathlib import Path
 import uuid
@@ -32,7 +33,13 @@ def _default_curation(fingerprint):
             'revision':0,'metadata_fingerprint':fingerprint,'approval_stale':False}
 
 
-def export_candidate(service, store, history, revision_uuid, *, format,
+def export_candidate(service, store, history, revision_uuid, **options):
+    shared=getattr(service,'shared_annotations',None)
+    with shared.lock() if shared else contextlib.nullcontext():
+        return _export_candidate_locked(service,store,history,revision_uuid,**options)
+
+
+def _export_candidate_locked(service, store, history, revision_uuid, *, format,
                      expected_recipe_sha256, name=None, actor='local-user'):
     """Caller holds the app DB lock and project registration lock throughout."""
     if not isinstance(format,str) or format not in FORMATS:
@@ -87,6 +94,8 @@ def export_candidate(service, store, history, revision_uuid, *, format,
         'view':{'group_by':grouping,'layout':'landscape'},'source_revisions':candidate['source_revisions'],
         'source_scope':copy.deepcopy(candidate['source_scope']), 'export_scope':scope,
         'epochs':[saved[key] for key in sorted(saved)]}
+    shared=getattr(service,'shared_annotations',None)
+    if shared:snapshot['shared_annotations_revision']=shared.snapshot()['revision']
     if 'annotation_scope' in candidate:
         snapshot['annotation_scope']=copy.deepcopy(candidate['annotation_scope'])
     snapshot=seal(snapshot)
@@ -105,6 +114,9 @@ def export_candidate(service, store, history, revision_uuid, *, format,
             epoch=service.epoch(key)
             epoch['curation']=_default_curation(saved[key]['metadata_hash'])
             records.append(epoch)
+        if shared:
+            annotations=shared.for_epochs([service.rows[record['epoch_uuid']] for record in records])
+            for record in records:record['annotations']=annotations[record['epoch_uuid']]
         package={'format':'recording-reference-package','version':1,'recipe':recipe,'epochs':records,
             'sources':[{'source_sha256':source['source_sha256'],'source_path':source['source_path']}
                 for source in service.sources if source['source_sha256'] in candidate['source_revisions']],
@@ -114,6 +126,8 @@ def export_candidate(service, store, history, revision_uuid, *, format,
             from workspace_sqlite import build_sqlite_export
             artifact=output/'recordings.sqlite'
             build_sqlite_export(package,artifact)
+            from workspace_external_tags import prepare_return_folder
+            prepare_return_folder(output,package)
         elif format=='epictree-mat':
             from workspace_matlab import build_matlab_export
             from workspace_matlab_masks import write_ugm

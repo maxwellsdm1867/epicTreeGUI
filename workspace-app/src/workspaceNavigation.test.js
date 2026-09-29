@@ -58,3 +58,15 @@ test('explorer navigation retains immutable revision IDs and counts, not 50k mem
   assert.ok(JSON.stringify(result).length<500);
   assert.equal(applied.recipe.epochs.length,50_000);
 });
+
+test('reopening a protocol starts epoch browsing but history restores its tree view',()=>{
+ const saved={tab:'inspect',inspector:{focused:'epoch-5',offset:60,designMode:true,treeMode:true,treeOpen:false,designNavigation:{path:['date','cell']}}};
+ const result=resolveProtocolSession({saved});
+ assert.equal(result.inspector.designMode,false);
+ assert.equal(result.inspector.treeMode,false);
+ assert.equal(result.inspector.treeOpen,true);
+ assert.equal(result.inspector.focused,'epoch-5');
+ assert.deepEqual(result.inspector.designNavigation,saved.inspector.designNavigation);
+ assert.equal(resolveProtocolSession({saved,restore:true}),saved);
+ assert.equal(saved.inspector.designMode,true);
+});

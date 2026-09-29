@@ -18,6 +18,7 @@ import zlib
 
 from workspace_recipes import member_map, verify
 from workspace_tree import field_id
+from workspace_tag_exchange import frozen_annotation_entries
 
 SCHEMA_VERSION = 2
 FORMAT = 'recording-workspace-sqlite'
@@ -59,6 +60,13 @@ CREATE TABLE streams (stream_uuid TEXT PRIMARY KEY, epoch_uuid TEXT NOT NULL REF
  sample_count INTEGER, units TEXT, metadata_json TEXT NOT NULL);
 CREATE TABLE epoch_tags (epoch_uuid TEXT NOT NULL REFERENCES epochs, tag TEXT NOT NULL,
  PRIMARY KEY(epoch_uuid,tag));
+CREATE TABLE shared_annotations (target_kind TEXT NOT NULL CHECK(target_kind IN ('cell','epoch')),
+ target_uuid TEXT NOT NULL, profile_uuid TEXT NOT NULL, author_name TEXT NOT NULL,
+ tag TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0),
+ PRIMARY KEY(target_kind,target_uuid,profile_uuid,tag));
+CREATE TABLE annotation_revisions (target_kind TEXT NOT NULL CHECK(target_kind IN ('cell','epoch')),
+ target_uuid TEXT NOT NULL, profile_uuid TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0),
+ PRIMARY KEY(target_kind,target_uuid,profile_uuid));
 CREATE VIEW epoch_parameters AS SELECT e.epoch_uuid,p.field_id,p.json_type,p.value_json,p.numeric_value,p.text_value
  FROM epochs e JOIN parameter_values p USING(parameter_set_sha256);
 CREATE INDEX epochs_parameters ON epochs(parameter_set_sha256);
@@ -78,7 +86,7 @@ CREATE VIEW epoch_overview AS
  JOIN cells c USING(cell_uuid) JOIN sources s USING(source_sha256);
 '''
 TABLES = ('export_metadata', 'sources', 'cells', 'epoch_groups', 'epoch_blocks',
-          'epochs', 'streams', 'epoch_tags', 'parameter_sets', 'parameter_values', 'frozen_records', 'example_queries', 'documentation')
+          'epochs', 'streams', 'epoch_tags', 'shared_annotations', 'annotation_revisions', 'parameter_sets', 'parameter_values', 'frozen_records', 'example_queries', 'documentation')
 
 
 def _json(value):
@@ -218,6 +226,7 @@ def build_sqlite_export(package, output_path):
             raise ValueError('Invalid frozen review state')
         details[identity] = {key: record[key] for key in ('parameters', 'properties', 'attributes', 'metadata')}
         used_sources.add(source_sha)
+    shared_annotations = frozen_annotation_entries(records)
     path = Path(output_path)
     if path.exists():
         raise ValueError('SQLite artifact already exists; refusing overwrite')
@@ -300,6 +309,27 @@ def build_sqlite_export(package, output_path):
                          stream.get('sample_rate'),stream.get('sample_rate_units'),stream.get('sample_count'),
                          stream.get('units') if stream.get('units') is not None else raw.get('units'),_json(raw)))
                 connection.executemany('INSERT INTO epoch_tags VALUES (?,?)',[(identity,tag) for tag in curation['tags']])
+            for entry in shared_annotations:
+                kind, key = entry['target_kind'], entry['target_uuid']
+                connection.executemany('INSERT INTO shared_annotations VALUES (?,?,?,?,?,?)',
+                    [(kind,key,tag['profile_uuid'],tag['author_name'],tag['tag'],tag['revision']) for tag in entry['tags']])
+                connection.executemany('INSERT INTO annotation_revisions VALUES (?,?,?,?)',
+                    [(kind,key,author,revision) for author,revision in entry['revisions'].items()])
+            connection.execute('INSERT INTO documentation VALUES (?,?)', ('shared_annotations',
+                'Optional v2 additive extension: shared_annotations preserves exact cell/epoch targets, author profile UUID/name and tag-set revision. Cell tags inherit by the cells→epoch_overview UUID join; they are not copied into epoch_tags. epoch_tags remains protocol-specific curation. annotation_revisions preserves empty tag-set revisions. frozen_records retains the complete per-epoch annotations snapshot.'))
+            connection.execute('INSERT INTO example_queries VALUES (?,?,?)', ('shared_tags',
+                'Direct and cell-inherited authored tags for each exported epoch',
+                "SELECT e.epoch_uuid,a.* FROM epoch_overview e JOIN shared_annotations a ON (a.target_kind='epoch' AND a.target_uuid=e.epoch_uuid) OR (a.target_kind='cell' AND a.target_uuid=e.cell_uuid)"))
+            connection.execute('INSERT INTO documentation VALUES (?,?)', ('external_tag_return',
+                'Rieke app exports include annotation-return.json beside recordings.sqlite, with exact targets and a message example. '
+                'To add live project tags, write a complete JSON file to annotations/incoming/<message_uuid>.json beside this database. '
+                'Envelope: {format:"rieke-external-tags",version:1,message_uuid:<fresh UUID>,export_uuid:<this export UUID>,document:{'
+                'format:"rieke-tag-exchange",version:1,project_uuid:<this project UUID>,entries:[{target_kind:"epoch" or "cell",'
+                'target_uuid:<exact acquisition UUID>,source_sha256:<source hash>,tags:[{tag:<text>,profile_uuid:<stable author UUID>,author_name:<name>}]}]}}. '
+                'Publish via a temporary file and atomic rename. Keep this database unchanged. '
+                'The project page automatically scans the original export folder on open and while visible; receipts appear in annotations/receipts. '
+                'Tags are additive; cell tags inherit to all epochs of that cell. Copied databases need their completed messages delivered to the original export folder. '
+                'Current tags are available through the project annotation API; this database preserves the export-time snapshot.'))
             # This is an immutable handoff snapshot, not the lab's mutable master.
             # Owners can deliberately remove these guards; this is not tamper-proof storage.
             for table in TABLES:

@@ -66,3 +66,6 @@ docs/legacy/old_epochtree/
 # Local React workspace build/dependencies
 /workspace-app/node_modules/
 /workspace-app/dist/
+
+# Clone-local Rieke OS dependencies/config (never scientific project data)
+/.rieke-runtime/

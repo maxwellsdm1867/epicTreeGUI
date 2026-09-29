@@ -1,0 +1,83 @@
+"""Local update checks and transfer job lifecycle without touching user data."""
+import threading
+import time
+import types
+import unittest
+from unittest.mock import patch
+from flask import Flask
+from workspace_app_routes import register_app_routes
+
+
+class AppRouteTests(unittest.TestCase):
+    def setUp(self):
+        app = Flask(__name__)
+        register_app_routes(app)
+        self.client = app.test_client()
+        self.headers = {'X-Workspace-Request': '1'}
+
+    def post(self, path, body, **kwargs):
+        return self.client.post(path, json=body, headers=self.headers, **kwargs)
+
+    def test_update_check_rejects_foreign_origin_and_remote_clients(self):
+        path = '/api/app/updates/check'
+        self.assertEqual(self.client.post(path, json={}).status_code, 403)
+        self.assertEqual(self.client.post(path, json={}, headers={**self.headers, 'Origin': 'https://evil.test'}).status_code, 403)
+        self.assertEqual(self.post(path, {}, environ_overrides={'REMOTE_ADDR': '192.0.2.1'}).status_code, 403)
+        self.assertEqual(self.post(path, {'url': 'https://evil.test'}).status_code, 400)
+
+    def test_status_and_check_distinguish_missing_releases(self):
+        module = types.SimpleNamespace(installation_status=lambda **kw: {'state': 'unchecked'},
+                                      check_for_updates=lambda **kw: {'state': 'unavailable'})
+        with patch.dict('sys.modules', workspace_updates=module):
+            self.assertEqual(self.client.get('/api/app/updates').json['state'], 'unchecked')
+            self.assertEqual(self.post('/api/app/updates/check', {}).json['state'], 'unavailable')
+
+    def test_manual_retry_bypasses_cache_and_install_requires_capability(self):
+        from unittest.mock import Mock
+        check = Mock(return_value={'state': 'error'})
+        module = types.SimpleNamespace(installation_status=lambda **kw: {'can_stage': False},
+                                      check_for_updates=check, stage_release=Mock())
+        with patch.dict('sys.modules', workspace_updates=module):
+            response = self.post('/api/app/updates/check', {'force': True})
+            self.assertTrue(check.call_args.kwargs['force'])
+            self.assertEqual(self.post('/api/app/updates/stage', {}).status_code, 403)
+            response = self.client.post('/api/app/updates/stage', json={}, headers={**self.headers,
+                'X-Rieke-Update-Token': response.json['update_token']})
+            self.assertEqual(response.status_code, 409)
+            module.stage_release.assert_not_called()
+
+    def test_transfer_serializes_jobs_and_reports_success_only_after_completion(self):
+        release = threading.Event()
+        module = types.SimpleNamespace(prepare_project=lambda *args: (release.wait(3), {'verified': True})[1], restore_project=lambda *args: {})
+        with patch.dict('sys.modules', workspace_portability=module):
+            body = {'directory': '/source', 'destination': '/destination'}
+            response = self.post('/api/projects/prepare-transfer', body)
+            self.assertEqual(response.status_code, 202)
+            path = '/api/projects/transfers/' + response.json['job_id']
+            try:
+                self.assertEqual(self.client.get(path).json['state'], 'running')
+                self.assertEqual(self.post('/api/projects/restore-transfer', body).status_code, 409)
+            finally:
+                release.set()
+            for _ in range(100):
+                result = self.client.get(path).json
+                if result['state'] != 'running': break
+                time.sleep(.01)
+            self.assertEqual(result['state'], 'complete')
+            self.assertTrue(result['result']['verified'])
+
+    def test_transfer_failure_and_invalid_paths_never_report_success(self):
+        def fail(*args): raise ValueError('Stop the project service first')
+        module = types.SimpleNamespace(prepare_project=fail, restore_project=fail)
+        with patch.dict('sys.modules', workspace_portability=module):
+            self.assertEqual(self.post('/api/projects/prepare-transfer', {'directory': 'relative', 'destination': '/output'}).status_code, 400)
+            response = self.post('/api/projects/prepare-transfer', {'directory': '/source', 'destination': '/output'})
+            for _ in range(100):
+                result = self.client.get('/api/projects/transfers/' + response.json['job_id']).json
+                if result['state'] != 'running': break
+                time.sleep(.01)
+            self.assertEqual(result['state'], 'failed')
+            self.assertIn('Stop the project', result['error'])
+
+
+if __name__ == '__main__': unittest.main()

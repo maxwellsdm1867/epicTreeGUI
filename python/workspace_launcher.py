@@ -12,11 +12,13 @@ from workspace_startup_registry import remember_project
 
 def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=None):
     """Used by both the launcher and an opened project's API."""
+    from workspace_app_routes import register_app_routes
+    register_app_routes(app)
     current = Path(project_dir).resolve() if project_dir else None
-    root = managed_root(root or current.parent)
+    root_provider = root if callable(root) else lambda: managed_root(root or current.parent)
     @app.get('/api/projects')
     def project_inventory():
-        result = list_projects(current) if current else list_managed_projects(root)
+        result = list_projects(current) if current else list_managed_projects(root_provider())
         return jsonify({**result, 'launcher': current is None})
 
     @app.post('/api/projects')
@@ -24,25 +26,71 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
         body = request.get_json(silent=True)
         if request.args or not isinstance(body, dict) or set(body) - {'name','directory'}:
             raise ValueError('Project creation accepts a name and optional managed folder')
-        project = create_project(root, body.get('name'), directory=body.get('directory'))
+        project = create_project(root_provider(), body.get('name'), directory=body.get('directory'))
         return jsonify(project=project, database_status='not_started',
             message='Empty project created. Opening it prepares its own database; no recording is required.'), 201
+
+    @app.post('/api/projects/open-folder')
+    def project_open_folder():
+        body = request.get_json(silent=True)
+        if request.args or not isinstance(body, dict) or set(body) != {'directory'} or not isinstance(body['directory'], str) or not body['directory'].strip():
+            raise ValueError('Choose an existing project folder by its absolute path')
+        directory = Path(body['directory'].strip()).expanduser()
+        if not directory.is_absolute() or directory.is_symlink():
+            raise ValueError('Choose an absolute project folder path, not a symbolic link')
+        if not directory.is_dir():
+            raise ValueError('Project folder does not exist; choose an existing project')
+        directory = directory.resolve()
+        if not (directory / 'project.json').is_file() or not (directory / 'catalog.json').is_file():
+            raise ValueError('Choose the project folder containing project.json and catalog.json, not its parent workspace')
+        project = next(row for row in list_projects(directory)['projects'] if row['current'])
+        if not project['available']:
+            raise ValueError('Project manifests are invalid: ' + project['unavailable_reason'])
+        if current:
+            current_record = next(row for row in list_projects(current)['projects'] if row['current'])
+            if directory == current:
+                return jsonify(url=request.host_url, project_uuid=project['uuid'])
+            if project['uuid'] == current_record['uuid']:
+                import uuid
+                from workspace_projects import _read_manifest
+                def restored_instance(path):
+                    catalog = _read_manifest(path / 'catalog.json')
+                    owned = catalog.get('managed_database') or {}
+                    value = owned.get('instance_uuid')
+                    if not value:
+                        return None
+                    instance = str(uuid.UUID(value))
+                    expected = 'rieke-os-' + project['uuid'].replace('-', '') + '-' + instance.replace('-', '')
+                    if (owned.get('project_uuid') != project['uuid']
+                            or (owned.get('kind') != 'native-mysql' and owned.get('container') != expected)
+                            or _read_manifest(path / 'database/service.json') != owned):
+                        raise ValueError('Restored project runtime identity is invalid')
+                    return instance + ':' + str(path.resolve()) if owned.get('kind') == 'native-mysql' else instance
+                other_instance = restored_instance(directory)
+                if not other_instance or other_instance == restored_instance(current):
+                    raise ValueError('This folder duplicates the current project identity; use its original folder')
+        return jsonify(open_project(directory, project['uuid'], retinanalysis_dir))
 
     @app.post('/api/projects/<project_uuid>/open')
     def project_open(project_uuid):
         body = request.get_json(silent=True)
         if request.args or body not in ({}, None):
             raise ValueError('Open project accepts an empty request')
+        inventory = list_projects(current) if current else list_managed_projects(root_provider())
+        if sum(project['uuid'] == project_uuid for project in inventory['projects']) > 1:
+            raise ValueError('Several folders share this project identity. Select the exact project folder to open.')
         if current:
             record = next((p for p in list_projects(current)['projects'] if p['current']), None)
             if record and record['uuid'] == project_uuid:
-                remember_project(root, project_uuid)
+                remember_project(root_provider(), project_uuid)
                 return jsonify(url=request.host_url, project_uuid=project_uuid)
-        return jsonify(open_project(root, project_uuid, retinanalysis_dir, managed=True))
+        return jsonify(open_project(root_provider(), project_uuid, retinanalysis_dir, managed=True))
 
 
-def create_launcher(root, retinanalysis_dir):
+def create_launcher(root, retinanalysis_dir, *, application_dir=None):
     root = managed_root(root)
+    selected_root = [root]
+    application = Path(application_dir or Path(__file__).resolve().parents[1]).resolve()
     app = Flask(__name__, static_folder=None)
     app.config.update(MAX_CONTENT_LENGTH=64*1024)
     frontend = Path(__file__).resolve().parents[1] / 'workspace-app/dist'
@@ -72,8 +120,19 @@ def create_launcher(root, retinanalysis_dir):
         return jsonify(error='Project operation could not finish. Check the launcher log before retrying.'),500
     @app.get('/api/health')
     def health():
-        return jsonify(status='ready',launcher=True,project_uuid=None)
-    register_project_routes(app, retinanalysis_dir=retinanalysis_dir, root=root)
+        from workspace_updates import release_metadata
+        return jsonify(status='ready',launcher=True,project_uuid=None,app_release=release_metadata()['version'])
+    @app.post('/api/workspace')
+    def choose_workspace():
+        from workspace_installation import select_workspace
+        body = request.get_json(silent=True)
+        if request.args or not isinstance(body,dict) or set(body) != {'directory'} or not isinstance(body['directory'],str) or not body['directory'].strip():
+            raise ValueError('Choose a workspace root directory')
+        selected = select_workspace(body['directory'].strip(),application)
+        result = list_managed_projects(selected)
+        selected_root[0] = selected
+        return jsonify({**result,'launcher':True,'message':'Workspace selected. Existing projects and files are preserved.'})
+    register_project_routes(app, retinanalysis_dir=retinanalysis_dir, root=lambda: selected_root[0])
     @app.get('/')
     @app.get('/<path:path>')
     def frontend_page(path='index.html'):

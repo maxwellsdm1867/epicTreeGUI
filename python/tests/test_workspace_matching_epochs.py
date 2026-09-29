@@ -44,6 +44,28 @@ class MatchingEpochTests(unittest.TestCase):
         self.assertFalse({'metadata','responses','parameters','curation'} & a['epochs'][0].keys())
         self.assertEqual(self.fixture.events.rows,events)
 
+    def test_cell_overview_is_complete_and_cell_pages_never_broaden_predicate(self):
+        first,second=self.service.ids
+        cell=self.service.rows[first]['cell_uuid']
+        revision=self.preview()['tree_revision']
+        with patch('h5py.File',side_effect=AssertionError('Overview must not read traces')):
+            data=self.page(revision,limit=1,include_cells=True).get_json()
+            scoped=self.page(revision,cell_uuid=cell,include_cells=True).get_json()
+        self.assertEqual(len(data['epochs']),1)
+        self.assertEqual(len(data['cells']),2)
+        self.assertEqual(sum(item['epochs'] for item in data['cells']),2)
+        self.assertEqual([row['epoch_uuid'] for row in scoped['epochs']],[first])
+        self.assertEqual(len(scoped['cells']),2)
+        self.assertEqual(self.page(revision,cell_uuid=cell,anchor_uuid=second).status_code,400)
+        self.predicate={'field':'parameters/example','operator':'eq','value':0}
+        narrowed=self.preview()['tree_revision']
+        other=self.service.rows[second]['cell_uuid']
+        empty=self.page(narrowed,cell_uuid=other,include_cells=True).get_json()
+        self.assertEqual(empty['epochs'],[])
+        self.assertEqual([row['cell_uuid'] for row in empty['cells']],[cell])
+        for invalid in ({'cell_uuid':False},{'cell_uuid':'bad'},{'include_cells':1}):
+            self.assertEqual(self.page(narrowed,**invalid).status_code,400)
+
     def test_anchor_locates_exact_page_and_never_broadens_predicate(self):
         target=self.service.ids[1];revision=self.preview()['tree_revision']
         anchored=self.page(revision,anchor_uuid=target,limit=1)

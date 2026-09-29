@@ -327,7 +327,7 @@ class ProgressLogDurability(unittest.TestCase):
 
         arguments = ['recording_workspace.py', str(self.folder / 'fixture.h5'),
             '--project-dir', str(self.folder / 'cli-project'), '--retinanalysis', str(self.folder),
-            '--progress-file', str(progress_path)]
+            '--progress-file', str(progress_path), '--container', 'isolated-fixture']
         with patch('sys.argv', arguments), \
                 patch('recording_workspace.prepare', return_value=({}, [], manifest, self.folder)), \
                 patch('recording_workspace.import_catalog', side_effect=import_catalog), \

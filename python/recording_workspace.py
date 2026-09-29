@@ -278,8 +278,16 @@ def prepare(source, project, repository, progress=None, expected_sha256=None):
     return experiment, rows, manifest, folder
 
 
-def connect(container):
+def connect(container, *, project_dir=None):
     import datajoint as dj
+    if isinstance(container, dict):
+        if container.get('kind') != 'native-project' or project_dir is None:
+            raise ValueError('Native database connections require the owning project folder')
+        from workspace_native_mysql import connection_parameters
+        parameters = connection_parameters(project_dir)
+        for key in ('host', 'port', 'user', 'password'):
+            dj.config['database.' + key] = parameters[key]
+        return dj
     result = subprocess.run(["docker", "inspect", container], check=True,
                             capture_output=True, text=True)
     info = json.loads(result.stdout)[0]
@@ -399,9 +407,10 @@ def evaluate_protocol_file(file):
     if config["project_uuid"] != definition["project_uuid"]:
         raise ValueError("Protocol and catalog project identities differ")
     provider = config["connection"]["credential_provider"]
-    if provider["kind"] != "docker-container-env":
+    if provider["kind"] not in {"docker-container-env", "native-project"}:
         raise ValueError("Unsupported credential provider")
-    dj = connect(provider["container"])
+    dj = (connect(provider, project_dir=catalog_path.parent) if provider['kind'] == 'native-project'
+          else connect(provider['container']))
     from retinanalysis.config import schema as catalog
     _, Source, _, _ = workspace_tables(dj)
     sources = (Source & {"project_uuid": definition["project_uuid"]}).to_dicts()
@@ -431,7 +440,7 @@ def evaluate_protocol_file(file):
 
 def import_catalog(project_dir, experiment, manifest, folder, container, progress=None):
     emit = progress or (lambda stage, **fields: None)
-    dj = connect(container)
+    dj = connect(container, project_dir=project_dir) if isinstance(container, dict) else connect(container)
     from retinanalysis.config import schema as catalog
     from retinanalysis.utils import database_pop as population
 
@@ -518,12 +527,13 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
         stage = "workspace_files"
         emit("catalog_committed", commit_state="committed", catalog_committed=True, counts=manifest["counts"])
         sync_job_history(project_dir, Event, project_id)
-        catalog_file = {"format": "recording-catalog-reference", "version": 1,
+        existing_catalog = json.loads((project_dir / 'catalog.json').read_text()) if (project_dir / 'catalog.json').exists() else {}
+        catalog_file = {**existing_catalog, "format": "recording-catalog-reference", "version": 1,
                         "catalog_id": "retinanalysis-local", "adapter": "datajoint",
                         "database": "schema", "workspace_database": "recording_workspace",
                         "connection": {"host": "127.0.0.1", "port": int(dj.config["database.port"]),
-                                       "credential_provider": {"kind": "docker-container-env",
-                                                               "container": container}},
+                                       "credential_provider": container if isinstance(container, dict) else
+                                           {"kind": "docker-container-env", "container": container}},
                         "project_uuid": project_id}
         write_json(project_dir / "catalog.json", catalog_file)
         definitions = []
@@ -540,7 +550,7 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
                     "name": name.rsplit(".", 1)[-1], "catalog_ref": "../catalog.json",
                     "query": {"version": 1, "all": [{"field": "EpochBlock.protocol_name",
                                "operator": "eq", "value": name}]},
-                    "view": {"group_by": ["cell.type", "cell.start_time"],
+                    "view": {"group_by": ["cell type", "metadata/cell/start_time"],
                              "layout": "landscape", "sidebar_visible": True},
                     "datasets": [], "exports": [], "figures": []}
             definition.pop("last_import", None)
@@ -577,12 +587,44 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
             connection.query("SELECT RELEASE_LOCK('recording_workspace_import')")
 
 
+def configured_container(project_dir, explicit=None):
+    """Resolve the adjacent project catalog; never default to a lab container."""
+    if explicit:
+        return explicit
+    path = Path(project_dir) / 'catalog.json'
+    try:
+        catalog = json.loads(path.read_text())
+        provider = catalog['connection']['credential_provider']
+        container = provider['container']
+        if provider['kind'] != 'docker-container-env' or not isinstance(container, str) or not container.strip():
+            raise ValueError('Unsupported project database credential provider')
+        return container
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError('Choose/create a project with catalog.json, or pass --container explicitly; no default database is selected.') from error
+
+
+def configured_database(project_dir, explicit=None):
+    """Choose the project's private native runtime; retain explicit legacy access."""
+    if explicit:
+        return explicit
+    try:
+        catalog = json.loads((Path(project_dir) / 'catalog.json').read_text())
+        provider = catalog['connection']['credential_provider']
+        if provider.get('kind') == 'native-project':
+            if provider.get('credentials_ref') != 'database/native-credentials.json':
+                raise ValueError('Unsupported native credential reference')
+            return provider
+    except (OSError, KeyError, TypeError, ValueError) as error:
+        raise ValueError('Choose a valid project catalog before connecting to its database') from error
+    return configured_container(project_dir)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("source", type=Path)
     ap.add_argument("--project-dir", type=Path, required=True)
     ap.add_argument("--retinanalysis", type=Path, required=True)
-    ap.add_argument("--container", default="new_retinanalysis-db-1")
+    ap.add_argument("--container", help="Override the adjacent project catalog container (never inferred from a lab default)")
     ap.add_argument("--parse-only", action="store_true")
     ap.add_argument("--progress-file", type=Path)
     ap.add_argument("--expected-sha256")
@@ -596,6 +638,7 @@ def main():
     try:
         if args.expected_sha256 is not None and not re.fullmatch('[0-9a-f]{64}', args.expected_sha256):
             raise ValueError('Expected SHA256 must be 64 lowercase hexadecimal characters')
+        container = configured_database(project_dir, args.container) if not args.parse_only else None
         reporter.emit('source_hashing', child_job_file=str(job_file))
         experiment, rows, manifest, folder = prepare(source, project_dir, args.retinanalysis,
             reporter.emit, args.expected_sha256)
@@ -603,7 +646,7 @@ def main():
         if not args.parse_only:
             job["status"] = "importing"
             write_json(job_file, job)
-            manifest = import_catalog(project_dir, experiment, manifest, folder, args.container, reporter.emit)
+            manifest = import_catalog(project_dir, experiment, manifest, folder, container, reporter.emit)
         job.update(status=manifest["status"], finished_at=now(),
                    manifest=str(folder / "import-manifest.json"))
         write_json(job_file, job)

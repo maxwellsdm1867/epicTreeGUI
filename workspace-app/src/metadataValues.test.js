@@ -59,3 +59,20 @@ test('predicate copies obey literal depth and serialized length bounds',()=>{
   assert.equal(metadataPredicateValueSupported('x'.repeat(4094)),true);
   assert.equal(metadataPredicateValueSupported('x'.repeat(4095)),false);
 });
+
+test('copy setting and value preserves registered path and typed searchable literal',()=>{
+  const row={key:'frequencyCutoff',path:['parameters','frequencyCutoff'],value:100};
+  assert.equal(metadataClipboard(row,'setting',{id:'parameters/frequencyCutoff'}),'parameters/frequencyCutoff = 100');
+  assert.equal(metadataClipboard({...row,value:'100'},'setting',{id:'parameters/frequencyCutoff'}),'parameters/frequencyCutoff = "100"');
+  assert.equal(metadataClipboard({...row,value:[0, false, null]},'setting'),'parameters.frequencyCutoff = [0,false,null]');
+  assert.throws(()=>metadataClipboard({...row,value:Infinity},'setting'));
+});
+
+test('click-to-copy values use plain text for strings and exact JSON for structured values',()=>{
+ const row=value=>({key:'setting',path:['parameters','setting'],value});
+ assert.equal(metadataClipboard(row('Amp1'),'text'),'Amp1');
+ assert.equal(metadataClipboard(row(25),'text'),'25');
+ assert.deepEqual(JSON.parse(metadataClipboard(row([0,675]),'text')),[0,675]);
+ assert.equal(metadataClipboard(row('9007199254740993'),'text'),'9007199254740993');
+ assert.throws(()=>metadataClipboard(row(Number.MAX_SAFE_INTEGER+1),'text'));
+});

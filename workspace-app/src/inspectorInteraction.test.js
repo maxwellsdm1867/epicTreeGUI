@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inspectorPaneSizes,epochArrowDirection,nextEpochAction,resourceForPath} from './inspectorInteraction.js';
+import {inspectorPaneSizes,epochShortcutDirection,nextEpochAction,resourceForPath} from './inspectorInteraction.js';
 
 test('an old page failure cannot cancel a newly requested anchor navigation',()=>{
   const old={path:'/epochs?offset=60',error:'Temporary failure',data:null,loading:false};
@@ -20,13 +20,14 @@ test('pane bounds reserve plot space, restore sensible defaults and overlay on n
   assert.equal(inspectorPaneSizes(1100,{},false,false).columns,'minmax(0,1fr)');
   assert.equal(inspectorPaneSizes(1100,{tree:NaN}).tree,270);
 });
-test('arrow navigation ignores editable controls, trace controls and modified keys',()=>{
-  const event={key:'ArrowDown',target:{closest:()=>null}};
-  assert.equal(epochArrowDirection(event),1);
-  assert.equal(epochArrowDirection({...event,key:'ArrowUp'}),-1);
-  for(const modifier of ['altKey','ctrlKey','metaKey','shiftKey','defaultPrevented'])assert.equal(epochArrowDirection({...event,[modifier]:true}),0);
-  assert.equal(epochArrowDirection({...event,target:{closest:()=>({})}}),0);
-  assert.equal(epochArrowDirection({...event,key:'ArrowLeft'}),0);
+test('W/S navigation ignores typing, composition, modifiers and old arrow bindings',()=>{
+  const event={key:'s',target:{closest:()=>null}};
+  assert.equal(epochShortcutDirection(event),1);
+  assert.equal(epochShortcutDirection({...event,key:'w'}),-1);
+  for(const modifier of ['altKey','ctrlKey','metaKey','shiftKey','defaultPrevented','isComposing'])assert.equal(epochShortcutDirection({...event,[modifier]:true}),0);
+  assert.equal(epochShortcutDirection({...event,target:{closest:()=>({})}}),0);
+  for(const key of ['ArrowLeft','ArrowUp','ArrowDown','Tab','W','S'])assert.equal(epochShortcutDirection({...event,key}),0);
+  assert.equal(epochShortcutDirection({...event,nativeEvent:{isComposing:true}}),0);
 });
 test('epoch navigation crosses chronological pages and locates a tree-selected offpage epoch',()=>{
   const epochs=Array.from({length:60},(_,i)=>({epoch_uuid:`e${60+i}`}));
@@ -37,4 +38,16 @@ test('epoch navigation crosses chronological pages and locates a tree-selected o
   assert.deepEqual(nextEpochAction({...scope,focused:'e1500',direction:1}),{kind:'locate',epoch_uuid:'e1500',direction:1});
   assert.deepEqual(nextEpochAction({epochs:[{epoch_uuid:'last'}],offset:0,total:1,focused:'last',direction:1}),{kind:'none'});
   assert.deepEqual(nextEpochAction({...scope,focused:null,direction:-1}),{kind:'none'});
+});
+
+test('Tab advances epochs only in navigation regions and Shift+Tab goes back',()=>{
+  const region={closest:()=>null};
+  const event={key:'Tab',target:region,currentTarget:region};
+  assert.equal(epochShortcutDirection(event),1);
+  assert.equal(epochShortcutDirection({...event,shiftKey:true}),-1);
+  const row={closest:selector=>selector.includes('.epoch-row')?{}:null};
+  assert.equal(epochShortcutDirection({...event,target:row}),1);
+  const input={closest:selector=>selector.includes('input')?{}:null};
+  assert.equal(epochShortcutDirection({...event,target:input}),0);
+  assert.equal(epochShortcutDirection({...event,target:{closest:()=>null}}),0);
 });

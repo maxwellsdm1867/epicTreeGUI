@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, Archive, ArrowLeft, ArrowRight, Clock3, Database, Download, GitBranch, RefreshCw, Search, ShieldCheck, Snowflake, Tag, Upload } from 'lucide-react';
+import { Activity, Archive, ArrowLeft, ArrowRight, Clock3, Database, Download, GitBranch, RefreshCw, Search, ShieldCheck, Snowflake, MessageCircle, UserRound, Upload } from 'lucide-react';
 import { api, useResource, humanize, time, number } from '../api.js';
 import { Badge, Empty, Status } from './Common.jsx';
 import './MasterLog.css';
@@ -7,15 +7,21 @@ import './MasterLog.css';
 function ActionIcon({action}) {
   const Icon = action?.includes('frozen') ? Snowflake : action?.includes('archived') ? Archive :
     action?.includes('import') ? Upload : action?.includes('export') ? Download :
-    action?.includes('curation') ? Tag : /query|protocol_dataset|explorer_revision/.test(action || '') ? GitBranch : Activity;
+    /curation|annotation/.test(action || '') ? MessageCircle : /query|protocol_dataset|explorer_revision/.test(action || '') ? GitBranch : Activity;
   return <Icon size={16} aria-hidden="true"/>;
+}
+
+function TagActivity({event}){
+  const activity=event.tag_activity;
+  if(!activity)return null;
+  return <span className="log-tag-activity"><span className="log-authors">{activity.authors.map(author=><span className="log-author" key={author.profile_uuid||author.name} title={`Tag author profile: ${author.profile_uuid||'not recorded'}`}><UserRound size={12}/>{author.name}</span>)}{activity.author_count>activity.authors.length&&<small>+{activity.author_count-activity.authors.length} authors</small>}</span><span className="log-tag-changes">{activity.changes.map((change,index)=><span key={index} className={`log-tag-change ${change.operation}`} title={`${change.author} · ${change.targets} ${change.scope} targets`}><MessageCircle size={12}/>{change.operation==='removed'?'Removed':'Added'} “{change.tag}” <small>· {change.targets} {change.scope}{change.targets===1?'':'s'} · {change.author}</small></span>)}</span>{activity.change_count>activity.changes.length&&<small>+{activity.change_count-activity.changes.length} more changes in complete event</small>}</span>;
 }
 
 function EventDetails({id}) {
   const result = useResource(`/events/${id}`);
   const event = result.data?.event;
   return <Status {...result} retry={result.reload}>{event && <div className="log-detail">
-    <dl><div><dt>Event identity</dt><dd>{event.event_uuid}</dd></div>
+    <p className="log-actor-note">Recorded by: {event.actor||'Actor not recorded'}. Tag author profiles are shown separately below.</p><TagActivity event={event}/><dl><div><dt>Event identity</dt><dd>{event.event_uuid}</dd></div>
       <div><dt>Operation identity</dt><dd>{event.audit_summary?.operation_uuid || 'Not recorded'}</dd></div>
       <div><dt>Version evidence</dt><dd>{event.audit_summary?.versioned ? 'Recorded at the time of this action' : 'Legacy record · code versions were not recorded'}</dd></div>
     </dl>
@@ -49,16 +55,16 @@ export default function MasterLog({revision, onProtocol}) {
       {result.data.suggestions.map(s=><div key={`${s.action}:${s.protocol_uuid}`}><Clock3 size={16}/><span><strong>{s.label}</strong><small>{number(s.count)} matching actions in this page of history</small></span><button onClick={()=>openSuggestion(s)}>Open for review <ArrowRight size={14}/></button></div>)}
     </section>}
     <div className="filter-bar log-filters"><label>Action<select aria-label="Filter history by action" value={action} onChange={e=>{setAction(e.target.value);setOffset(0);setExpanded(null);}}>
-      <option value="">All actions</option><option value="curation_updated">Tags, inclusion & review</option>
+      <option value="">All actions</option><option value="shared_annotations_updated">Cell & epoch tags</option><option value="annotation_profile_created">Tag author profiles</option><option value="curation_updated">Tags, inclusion & review</option>
       <option value="dataset_revision_exported">Exports</option><option value="query_refreshed">Query comparisons</option><option value="explorer_revision_created">Predicate & tree revisions</option><option value="protocol_dataset_bound">Protocol dataset updates</option>
       <option value="imported">Source imports</option><option value="import_job_failed">Failed import jobs</option>
       <option value="data_store_query_excluded">Excluded from new queries</option><option value="data_store_query_included">Included in new queries</option><option value="import_job_duplicate">Duplicate import skipped</option><option value="data_store_frozen">Data store frozen</option><option value="data_store_unfrozen">Data store unfrozen</option><option value="data_store_archived">Data store archived</option><option value="data_store_restored">Data store restored</option><option value="storage_relocated">Storage moves</option>
-    </select></label><label className="log-search"><Search size={15}/><input aria-label="Search this history page" placeholder="Search this page: actor, protocol or event ID" value={search} onChange={e=>setSearch(e.target.value)}/></label></div>
+    </select></label><label className="log-search"><Search size={15}/><input aria-label="Search this history page" placeholder="Search this page: author, tag, actor or event ID" value={search} onChange={e=>setSearch(e.target.value)}/></label></div>
     {error&&<div className="error" role="alert">{error}</div>}
     <section className="section"><Status {...result} retry={result.reload}>
       {matching.length ? <div className="log-events">{matching.map(event=><article key={event.event_uuid}>
         <button className="log-event" aria-expanded={expanded===event.event_uuid} onClick={()=>setExpanded(expanded===event.event_uuid?null:event.event_uuid)}>
-          <span className="event-icon"><ActionIcon action={event.action}/></span><span className="log-event-title"><strong>{humanize(event.action).replace(/_/g,' ')}</strong><small>{event.actor} · {event.action?.startsWith('data_store_') ? '1 data store' : event.audit_summary?.entity_count != null ? `${number(event.audit_summary.entity_count)} epochs` : event.event_uuid.slice(0,8)}</small></span>
+          <span className="event-icon"><ActionIcon action={event.action}/></span><span className="log-event-title"><strong>{event.action==='shared_annotations_updated'?'Tags updated':event.action==='annotation_profile_created'?'Tag author created':humanize(event.action).replace(/_/g,' ')}</strong><small>Recorded by {event.actor} · {event.action?.startsWith('data_store_') ? '1 data store' : event.audit_summary?.entity_count != null ? `${number(event.audit_summary.entity_count)} ${event.action==='shared_annotations_updated'?'targets':'epochs'}` : event.event_uuid.slice(0,8)}</small><TagActivity event={event}/></span>
           <Badge kind={event.audit_summary?.outcome==='failed'?'warning':'neutral'}>{event.audit_summary?.outcome || 'Recorded'}</Badge>
           <Badge kind={event.audit_summary?.versioned?'success':'neutral'}>{event.audit_summary?.versioned?'Versioned':'Legacy'}</Badge>
           <time>{time(event.occurred_at)}</time></button>

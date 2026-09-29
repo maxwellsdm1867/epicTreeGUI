@@ -1,7 +1,11 @@
+import SelectionMaskDialog from './SelectionMaskDialog.jsx';
+import {NavigationLoadingProvider,NavigationLoadingNotice} from './NavigationLoading.jsx';
+import StableContent from './StableContent.jsx';
+import {advanceEpochIntent,epochIntentAt,epochAtIntent} from '../epochNavigationIntent.js';
 import {SourceEligibilityNotice} from './Common.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, GitBranch, Check, X, Tag, ArrowLeft, ArrowRight, Activity, Eye, Info, PanelRightClose, PanelRightOpen, Upload, Download, FileJson } from 'lucide-react';
-import { api, useResource, number, humanize, resolveCurationTargets } from '../api.js';
+import { ChevronDown, ChevronRight, GitBranch, Check, X, MessageCircle, ArrowLeft, ArrowRight, Activity, Eye, Info, PanelRightClose, PanelRightOpen, Upload, Download, FileJson } from 'lucide-react';
+import { api, useResource, useEpochResource, useEpochPrefetch, number, humanize, resolveCurationTargets } from '../api.js';
 import { Status, Metadata, Badge, Empty } from './Common.jsx';
 import EpochConnections from './EpochConnections.jsx';
 import TreeBuilder from './TreeBuilder.jsx';
@@ -9,8 +13,12 @@ import TreePreview from './TreePreview.jsx';
 import './InspectorPolish.css';
 import './MatlabMaskImport.css';
 import MetadataPanel from './MetadataPanel.jsx';
-import EpochSkimList from './EpochSkimList.jsx';
+import InspectionCellTree from './InspectionCellTree.jsx';
+import {EpochBrowserToolbar,EpochSelectionBar,EpochNavigation,EpochListHeading} from './EpochBrowserChrome.jsx';
 import EpochTags from './EpochTags.jsx';
+import SelectionOverview from './SelectionOverview.jsx';
+import AnnotationTags from './AnnotationTags.jsx';
+import TagExchangeControls from './TagExchangeControls.jsx';
 import './Inspector.css';
 
 import {inspectionSearches,indexInspectionTree,focusAfterTreeSelection,curationMatchesCellFocus} from '../inspectionScope.js';
@@ -21,7 +29,7 @@ import {boundedTreePage,inspectionTreeFocus} from '../boundedTree.js';
 import Trace from './TraceViewer.jsx';
 import PaneDivider from './PaneDivider.jsx';
 import PagedTree from './PagedTree.jsx';
-import {inspectorPaneSizes,epochArrowDirection,nextEpochAction,resourceForPath} from '../inspectorInteraction.js';
+import {inspectorPaneSizes,epochShortcutDirection,resourceForPath} from '../inspectorInteraction.js';
 export {Trace};
 
 function TreePageControls({page,onPage,kind}){
@@ -98,26 +106,27 @@ function ScientificContext({epoch}) {
   </section>;
 }
 
-export default function Inspector({protocol,initialEpochUuid=null,cellScope,filters,revision,onChange,onBack,onImport,onStores,onExport,splitRecipe=['date','cell','block'],onSplitChange,initialNavigation=null,onSessionChange,onQC}) {
+function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revision,onChange,onBack,onImport,onStores,onExport,splitRecipe=['date','cell','block'],onSplitChange,initialNavigation=null,onSessionChange,onQC,onTagFilter}) {
   const id=protocol.definition.protocol_uuid;
   const requestedCellFocus=filters?.cell_uuid&&filters.cell_uuid!==cellScope?null:(cellScope || null);
   const [focusCell,setFocusCell]=useState(initialNavigation&&Object.hasOwn(initialNavigation,'focusCell')?initialNavigation.focusCell:requestedCellFocus);
   const [offset,setOffset]=useState(initialNavigation?.offset || 0), [focused,setFocused]=useState(()=>restoredEpochFocus(initialNavigation,initialEpochUuid)), [targets,setTargets]=useState([]);
-  const [tagFocus,setTagFocus]=useState(0);
+  const [cellTagRequest,setCellTagRequest]=useState(null);
+  const [tagFocus,setTagFocus]=useState(0),[epochTagFocus,setEpochTagFocus]=useState(0);
   const [tag,setTag]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const [operationMessage,setOperationMessage]=useState(''),[maskMessage,setMaskMessage]=useState('');
   const maskInput=useRef(null),matlabMaskInput=useRef(null);
   const [matlabMaskFile,setMatlabMaskFile]=useState(null),[matlabDataset,setMatlabDataset]=useState(''),[matchingExports,setMatchingExports]=useState([]);
   const [pendingNavigation,setPendingNavigation]=useState(null);
+  const navigationIntent=useRef(null),anchorSteps=useRef(0);
+  function selectEpoch(uuid){navigationIntent.current=null;anchorSteps.current=0;setPendingNavigation(null);setFocused(uuid);}
   const externalSplitKey=splitRecipe.join(',');
   const previousExternalSplit=useRef(externalSplitKey);
   const [splits,setSplits]=useState(externalSplitKey);
   const [masksOpen,setMasksOpen]=useState(false);
   const [metadataOpen,setMetadataOpen]=useState(()=>{try{const saved=localStorage.getItem('workspace.inspector.metadata');return saved===null?window.innerWidth>=1350:saved==='true';}catch{return true;}});
   function toggleMetadata(next){setMetadataOpen(next);try{localStorage.setItem('workspace.inspector.metadata',String(next));}catch{}}
-  const matlabExports=useResource(masksOpen?`/exports?protocol_uuid=${id}`:null,revision);
   useEffect(()=>{setMatlabMaskFile(null);setMatlabDataset('');setMatchingExports([]);},[id]);
-  const matchingMatlabExports=[...new Map([...(matlabExports.data?.exports || []).filter(item=>item.format==='epictree-mat'&&item.protocol_uuid===id&&item.status==='completed'),...matchingExports].map(item=>[item.dataset_uuid,item])).values()];
   const [designMode,setDesignMode]=useState(initialNavigation?.designMode || false),[designPath,setDesignPath]=useState(initialNavigation?.designPath || []);
   const [designNavigation,setDesignNavigation]=useState(initialNavigation?.designNavigation||null);
   const changeSplits=useCallback(fields=>{setSplits(fields.join(','));setDesignPath([]);setDesignNavigation(null);},[]);
@@ -137,35 +146,52 @@ export default function Inspector({protocol,initialEpochUuid=null,cellScope,filt
   const changePane=(key,value)=>setPaneWidths(old=>({...old,[key]:value}));
   const savePane=(key,value)=>{setPaneWidths(old=>{const next={...old,[key]:value};try{localStorage.setItem('workspace.inspector.paneWidths',JSON.stringify(next));}catch{}return next;});};
   useEffect(()=>{const element=layoutRef.current;if(!element)return;const observer=new ResizeObserver(entries=>setLayoutWidth(entries[0].contentRect.width));observer.observe(element);return()=>observer.disconnect();},[]);
-  const epoch=useResource(focused?`/epochs/${focused}?protocol_uuid=${id}`:null,revision);
+  const epoch=useEpochResource(focused?`/epochs/${focused}?protocol_uuid=${id}`:null,revision,80);
   const focusedEpoch=epoch.data?.epoch_uuid===focused?epoch.data:null;
+  const neighborIndex=rows.data?.epochs?.findIndex(row=>row.epoch_uuid===focused)??-1;
+  useEpochPrefetch(!epoch.loading&&!rows.loading&&neighborIndex>=0?[rows.data.epochs[neighborIndex+1],rows.data.epochs[neighborIndex-1]].filter(Boolean).map(row=>`/epochs/${row.epoch_uuid}?protocol_uuid=${id}`):[],revision);
   const metadataCatalog=useResource(metadataOpen&&!designMode?`/protocols/${id}/tree-fields?${protocolSearch}`:null,revision);
   const scopeIdentity=JSON.stringify([id,requestedCellFocus,protocolSearch,initialEpochUuid]);
   const previousScope=useRef(scopeIdentity);
-  useEffect(()=>{if(previousScope.current===scopeIdentity)return;previousScope.current=scopeIdentity;setFocusCell(requestedCellFocus);setOffset(0);setFocused(initialEpochUuid);setTargets([]);setPendingNavigation(null);setDesignNavigation(null);},[scopeIdentity,id,requestedCellFocus,protocolSearch,initialEpochUuid]);
+  useEffect(()=>{if(previousScope.current===scopeIdentity)return;previousScope.current=scopeIdentity;setCellTagRequest(null);navigationIntent.current=null;anchorSteps.current=0;setFocusCell(requestedCellFocus);setOffset(0);setFocused(initialEpochUuid);setTargets([]);setPendingNavigation(null);setDesignNavigation(null);},[scopeIdentity,id,requestedCellFocus,protocolSearch,initialEpochUuid]);
   useEffect(()=>{onSessionChange?.({focused,focusCell,offset,treeOpen,treeMode,designMode,designPath,designNavigation});},[focused,focusCell,offset,treeOpen,treeMode,designMode,designPath,designNavigation,onSessionChange]);
 
-  function clearCellFocus(){setFocusCell(null);setOffset(0);setTargets([]);setPendingNavigation(null);}
-  function focusTreeEpoch(uuid,epochInfo){
+  function clearCellFocus(){navigationIntent.current=null;anchorSteps.current=0;setFocusCell(null);setOffset(0);setTargets([]);setPendingNavigation(null);}
+  function selectOverviewTargets(update){
+    // This overview spans every matching cell, including when entered from a cell shortcut.
+    if(focusCell){navigationIntent.current=null;anchorSteps.current=0;setFocusCell(null);setOffset(0);setPendingNavigation(null);}
+    setTargets(update);
+  }
+  function focusTreeEpoch(uuid,epochInfo){setCellTagRequest(null);toggleMetadata(true);
     if(busy)return;
     if(focusCell&&epochInfo?.cell_uuid!==focusCell)clearCellFocus();
-    setFocused(uuid);setPendingNavigation({anchorUuid:uuid,direction:0});
+    navigationIntent.current=null;anchorSteps.current=0;setFocused(uuid);setPendingNavigation({anchorUuid:uuid,direction:0});
   }
-  useEffect(()=>{if(!focused&&!pendingNavigation&&!rows.loading&&rows.data?.epochs?.length)setFocused(rows.data.epochs[0].epoch_uuid);},[rows.data,rows.loading,focused,pendingNavigation]);
+  useEffect(()=>{navigationIntent.current=null;anchorSteps.current=0;},[id,search,revision]);
   useEffect(()=>{
     if(!pendingNavigation)return;
-    if(rows.error){setError(rows.error);setPendingNavigation(null);return;}
+    if(rows.error){navigationIntent.current=null;anchorSteps.current=0;setError(rows.error);setPendingNavigation(null);return;}
     if(rows.loading||!rows.data)return;
-    const page=rows.data.epochs;
+    const page=rows.data;
+    let target=navigationIntent.current;
     if(pendingNavigation.anchorUuid){
-      const locatedOffset=rows.data.offset;setOffset(locatedOffset);
-      if(pendingNavigation.direction){const next=nextEpochAction({epochs:page,offset:locatedOffset,total:rows.data.total,focused:pendingNavigation.anchorUuid,direction:pendingNavigation.direction});if(next.kind==='focus')setFocused(next.epoch_uuid);if(next.kind==='page'){setOffset(next.offset);setPendingNavigation(next);return;}}
-    }else{if(rows.data.offset!==pendingNavigation.offset)return;if(page.length)setFocused(page[pendingNavigation.edge==='last'?page.length-1:0].epoch_uuid);}
-    setPendingNavigation(null);
+      const index=page.epochs.findIndex(row=>row.epoch_uuid===pendingNavigation.anchorUuid);
+      if(index<0){setError('The selected epoch is no longer in this query. Refresh the dataset.');setPendingNavigation(null);return;}
+      target=epochIntentAt(page.offset+index+(pendingNavigation.direction||0)+anchorSteps.current,page.total);
+      anchorSteps.current=0;
+    }else if(!target){
+      target=epochIntentAt(pendingNavigation.targetIndex??(page.offset+(pendingNavigation.edge==='last'?page.epochs.length-1:0)),page.total);
+    }
+    target=target&&epochIntentAt(target.index,page.total);
+    navigationIntent.current=target;
+    if(!target){setFocused(null);setPendingNavigation(null);return;}
+    const uuid=epochAtIntent(page,target);
+    if(uuid){setFocused(uuid);setOffset(page.offset);setPendingNavigation(null);}
+    else{setOffset(target.offset);setPendingNavigation({offset:target.offset,targetIndex:target.index});}
   },[pendingNavigation,rows.data,rows.loading,rows.error]);
   // Persist grouping only after the server has successfully built that tree.
   useEffect(()=>{if(previousExternalSplit.current===externalSplitKey&&tree.data&&!tree.loading&&!tree.error&&tree.data.split_order?.join(',')===splits)onSplitChange?.(tree.data.split_order);},[tree.data,tree.loading,tree.error,splits,onSplitChange,externalSplitKey]);
-  useEffect(()=>{if(previousExternalSplit.current!==externalSplitKey){previousExternalSplit.current=externalSplitKey;setSplits(externalSplitKey);setDesignPath([]);setDesignNavigation(null);}},[externalSplitKey]);
+  useEffect(()=>{if(previousExternalSplit.current!==externalSplitKey){previousExternalSplit.current=externalSplitKey;if(splits!==externalSplitKey){setSplits(externalSplitKey);setDesignPath([]);setDesignNavigation(null);}}},[externalSplitKey,splits]);
   async function curate(changes, scope='selection') {
     if(busy)return;
     const uuids=resolveCurationTargets(focused,targets,scope);
@@ -225,83 +251,89 @@ export default function Inspector({protocol,initialEpochUuid=null,cellScope,filt
   }
   const focusedPageIndex=rows.data?.epochs?.findIndex(e=>e.epoch_uuid===focused) ?? -1;
   function moveEpoch(direction) {
-    if(busy||pendingNavigation||rows.loading)return;
-    const next=nextEpochAction({epochs:rows.data?.epochs,offset:rows.data?.offset??offset,total:rows.data?.total,focused,direction});
-    if(next.kind==='focus')setFocused(next.epoch_uuid);
-    else if(next.kind==='page'){setPendingNavigation(next);setOffset(next.offset);}
-    else if(next.kind==='locate')setPendingNavigation({anchorUuid:next.epoch_uuid,direction});
+    if(busy)return;
+    if(pendingNavigation?.anchorUuid){anchorSteps.current+=direction;return;}
+    const next=advanceEpochIntent({page:rows.data,focused,intent:navigationIntent.current,direction});
+    if(!next){
+      if(!rows.loading&&focused){anchorSteps.current=0;setPendingNavigation({anchorUuid:focused,direction});}
+      return;
+    }
+    navigationIntent.current=next;
+    const uuid=!rows.loading&&epochAtIntent(rows.data,next);
+    if(uuid){setFocused(uuid);setPendingNavigation(null);}
+    else{setPendingNavigation({offset:next.offset,targetIndex:next.index});setOffset(next.offset);}
   }
-  function epochKeys(event){if(designMode)return;const direction=epochArrowDirection(event);if(!direction)return;event.preventDefault();if(event.currentTarget.hasAttribute('tabindex'))event.currentTarget.focus({preventScroll:true});moveEpoch(direction);}
+  function epochKeys(event){if(designMode||!focused)return;const direction=epochShortcutDirection(event);if(!direction)return;event.preventDefault();event.stopPropagation();if(event.currentTarget.hasAttribute('tabindex'))event.currentTarget.focus({preventScroll:true});moveEpoch(direction);}
+  function navigateAndTag(direction){
+    if(busy||pendingNavigation)return;
+    moveEpoch(direction);setEpochTagFocus(value=>value+1);
+  }
+  function openTagsForSelection(){
+    if(!focused&&targets.length)focusTreeEpoch(targets[0]);
+    toggleMetadata(true);setTagFocus(value=>value+1);
+  }
   const epochListRef=useRef(null);
-  useEffect(()=>{epochListRef.current?.querySelector('.epoch-row.active')?.scrollIntoView({block:'nearest'});},[focused,rows.data]);
   const actionScope=targets.length?`${targets.length} selected`:'focused epoch';
-  const tagEntry=focusedEpoch&&<EpochTags value={tag} onValue={setTag} onAdd={value=>curate({tags_add:[value]})} onRemove={value=>curate({tags_remove:[value]},'focused')} selectedTags={focusedEpoch.curation?.tags||[]} busy={busy} scope={actionScope} revision={revision} focusRequest={tagFocus}/>;
-  const outsidePage=targets.filter(uuid=>!rows.data?.epochs?.some(e=>e.epoch_uuid===uuid)).length;
-  return <div className={`inspector ${designMode?'tree-design':'epoch-inspector-mode'}`} tabIndex={0} onKeyDown={epochKeys} aria-label={designMode?'Tree overview workspace':'Epoch inspection workspace. Up and down arrows navigate matching epochs.'}>
-    <div className="inspector-toolbar">
-      <button className="protocol-overview-link" onClick={onBack}><ArrowLeft size={15}/> Protocol overview</button>
-      <nav className="inspection-view-switch" aria-label="Tree and epoch views">
-        <button className={designMode?'active':''} aria-pressed={designMode} onClick={()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);}} title="Return to your shared tree, keeping its branch and page">{designMode?<GitBranch size={15}/>:<ArrowLeft size={15}/>} {designMode?'Tree overview':'Back to tree overview'}</button>
-        <button className={!designMode?'active':''} aria-pressed={!designMode} onClick={()=>{setDesignMode(false);setTreeMode(false);}}><Activity size={15}/> Epoch inspection</button>
-      </nav>
-      <button onClick={()=>setTreeOpen(!treeOpen)}><GitBranch size={15}/>{treeOpen?'Hide':'Show'} {designMode?'tree editor':'tree'}</button>
-      {!designMode&&<button onClick={()=>{toggleMetadata(true);setTagFocus(value=>value+1);}}><Tag size={15}/> Tag epoch</button>}
-      {!designMode&&<button onClick={()=>toggleMetadata(!metadataOpen)} aria-expanded={metadataOpen} aria-controls="epoch-metadata-sidebar">{metadataOpen?<PanelRightClose size={15}/>:<PanelRightOpen size={15}/>} {metadataOpen?'Hide':'Show'} metadata</button>}<span className="spacer"/>{!designMode&&onImport&&<button disabled={busy} onClick={onImport}><Upload size={15}/> Add data store</button>}{!designMode&&onExport&&<button className="primary" disabled={busy} onClick={onExport} title="Open export controls for all matching cells in this protocol query"><Download size={15}/> Export protocol</button>}<span>{designMode||treeMode?`${tree.data?number(tree.data.count):'Loading…'} in shared tree`:`${rows.data?number(rows.data.total):'Loading…'} navigation epochs`}</span><Badge kind="info">{protocol.binding?"Working dataset":"Saved source query"}</Badge>
-    </div>
-    {focusCell&&<div className="inspection-cell-focus"><span title={focusCell}><strong>Cell focus:</strong> {datedCellLabel(protocol.cells?.find(cell=>cell.cell_uuid===focusCell) || focusedEpoch || {},true)} · {rows.data&&!rows.loading?number(rows.data.total):'…'} epochs for navigation</span><span>Shared tree keeps all protocol matches.</span><button disabled={busy} onClick={clearCellFocus}><X size={13}/> Clear cell focus</button></div>}
+  const annotationChanged=()=>{epoch.reload();loadedRows.reload();onChange?.();};
+  const tagEntry=focusedEpoch&&<AnnotationTags epoch={focusedEpoch} revision={revision} disabled={busy||epoch.loading||!!pendingNavigation} onChange={annotationChanged} onFilter={onTagFilter} focusRequest={tagFocus} targetScope={cellTagRequest?'cell':targets.length?'selected':'epoch'} epochFocusRequest={epochTagFocus} onNavigateEpoch={navigateAndTag} selectedEpochs={targets} tools={!cellTagRequest&&!targets.length&&<TagExchangeControls epoch={focusedEpoch} disabled={busy} onChanged={annotationChanged}/>}><EpochTags value={tag} onValue={setTag} onAdd={value=>curate({tags_add:[value]})} onRemove={value=>curate({tags_remove:[value]},'focused')} selectedTags={focusedEpoch.curation?.tags||[]} busy={busy} scope={`dataset · ${actionScope}`} revision={revision}/></AnnotationTags>;
+  return <div className={`inspector ${designMode?'tree-design':'epoch-inspector-mode'}`} tabIndex={0} onKeyDown={epochKeys} aria-label={designMode?'Tree overview workspace':'Epoch inspection workspace. Tab next epoch, Shift+Tab previous epoch; W/S also navigate.'}>
+    <EpochBrowserToolbar onExport={onExport} exportDisabled={busy} designMode={designMode} onBrowse={()=>{setDesignMode(false);setTreeMode(false);setTreeOpen(true);}} onDesign={()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);}} onTags={openTagsForSelection} metadataOpen={metadataOpen} onToggleMetadata={()=>toggleMetadata(!metadataOpen)} actions={[
+        {label:treeOpen?(designMode?'Hide tree editor':'Hide epoch list'):(designMode?'Show tree editor':'Show epoch list'),icon:GitBranch,run:()=>setTreeOpen(value=>!value)},
+        !designMode&&{label:'Import mask file…',icon:FileJson,run:()=>setMasksOpen(true),disabled:busy},
+        !designMode&&onImport&&{label:'Add data store',icon:Upload,run:onImport,disabled:busy},
+      ]}>
+      {focusCell&&<button className="inspection-focus-chip" disabled={busy} onClick={clearCellFocus} title="Clear cell focus and navigate all matching cells">{datedCellLabel(protocol.cells?.find(cell=>cell.cell_uuid===focusCell)||focusedEpoch||{},true)} <X size={12}/></button>}
+    </EpochBrowserToolbar>
     <SourceEligibilityNotice eligibility={protocol.source_eligibility} onStores={onStores}/>
-    {!designMode&&<><div className={`inspection-scope ${targets.length?'bulk-active':'focused-scope'}`} role="status" aria-live="polite">
-      {targets.length?<><strong>Bulk actions affect {targets.length} selected epochs</strong>
-        <span>{outsidePage?`${outsidePage} outside this page. `:''}Changing the focused trace does not change this selection.</span>
-        <button disabled={busy} onClick={()=>setTargets([])}><X size={14}/> Clear selection</button>
-      </>:<><strong><Eye size={13}/> Focused epoch</strong><span className="scope-help" title="Checkboxes select bulk-action targets; selecting them does not include or approve epochs."><Info size={13}/> Selection help</span></>}
-      <button className="scope-mask-toggle" aria-expanded={masksOpen} onClick={()=>setMasksOpen(open=>!open)}><FileJson size={14}/> Selection masks <ChevronDown size={12}/></button>
-    </div>
-    {masksOpen&&<div className="inspection-mask-tools">
-      <span><FileJson size={15}/> Protocol selection mask <small>All epochs in the full protocol query · includes other cells and filtered-out epochs · JSON v1 · whole protocol scope</small></span>
-      <button disabled={busy} onClick={saveMask} title="Download all inclusion decisions for this protocol query as JSON"><Download size={14}/> Save JSON mask</button>
-      <input ref={maskInput} type="file" accept=".json,application/json" hidden onChange={importMask}/>
-      <button disabled={busy} onClick={()=>maskInput.current?.click()} title="Restore inclusion for the entire protocol query, regardless of the visible cell, filters or checkboxes"><Upload size={14}/> Import JSON mask</button>
-      <details className="matlab-mask-import"><summary><Upload size={14}/> Import MATLAB UGM</summary><p>Use a UUID-based EpicTree UGM v1.1 mask from a completed MATLAB export. Only that export’s epochs are updated; tags, review and other epochs are preserved.</p>
-        <div className="matlab-mask-fields"><label>Match completed MATLAB export<select aria-label="MATLAB mask export match" disabled={busy} value={matlabDataset} onChange={event=>setMatlabDataset(event.target.value)}><option value="">Automatically match exact epoch UUIDs</option>{matchingMatlabExports.map(item=><option key={item.dataset_uuid} value={item.dataset_uuid}>{item.name || item.dataset_uuid}{Number.isFinite(item.epoch_count)?` · ${number(item.epoch_count)} epochs`:''} · {item.dataset_uuid.slice(0,8)}</option>)}</select></label><input ref={matlabMaskInput} type="file" accept=".ugm" hidden onChange={event=>{setMatlabMaskFile(event.target.files?.[0] || null);setMatchingExports([]);event.target.value='';}}/><button disabled={busy} onClick={()=>matlabMaskInput.current?.click()}><Upload size={14}/> Choose UGM file</button><span className="matlab-mask-filename">{matlabMaskFile?.name || 'No file selected'}</span><button className="primary" disabled={busy||!matlabMaskFile||!protocol.query_revision} onClick={importMatlabMask}>Apply MATLAB mask</button></div>
-        {matlabExports.error&&<p className="matlab-mask-history-error">Export history could not load. Automatic exact-UUID matching is still checked by the server. <button onClick={matlabExports.reload}>Retry history</button></p>}{matchingExports.length>0&&<p className="matlab-mask-history-error">Choose the completed export that produced this mask, then apply again.</p>}
-      </details>
-    </div>}
+    {!designMode&&<>
+
+    {masksOpen&&<SelectionMaskDialog busy={busy} onClose={()=>setMasksOpen(false)}>
+      <h3>Import MATLAB UGM</h3>
+      <p>The completed MATLAB export is matched automatically by exact epoch UUIDs. Only that export’s inclusion decisions are updated.</p>
+      <input ref={matlabMaskInput} type="file" accept=".ugm" hidden onChange={event=>{setMatlabMaskFile(event.target.files?.[0] || null);setMatlabDataset('');setMatchingExports([]);event.target.value='';}}/>
+      <button className="tag-file-picker" disabled={busy} onClick={()=>matlabMaskInput.current?.click()}><Upload size={20}/><span><strong>{matlabMaskFile?.name || 'Choose UGM file'}</strong><small>EpicTree selection mask · up to 32 MiB</small></span></button>
+      {matchingExports.length>0&&<label>More than one export matches<select aria-label="MATLAB mask export match" disabled={busy} value={matlabDataset} onChange={event=>setMatlabDataset(event.target.value)}><option value="">Choose the export that produced this mask</option>{matchingExports.map(item=><option key={item.dataset_uuid} value={item.dataset_uuid}>{item.name || item.dataset_uuid}{Number.isFinite(item.epoch_count)?` · ${number(item.epoch_count)} epochs`:''} · {item.dataset_uuid.slice(0,8)}</option>)}</select></label>}
+      <p><button className="primary" disabled={busy||!matlabMaskFile||!protocol.query_revision||(matchingExports.length>0&&!matlabDataset)} onClick={importMatlabMask}>{busy?'Applying…':'Apply MATLAB mask'}</button></p>
+      <section className="selection-mask-json"><h3>Protocol JSON mask</h3><p>Save or restore inclusion decisions for the full protocol query, including cells outside the current view.</p>
+        <button disabled={busy} onClick={saveMask}><Download size={14}/> Save JSON mask</button>{' '}
+        <input ref={maskInput} type="file" accept=".json,application/json" hidden onChange={importMask}/>
+        <button disabled={busy} onClick={()=>maskInput.current?.click()}><Upload size={14}/> Import JSON mask</button>
+      </section>
+      {error&&<p className="tag-exchange-error" role="alert">{error}</p>}
+      {maskMessage&&<p className="tag-import-success" role="status"><Check size={15}/>{maskMessage}</p>}
+    </SelectionMaskDialog>}
     </>}{!designMode&&maskMessage&&<div className="mask-result" role="status"><Check size={15}/><span>{maskMessage}</span><button className="icon-button" onClick={()=>setMaskMessage('')} aria-label="Dismiss mask result"><X size={14}/></button></div>}
     {error&&<div className="inspector-operation-error" role="alert">{error}<button className="icon-button" onClick={()=>setError('')} aria-label="Dismiss operation error"><X size={14}/></button></div>}
     <div ref={layoutRef} style={{gridTemplateColumns:paneSizes.columns,'--metadata-width':`${paneSizes.metadata}px`}} className={`inspection-layout resizable-layout ${treeOpen?'':'without-tree'} ${!designMode&&metadataOpen?'metadata-open':''} ${paneSizes.overlay?'metadata-overlay':''}`}>
+      <NavigationLoadingNotice/>
       {treeOpen&&<aside className="inspection-tree">
-        {!designMode&&<div className="tree-heading"><h3>{treeMode?'Shared protocol tree':focusCell?'Focused cell':'Epochs by cell'}</h3><div className="segmented">
-          <button className={!treeMode?'active':''} onClick={()=>setTreeMode(false)}>Epochs</button>
-          <button className={treeMode?'active':''} onClick={()=>{setTreeMode(true);changePane('tree',Math.max(420,paneSizes.tree));}}>Split tree</button>
-        </div></div>}
+        {!designMode&&<EpochListHeading treeMode={treeMode} onTreeMode={value=>{setTreeMode(value);if(value)changePane('tree',Math.max(420,paneSizes.tree));}}/>}
         {designMode?<TreeBuilder protocolId={id} queryString={protocolSearch} revision={revision}
             value={splits.split(',').filter(Boolean)} onChange={changeSplits}
             preview={tree.data} loading={tree.loading} error={tree.error}/>:treeMode?<>
           <div className="inspection-tree-edit"><span>{splits?`${splits.split(',').length} splits`:'Flat epoch list'}</span><button onClick={()=>setDesignMode(true)}><GitBranch size={13}/> Edit tree</button></div>
-          <PagedTree protocolId={id} filters={filters} splits={splits} revision={revision} selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onSelectEpoch={focusTreeEpoch} onMetadata={receiveTree} onStatus={setTreeStatus}/>
+          <PagedTree cells={protocol.cells} selectedEpochs={targets} setSelectedEpochs={selectOverviewTargets} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});}} presentation="tree" protocolId={id} filters={filters} splits={splits} revision={revision} selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onSelectEpoch={focusTreeEpoch} onMetadata={receiveTree} onStatus={setTreeStatus}/>
         </>:<>
-          <div className="selection-controls"><button disabled={busy||rows.loading} onClick={()=>setTargets(rows.data?.epochs?.map(e=>e.epoch_uuid)||[])}>Select this page</button><button disabled={busy||!targets.length} onClick={()=>setTargets([])}>Clear {targets.length || ''}</button></div>
-          <div ref={epochListRef} className="tree-scroll" tabIndex={0} aria-label="Chronological matching epochs. Up and down arrows select epochs."><Status {...rows}><EpochSkimList epochs={rows.data?.epochs||[]} offset={offset} focused={focused} onFocus={setFocused} targets={targets} setTargets={setTargets} disabled={busy||rows.loading}/></Status></div>
-          <div className="pagination"><button disabled={!offset} onClick={()=>setOffset(Math.max(0,offset-60))} aria-label="Previous epoch page"><ArrowLeft size={14}/></button><span>{rows.data?.total?offset+1:0}–{Math.min(offset+60,rows.data?.total||0)}</span><button disabled={offset+60>=(rows.data?.total||0)} onClick={()=>setOffset(offset+60)} aria-label="Next epoch page"><ArrowRight size={14}/></button></div>
-          {!metadataOpen&&tagEntry}
+          <div ref={epochListRef} className="tree-scroll" aria-label="Date, cell and epoch overview"><InspectionCellTree key={`${id}:${protocolSearch}`} cells={protocol.cells||[]} source={{kind:'protocol',protocolId:id,query:protocolSearch}} revision={revision} focused={cellTagRequest?null:focused} onFocus={focusTreeEpoch} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cell,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);}} targets={targets} setTargets={selectOverviewTargets} disabled={busy}/></div>
+          {!metadataOpen&&<StableContent className="stable-tag-dock" scope={id} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} error={epoch.error} retry={epoch.reload}>{tagEntry}</StableContent>}
         </>}
       </aside>}
       {treeOpen&&<PaneDivider label={designMode?'Resize tree editor pane':'Resize epoch tree pane'} value={paneSizes.tree} min={180} max={paneSizes.treeMax} onChange={value=>changePane('tree',value)} onCommit={value=>savePane('tree',value)}/>}
-      {designMode?<PagedTree protocolId={id} filters={filters} splits={splits} revision={revision} design selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onMetadata={receiveTree} onStatus={setTreeStatus} onSelectEpoch={(uuid,info)=>{focusTreeEpoch(uuid,info);setTreeMode(true);changePane('tree',Math.max(420,paneSizes.tree));setDesignMode(false);}}/>:<div className="inspection-detail"><Status {...epoch} data={focusedEpoch} loading={!epoch.error&&(epoch.loading||(!!focused&&!focusedEpoch))} retry={epoch.reload}>{focusedEpoch?<>
+      {designMode?<PagedTree cells={protocol.cells} selectedEpochs={targets} setSelectedEpochs={selectOverviewTargets} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});}} presentation="columns" protocolId={id} filters={filters} splits={splits} revision={revision} design selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onMetadata={receiveTree} onStatus={setTreeStatus} onSelectEpoch={(uuid,info)=>{focusTreeEpoch(uuid,info);setTreeMode(false);setDesignMode(false);}}/>:<div className="inspection-detail"><StableContent scope={id} {...epoch} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} retry={epoch.reload}>{cellTagRequest||targets.length>0?<SelectionOverview cell={cellTagRequest} count={targets.length}/>:focusedEpoch?<>
         <div className="epoch-heading"><div>
           <h2>{datedCellLabel(focusedEpoch)}</h2>
-          <p>Epoch {focusedEpoch.epoch_number ?? '—'} within block · {focusedEpoch.start_time?.split(/[T ]/)[1]?.slice(0,8) || 'Time not recorded'}</p>
+          <p>{humanize(focusedEpoch.protocol_name?.split('.').at(-1)) || 'Protocol not recorded'} · Epoch {focusedEpoch.epoch_number ?? '—'} within block · {focusedEpoch.start_time?.split(/[T ]/)[1]?.slice(0,8) || 'Time not recorded'}</p>
         </div><div className="epoch-heading-badges">{onQC&&<button disabled={busy} onClick={()=>onQC(focusedEpoch.cell_uuid)} title="Open quality-control recordings linked to this cell">Cell QC</button>}<Badge kind={focusedEpoch.curation?.included===false?'neutral':'info'}>{focusedEpoch.curation?.included===false?'Excluded':'Included'}</Badge><Badge>{focusedEpoch.exports?.length?`${focusedEpoch.exports.length} saved exports`:'No saved export'}</Badge></div></div>
-        <div className="epoch-navigation" tabIndex={0} aria-label="Epoch navigation. Up and down arrows move chronologically."><button disabled={!!pendingNavigation||rows.loading||busy||(offset===0&&focusedPageIndex===0)} onClick={()=>moveEpoch(-1)}><ArrowLeft size={14}/> Previous epoch</button><span>{pendingNavigation?'Loading next metadata page…':focusedPageIndex<0?'Focused epoch is outside the loaded page':`Epoch ${offset+focusedPageIndex+1} of ${rows.data.total} matching epochs`}</span><button disabled={!!pendingNavigation||rows.loading||busy||(focusedPageIndex>=0&&offset+focusedPageIndex+1>=(rows.data?.total||0))} onClick={()=>moveEpoch(1)}>Next epoch <ArrowRight size={14}/></button></div>
-        <Trace key={focusedEpoch.epoch_uuid} epoch={focusedEpoch}/>
+        <EpochNavigation position={focusedPageIndex<0?-1:offset+focusedPageIndex} total={rows.data?.total||0} loading={!!pendingNavigation||rows.loading} disabled={busy} onMove={moveEpoch}/>
+
+        <Trace epoch={focusedEpoch} revision={revision}/>
         <div className="curation-bar">
           <button disabled={busy} onClick={()=>curate({included:true})}><Check size={14}/> Include {actionScope}</button>
           <button disabled={busy} onClick={()=>curate({included:false})}><X size={14}/> Exclude {actionScope}</button>
           {!metadataOpen&&(!treeOpen||treeMode)&&tagEntry}
         </div>
         {busy&&<p className="curation-progress" role="status">{operationMessage}</p>}
-        <div className="tags"><span>Focused epoch tags:</span>
+        <div className="tags"><span>Dataset-only tags:</span>
           {(focusedEpoch.curation?.tags||[]).map(t=><button key={t} disabled={busy} aria-label={`Remove tag ${t} from focused epoch only`} title="Remove from focused epoch only" onClick={()=>curate({tags_remove:[t]},'focused')}>{t}<X size={13}/></button>)}
           {!focusedEpoch.curation?.tags?.length&&<span>No tags</span>}
           {focusedEpoch.curation?.included===false&&<Badge kind="warning">Focused epoch excluded from export</Badge>}
@@ -312,8 +344,10 @@ export default function Inspector({protocol,initialEpochUuid=null,cellScope,filt
             {targets.length?`Mark ${actionScope} reviewed`:focusedEpoch.curation?.review_state==='approved'?'Clear focused epoch review marker':'Mark focused epoch reviewed'}
           </button>
         </details>
-      </>:<Empty title="Choose an epoch">Select an epoch from the tree to inspect its response and metadata.</Empty>}</Status></div>}
-      {!designMode&&metadataOpen&&<><PaneDivider label="Resize metadata pane" value={paneSizes.metadata} min={240} max={paneSizes.metadataMax} reverse className={paneSizes.overlay?'metadata-overlay-divider':''} style={paneSizes.overlay?{right:paneSizes.metadata}:undefined} onChange={value=>changePane('metadata',value)} onCommit={value=>savePane('metadata',value)}/><MetadataPanel tags={tagEntry} epoch={focusedEpoch} catalog={metadataCatalog} onClose={()=>toggleMetadata(false)} context={focusedEpoch&&<ScientificContext epoch={focusedEpoch}/>} connections={focusedEpoch&&<EpochConnections epoch={focusedEpoch} protocolName={humanize(protocol.definition?.name)}/>}/></>}
+      </>:<Empty title="Choose an epoch">Select an epoch from the tree to inspect its response and metadata.</Empty>}</StableContent></div>}
+      {!designMode&&metadataOpen&&<><PaneDivider label="Resize metadata pane" value={paneSizes.metadata} min={240} max={paneSizes.metadataMax} reverse className={paneSizes.overlay?'metadata-overlay-divider':''} style={paneSizes.overlay?{right:paneSizes.metadata}:undefined} onChange={value=>changePane('metadata',value)} onCommit={value=>savePane('metadata',value)}/><StableContent className="stable-metadata" scope={id} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} error={epoch.error} retry={epoch.reload}><MetadataPanel selectionCell={cellTagRequest} selectedEpochs={targets} onClearSelection={()=>setTargets([])} tags={tagEntry} epoch={focusedEpoch} catalog={metadataCatalog} onClose={()=>toggleMetadata(false)} context={focusedEpoch&&<ScientificContext epoch={focusedEpoch}/>} connections={focusedEpoch&&<EpochConnections epoch={focusedEpoch} protocolName={humanize(protocol.definition?.name)}/>}/></StableContent></>}
     </div>
   </div>;
 }
+
+export default function Inspector(props){return <NavigationLoadingProvider><InspectorContent {...props}/></NavigationLoadingProvider>;}

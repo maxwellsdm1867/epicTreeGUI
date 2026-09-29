@@ -9,14 +9,14 @@ const signed=value=>value>0?`+${number(value)}`:value<0?`−${number(Math.abs(va
 function Metric({icon:Icon,label,previous,next,delta,hint}){
   return <div className="protocol-diff-metric"><span title={hint}><Icon size={14}/>{label}</span><div><span>{previous==null?'—':number(previous)}</span><ArrowRight size={14}/><strong>{next==null?'—':number(next)}</strong><small className={delta>0?'diff-add':delta<0?'diff-remove':'diff-neutral'}>{delta==null?'—':signed(delta)}</small></div></div>;
 }
-export function CompactProtocolDiff({comparison}){
+export function CompactProtocolDiff({comparison,showProtocolCount=true}){
   const summary=comparison.diff_summary;
   const current=summary?.current || {epochs:comparison.previous_count};
   const proposed=summary?.proposed || {epochs:comparison.next_count};
   const delta=summary?.delta || {epochs:proposed.epochs-current.epochs};
   return <div className="protocol-diff-compact" aria-label="Current to proposed dataset counts">{[['cells','Cells'],['epochs','Epochs'],['acquisition_protocols','Recorded protocols']].map(([key,label])=><span key={key}><span>{label}</span><strong>{current[key]==null?'—':number(current[key])} → {proposed[key]==null?'—':number(proposed[key])}</strong>{delta[key]!=null&&delta[key]!==0&&<small className={delta[key]>0?'diff-add':'diff-remove'}>{signed(delta[key])}</small>}</span>)}</div>;
 }
-export default function ProtocolDiff({comparison}){
+export default function ProtocolDiff({comparison,showProtocolCount=true}){
   const [limit,setLimit]=useState(20);
   const summary=comparison.diff_summary;
   const current=summary?.current || {epochs:comparison.previous_count};
@@ -32,7 +32,7 @@ export default function ProtocolDiff({comparison}){
   const cellChangeCount=['added','removed','updated'].reduce((sum,key)=>sum+(totals[key]??cellChanges[key]?.length??0),0);
   return <div className="protocol-diff">
     <div className="protocol-diff-legend"><span>Current <ArrowRight size={12}/> Proposed</span><span>Saved candidate</span></div>
-    <div className="protocol-diff-metrics"><Metric icon={Microscope} label="Cells" previous={current.cells} next={proposed.cells} delta={delta.cells}/><Metric icon={Activity} label="Epochs" previous={current.epochs} next={proposed.epochs} delta={delta.epochs}/><Metric icon={Layers3} label="Recorded protocols" hint="Unique acquisition protocol names in the dataset; saved protocol workspaces are not counted here." previous={current.acquisition_protocols} next={proposed.acquisition_protocols} delta={delta.acquisition_protocols}/></div>
+    <div className="protocol-diff-metrics"><Metric icon={Microscope} label="Cells" previous={current.cells} next={proposed.cells} delta={delta.cells}/><Metric icon={Activity} label="Epochs" previous={current.epochs} next={proposed.epochs} delta={delta.epochs}/>{showProtocolCount&&<Metric icon={Layers3} label="Recorded protocols" hint="Unique acquisition protocol names in the dataset; saved protocol workspaces are not counted here." previous={current.acquisition_protocols} next={proposed.acquisition_protocols} delta={delta.acquisition_protocols}/>}</div>
     <div className="protocol-diff-distribution"><div className="protocol-diff-bars" role="img" aria-label={`Current: ${number(current.epochs)} epochs, ${number(removed)} to remove. Proposed: ${number(proposed.epochs)} epochs, ${number(added)} to add. ${number(retained)} retained.`}>
       <div><span>Current</span><div className="protocol-diff-track"><i className="retained" style={{width:`${retained/scale*100}%`}}/><i className="removed" style={{width:`${removed/scale*100}%`}}/></div><small>{number(current.epochs)}</small></div>
       <div><span>Proposed</span><div className="protocol-diff-track"><i className="retained" style={{width:`${Math.max(0,(proposed.epochs || 0)-added)/scale*100}%`}}/><i className="added" style={{width:`${added/scale*100}%`}}/></div><small>{number(proposed.epochs)}</small></div>

@@ -43,6 +43,19 @@ class ProjectDiscoveryTests(unittest.TestCase):
         self.assertNotIn('must never leave registry', json.dumps(result))
         self.assertEqual(before, (self.current / 'project.json').stat().st_mtime_ns)
 
+    def test_native_copies_remain_selectable_by_folder(self):
+        from workspace_projects import list_managed_projects
+        identity=json.loads((self.current/'project.json').read_text())['project_uuid']
+        other=self.make_project('copy','Current project',identity=identity)
+        for path in (self.current,other):
+            catalog=json.loads((path/'catalog.json').read_text())
+            catalog['managed_database']={'kind':'native-mysql'}
+            (path/'catalog.json').write_text(json.dumps(catalog))
+        result=list_projects(self.current)
+        self.assertEqual(len(result['projects']),2)
+        self.assertEqual([p['current'] for p in result['projects']],[True,False])
+        self.assertEqual(len(list_managed_projects(self.root)['projects']),2)
+
     def test_only_valid_immediate_siblings_are_discovered(self):
         self.make_project('container/nested', 'Nested project')
         (self.root / 'empty').mkdir()

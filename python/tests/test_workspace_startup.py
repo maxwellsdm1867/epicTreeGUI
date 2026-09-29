@@ -16,6 +16,8 @@ class ProjectStartupTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)/'managed'
+        native_start=patch('workspace_native_mysql.ensure_native_database',side_effect=AssertionError('Unit startup tests must not start a native server'))
+        native_start.start();self.addCleanup(native_start.stop)
 
     def test_zero_projects_welcome_requires_no_database_or_h5(self):
         app=create_launcher(self.root, self.root/'unused-retinanalysis')
@@ -44,7 +46,10 @@ class ProjectStartupTests(unittest.TestCase):
             self.assertEqual(list((folder/'raw-uploads').iterdir()),[])
             self.assertNotIn('password',json.dumps(catalog).lower())
             self.assertFalse((folder/'database/mysql').exists())
-        self.assertNotEqual(catalogs[0]['connection']['credential_provider']['container'],catalogs[1]['connection']['credential_provider']['container'])
+        self.assertNotEqual(catalogs[0]['managed_database']['instance_uuid'],catalogs[1]['managed_database']['instance_uuid'])
+        for catalog in catalogs:
+            self.assertEqual(catalog['connection']['credential_provider']['kind'],'native-project')
+            self.assertNotIn('container',catalog['managed_database'])
         remember_project(self.root,second['uuid'])
         result=list_managed_projects(self.root)
         self.assertEqual(result['last_project_uuid'],second['uuid'])
@@ -77,6 +82,11 @@ class ProjectStartupTests(unittest.TestCase):
         response=client.post('/api/projects',json={'name':'One'},headers=headers)
         self.assertEqual(response.status_code,201)
         self.assertEqual(response.get_json()['database_status'],'not_started')
+        created=Path(response.get_json()['project']['path'])
+        catalog=json.loads((created/'catalog.json').read_text())
+        self.assertEqual(catalog['connection']['credential_provider']['kind'],'native-project')
+        self.assertEqual(catalog['managed_database']['kind'],'native-mysql')
+        self.assertFalse((created/'database/mysql').exists())
         self.assertEqual(client.post('/api/projects',json={'name':'One'},headers=headers).status_code,400)
         self.assertEqual(client.post('/api/projects',json={'name':'Two','source':'copied.h5'},headers=headers).status_code,400)
         self.assertEqual(client.post('/api/projects',json={'name':'Two'},headers={**headers,'Origin':'https://foreign.example'}).status_code,403)
@@ -92,13 +102,29 @@ class ProjectStartupTests(unittest.TestCase):
             self.assertEqual(opened.call_args.args[1],project['uuid'])
             self.assertTrue(opened.call_args.kwargs['managed'])
 
+    def _legacy_project(self,name):
+        """Legacy tests explicitly retain Docker descriptors after the default changed."""
+        project=create_project(self.root,name)
+        identity=project['uuid'];container='rieke-os-'+identity.replace('-','')
+        descriptor={'version':1,'project_uuid':identity,'container':container,
+                    'image':'datajoint/mysql:8.0','storage_ref':'database/mysql'}
+        catalog={'format':'recording-catalog-reference','version':1,'project_uuid':identity,
+            'adapter':'datajoint','database':'schema','workspace_database':'recording_workspace',
+            'connection':{'host':'127.0.0.1','port':None,
+                          'credential_provider':{'kind':'docker-container-env','container':container}},
+            'managed_database':descriptor}
+        root=Path(project['path'])
+        (root/'catalog.json').write_text(json.dumps(catalog))
+        (root/'database/service.json').write_text(json.dumps(descriptor))
+        return project
+
     def _info(self,project):
         return {'Config':{'Labels':{'rieke-os.project_uuid':project['uuid'],'rieke-os.project_path':project['path']}},
                 'State':{'Running':True},'HostConfig':{'PortBindings':{'3306/tcp':[{'HostIp':'127.0.0.1','HostPort':'44001'}]}},
                 'Mounts':[{'Type':'bind','Destination':'/var/lib/mysql','Source':str(Path(project['path'])/'database/mysql')}]}
 
     def test_database_created_only_on_open_with_owned_storage_and_private_random_password(self):
-        project=create_project(self.root,'Owned')
+        project=self._legacy_project('Owned')
         info=self._info(project)
         result=lambda code=0,stdout='':SimpleNamespace(returncode=code,stdout=stdout,stderr='')
         with patch('workspace_project_database._run',side_effect=[result(),result(1),result(),result(stdout=json.dumps([info])),result(stdout='1')]) as run:
@@ -110,7 +136,7 @@ class ProjectStartupTests(unittest.TestCase):
             self.assertNotIn(create.kwargs['env']['MYSQL_ROOT_PASSWORD'],' '.join(create.args[0]))
 
     def test_existing_database_reopened_without_recreation_and_wrong_owner_rejected(self):
-        project=create_project(self.root,'Owned')
+        project=self._legacy_project('Owned')
         info=self._info(project)
         result=lambda stdout='':SimpleNamespace(returncode=0,stdout=stdout,stderr='')
         with patch('workspace_project_database._run',side_effect=[result(),result(json.dumps([info])),result('1')]) as run:
@@ -122,7 +148,7 @@ class ProjectStartupTests(unittest.TestCase):
             self.assertFalse(any(call.args[0][0]=='start' for call in run.call_args_list))
 
     def test_ownership_guard_survives_importers_catalog_reference_rewrite(self):
-        project=create_project(self.root,'Imported')
+        project=self._legacy_project('Imported')
         path=Path(project['path'])/'catalog.json'
         catalog=json.loads(path.read_text());catalog.pop('managed_database');path.write_text(json.dumps(catalog))
         info=self._info(project);info['Config']['Labels']['rieke-os.project_uuid']='another-project'
@@ -131,7 +157,7 @@ class ProjectStartupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'ownership'):ensure_project_database(project['path'])
 
     def test_orphaned_database_storage_never_reinitialized(self):
-        project=create_project(self.root,'Orphan')
+        project=self._legacy_project('Orphan')
         data=Path(project['path'])/'database/mysql';data.mkdir();(data/'existing-data').write_text('preserve')
         result=lambda code=0:SimpleNamespace(returncode=code,stdout='',stderr='')
         with patch('workspace_project_database._run',side_effect=[result(),result(1)]):

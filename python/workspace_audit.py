@@ -24,6 +24,12 @@ import uuid
 AUDIT_VERSION = 1
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_FILES = (
+    "python/workspace_mask_refresh.py", "python/workspace_matlab_routes.py",
+    "python/workspace_export_folder.py", "workspace-app/src/components/MetadataRefresh.jsx",
+    "python/workspace_external_tags.py", "workspace-app/src/externalTagMonitor.js",
+    "workspace-app/src/components/ExternalTagSync.jsx",
+    "python/workspace_annotations.py", "python/workspace_tag_predicates.py", "python/workspace_tag_exchange.py",
+    "python/workspace_search_presets.py",
     "python/workspace_audit.py", "python/recording_workspace.py",
     "python/workspace_api.py", "python/workspace_service.py",
     "python/workspace_curation.py", "python/workspace_recipes.py",
@@ -34,7 +40,7 @@ SOURCE_FILES = (
     "workspace-app/src/components/ColumnTree.jsx", "workspace-app/src/pagedTreeRequest.js",
     "workspace-app/src/components/EpochSkimList.jsx", "workspace-app/src/epochSkimGroups.js",
     "workspace-app/src/components/EpochTags.jsx", "workspace-app/src/components/MetadataPanel.jsx",
-    "python/workspace_predicates.py", "python/workspace_explorer.py", "python/workspace_diff.py", "python/workspace_import_check.py", "python/workspace_import_progress.py", "python/workspace_suggestions.py", "python/workspace_qc.py", "python/workspace_search.py", "python/workspace_datastores.py",
+    "python/workspace_predicates.py", "python/workspace_explorer.py", "python/workspace_protocol_identity.py", "python/workspace_diff.py", "python/workspace_import_check.py", "python/workspace_import_progress.py", "python/workspace_suggestions.py", "python/workspace_qc.py", "python/workspace_search.py", "python/workspace_datastores.py",
     "workspace-app/src/components/PredicateBuilder.jsx",
     "python/workspace_storage.py", "python/workspace_tree.py", "workspace-app/package.json",
     "python/workspace_import_check.py", "python/workspace_import_progress.py", "python/workspace_suggestions.py", "python/workspace_qc.py", "python/workspace_search.py", "python/workspace_datastores.py", "workspace-app/src/components/DataStores.jsx",
@@ -51,7 +57,7 @@ SOURCE_FILES = (
     "workspace-app/src/components/ProjectFiles.jsx",
 )
 CONTRACT_VERSIONS = {
-    "audit_payload": 1, "workspace_schema": 1, "tree_view": 1,
+    "shared_annotations": 1, "audit_payload": 1, "workspace_schema": 1, "tree_view": 1,
     "metadata_disk_index": 1, "source_projection_cache": 1, "tree_page": 1,
     "source_eligibility": 2, "source_propagation": 1, "import_preflight": 1,
     "source_predicate": 1, "explorer_revision": 1, "protocol_binding": 1, "data_store_lifecycle": 1,
@@ -207,6 +213,32 @@ def _count(payload, audit, action):
     return None
 
 
+def tag_activity_summary(payload):
+    """Summarize recorded author attribution; never substitute the OS actor."""
+    before = payload.get('before', [])
+    after = payload.get('after', [])
+    if not isinstance(before, list) or not isinstance(after, list):return None
+    def identity(row):return (row.get('profile_uuid'), row.get('target_kind'), row.get('target_uuid'))
+    previous = {identity(row): row for row in before if isinstance(row, dict)}
+    authors, changes = {}, {}
+    for row in after:
+        if not isinstance(row, dict):continue
+        profile = row.get('profile_uuid')
+        author = row.get('author_name') or 'Author not recorded'
+        authors[profile] = {'profile_uuid':profile, 'name':author}
+        old = previous.get(identity(row), {})
+        old_tags = {tag for tag in (old.get('tags') or []) if isinstance(tag, str)}
+        new_tags = {tag for tag in (row.get('tags') or []) if isinstance(tag, str)}
+        for operation, tags in (('added',new_tags-old_tags), ('removed',old_tags-new_tags)):
+            for tag in sorted(tags):
+                key = (profile, row.get('target_kind'), operation, tag)
+                item = changes.setdefault(key, {'profile_uuid':profile, 'author':author,
+                    'scope':row.get('target_kind'), 'operation':operation, 'tag':tag, 'targets':0})
+                item['targets'] += 1
+    return {'authors':list(authors.values())[:20], 'author_count':len(authors),
+            'changes':list(changes.values())[:24], 'change_count':len(changes)}
+
+
 def normalize_event(row):
     """Add UI summary without fabricating provenance for historical events."""
     result = _safe(copy.deepcopy(row))
@@ -243,6 +275,11 @@ def normalize_event(row):
         "operation_uuid": audit.get("operation_uuid") if versioned else payload.get("operation_uuid"),
         "protocol_uuid": payload.get("protocol_uuid") or context.get("protocol_uuid"),
         "entity_count": _count(payload, audit, action)}
+    if action == 'shared_annotations_updated':
+        result['tag_activity'] = tag_activity_summary(payload)
+    elif action == 'annotation_profile_created':
+        result['tag_activity'] = {'authors':[{'profile_uuid':payload.get('profile_uuid'),
+            'name':payload.get('display_name') or 'Author not recorded'}], 'author_count':1, 'changes':[], 'change_count':0}
     result["provenance"] = audit.get("provenance", {}) if versioned else {}
     return result
 

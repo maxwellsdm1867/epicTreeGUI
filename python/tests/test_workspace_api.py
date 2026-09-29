@@ -193,19 +193,16 @@ class WorkspaceAPITests(unittest.TestCase):
         self.assertEqual(len(page['epochs']), 1)
         self.assertEqual(page['epochs'][0]['curation']['review_state'], 'unreviewed')
 
-    def test_tag_and_exclude_is_audited_without_approval(self):
+    def test_tag_and_exclude_saves_state_without_approval(self):
         body = self.curation_body({'tags_add': ['noisy'], 'included': False})
         response = self.client.post(self.base + '/curation', json=body, headers=self.headers)
         self.assertEqual(response.status_code, 200, response.get_json())
-        self.assertEqual(len(self.events.rows), 1)
-        event = self.events.rows[0]
+        self.assertEqual(len(self.events.rows), 0)
         for key, state in response.get_json()['curation'].items():
             self.assertEqual(state['review_state'], 'unreviewed')
             self.assertEqual(state['tags'], ['noisy'])
             self.assertFalse(state['included'])
             self.assertEqual(state['revision'], 1)
-            self.assertTrue(event['payload']['before'][key]['included'])
-            self.assertFalse(event['payload']['after'][key]['included'])
         counts = self.client.get(self.base).get_json()['counts']
         self.assertEqual((counts['approved'], counts['excluded'], counts['exportable']), (0, 2, 0))
 
@@ -229,13 +226,14 @@ class WorkspaceAPITests(unittest.TestCase):
         self.assertFalse(self.events.rows)
 
     def test_approved_only_export_rejects_unreviewed_without_output(self):
+        existing_files = set((Path(self.temp.name) / 'exports').iterdir())
         response = self.client.post(self.base + '/exports', json={
             'query_revision': self.revision(), 'review_policy': 'approved_only'}, headers=self.headers)
         self.assertEqual(response.status_code, 400, response.get_json())
         self.assertIn('No epochs eligible', response.get_json()['error'])
         self.assertFalse(self.datasets.rows)
         self.assertFalse(self.events.rows)
-        self.assertEqual(list((Path(self.temp.name) / 'exports').iterdir()), [])
+        self.assertEqual(set((Path(self.temp.name) / 'exports').iterdir()), existing_files)
 
     def test_invalid_export_filter_shape_never_broadens_membership(self):
         for invalid in ([], False, ""):
@@ -315,15 +313,12 @@ class WorkspaceAPITests(unittest.TestCase):
         result = response.get_json()
         self.assertEqual((result['imported_count'], result['included_count']), (2, 1))
         self.assertEqual(result['query_revision'], self.revision())
-        self.assertEqual(len(self.events.rows), 2)
+        self.assertEqual(len(self.events.rows), 0)
         for key, state in result['curation'].items():
             self.assertEqual(state['tags'], ['inspected'])
             self.assertEqual(state['review_state'], 'approved')
             self.assertEqual(state['revision'], 2)
-        payload = self.events.rows[-1]['payload']
-        self.assertIn('inclusion_by_epoch', payload['changes'])
-        self.assertTrue(all(row['included'] for row in payload['before'].values()))
-        self.assertEqual(sum(row['included'] for row in payload['after'].values()), 1)
+        self.assertEqual(sum(row['included'] for row in result['curation'].values()), 1)
         self.assertEqual(self.mask(), mask)
 
     def test_mask_rejects_malformed_duplicate_unknown_or_partial_membership(self):
@@ -361,7 +356,7 @@ class WorkspaceAPITests(unittest.TestCase):
         self.assertEqual(update.status_code, 200)
         stale_curation = self.import_mask(mask, old_revision)
         self.assertEqual(stale_curation.status_code, 409)
-        self.assertEqual(len(self.events.rows), 1)
+        self.assertEqual(len(self.events.rows), 0)
         self.assertTrue(all(row['included'] for row in self.curation.rows))
 
     def test_mask_write_failure_rolls_back_entire_mixed_selection(self):
@@ -731,7 +726,7 @@ class WorkspaceAPITests(unittest.TestCase):
         self.assertFalse(self.events.rows)
         self.assertFalse(self.explorer_revisions.rows)
 
-    def test_protocol_compare_apply_summary_reports_cells_protocols_and_audits_exact_numbers(self):
+    def test_protocol_comparison_reports_exact_counts_but_rejects_mixed_acquisition_ids(self):
         import copy
         extra = str(uuid.uuid4())
         self.service.rows[extra] = {**copy.deepcopy(self.service.rows[self.service.ids[0]]),
@@ -761,16 +756,12 @@ class WorkspaceAPITests(unittest.TestCase):
             'protocol_uuid': self.service.protocol_id,
             'expected_binding_version': result['expected_binding_version'],
             'expected_query_revision': result['expected_query_revision']}, headers=self.headers)
-        self.assertEqual(applied.status_code, 200, applied.get_json())
-        self.assertEqual(applied.get_json()['diff_summary'], summary)
-        event = next(event for event in self.events.rows if event['action'] == 'protocol_dataset_bound')
-        self.assertEqual(event['payload']['diff_summary'], summary)
-        refreshed = self.client.post(self.base + '/refresh', headers=self.headers)
-        self.assertEqual(refreshed.status_code, 200, refreshed.get_json())
-        refresh_summary = refreshed.get_json()['diff_summary']
-        self.assertEqual(refresh_summary['current'], refresh_summary['proposed'])
-        self.assertTrue(all(value == 0 for value in refresh_summary['delta'].values()))
-        self.assertEqual(self.service.query_result(self.service.protocol_id)['dataset_binding']['version'], 1)
+        self.assertFalse(result['compatibility']['compatible'])
+        self.assertEqual(applied.status_code, 400, applied.get_json())
+        self.assertIn('Protocol mismatch', applied.get_json()['error'])
+        self.assertFalse(any(event['action']=='protocol_dataset_bound' for event in self.events.rows))
+        self.assertEqual(len(self.service.query_result(self.service.protocol_id)['epochs']),2)
+
 
 
 if __name__ == '__main__':

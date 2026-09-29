@@ -42,7 +42,8 @@ class HandoffTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(download.data)) as bundle:
             self.assertEqual(set(bundle.namelist()), {'recordings.mat', 'selection.ugm', 'launch_epictree.m',
                 'recipe.json', 'matlab_recipe.json', 'recordings.json', 'export-report.json', 'README.txt',
-                'launchWorkspaceTree.m', 'tree_layout.m'})
+                'launchWorkspaceTree.m', 'tree_layout.m', 'annotations.json', 'readWorkspaceTags.m',
+                'validateWorkspaceTags.m', 'workspaceTag.m', 'writeWorkspaceTags.m'})
             mat = loadmat(io.BytesIO(bundle.read('recordings.mat')), simplify_cells=True)
             self.assertEqual(mat['metadata']['dataset_uuid'], saved['dataset_uuid'])
             path = Path(self.temp.name) / 'returned.ugm'

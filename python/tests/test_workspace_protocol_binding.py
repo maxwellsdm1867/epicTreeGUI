@@ -142,6 +142,118 @@ class ProtocolBindingTests(api_tests.WorkspaceAPITests):
         self.assertEqual(self.client.get(self.base).get_json()['counts']['epochs'], 2)
 
 
+    def test_exact_acquisition_identity_blocks_wrong_and_mixed_destinations(self):
+        self.service.rows[self.service.ids[1]]['protocol_name'] = 'other.example'
+        self.service._predicate_catalog_cache = None
+        self.service._tree_catalog_cache = {}
+        for predicate in ({'all': []}, {'all': [{'field':'protocol','operator':'eq','value':'other.example'}]}):
+            candidate = self.save_candidate(predicate)
+            comparison = self.comparison(candidate)
+            self.assertFalse(comparison['compatibility']['compatible'])
+            self.assertEqual(comparison['compatibility']['expected_protocol_id'], 'example')
+            self.assertEqual(comparison['compatibility']['incompatible_epoch_count'], 1)
+            before = copy.deepcopy(self.protocol_bindings.rows)
+            response = self.apply_candidate(candidate, comparison)
+            self.assertEqual(response.status_code, 400, response.get_json())
+            self.assertIn('Protocol mismatch', response.get_json()['error'])
+            self.assertEqual(self.protocol_bindings.rows, before)
+
+    def test_reduced_same_protocol_selection_remains_valid(self):
+        candidate = self.narrow(); comparison = self.comparison(candidate)
+        self.assertTrue(comparison['compatibility']['compatible'])
+        self.assertEqual(comparison['diff_counts']['removed'], 1)
+        self.assertEqual(self.apply_candidate(candidate, comparison).status_code, 200)
+
+    def test_protocol_export_rechecks_identity_even_for_legacy_bad_binding(self):
+        self.service.rows[self.service.ids[1]]['protocol_name'] = 'other.example'
+        candidate = self.save_candidate({'all': []})
+        self.explorer_history.bind(candidate['revision_uuid'],self.service.protocol_id,0,'fixture',{},2)
+        response = self.client.post(self.base + '/exports',json={
+            'name':'wrong export','query_revision':self.revision(),'review_policy':'include_unreviewed'},headers=self.headers)
+        self.assertEqual(response.status_code,400,response.get_json())
+        self.assertIn('Protocol mismatch',response.get_json()['error'])
+        self.assertEqual(self.datasets.rows,[])
+
+    def create_protocol(self,candidate,**overrides):
+        body={'name':'Narrow example','protocol_id':'example',
+              'expected_recipe_sha256':candidate['recipe']['content_sha256'],**overrides}
+        return self.client.post('/api/explore/revisions/'+candidate['revision_uuid']+'/create-protocol',json=body,headers=self.headers)
+
+    def test_create_pinned_protocol_is_persistent_exact_and_retry_safe(self):
+        candidate=self.narrow(); old=copy.deepcopy(self.service.protocols[self.service.protocol_id])
+        result=self.create_protocol(candidate)
+        self.assertEqual(result.status_code,201,result.get_json())
+        identity=result.get_json()['protocol_uuid'];base='/api/protocols/'+identity
+        self.assertEqual(result.get_json()['epoch_count'],1)
+        definition=json.loads(self.service.protocol_file(identity).read_text())
+        self.assertEqual(definition['query']['all'][0]['value'],'example')
+        self.assertEqual(definition['initial_revision_uuid'],candidate['revision_uuid'])
+        self.assertEqual(self.service.protocols[self.service.protocol_id],old)
+        protocol=self.client.get(base).get_json()
+        self.assertEqual(protocol['counts']['epochs'],1)
+        self.assertEqual(self.client.get(base+'/epochs').get_json()['epochs'][0]['epoch_uuid'],self.service.ids[0])
+        events=len(self.events.rows)
+        retry=self.create_protocol(candidate)
+        self.assertEqual(retry.status_code,200,retry.get_json())
+        self.assertEqual(retry.get_json()['protocol_uuid'],identity)
+        self.assertEqual(len(self.events.rows),events)
+        exported=self.client.post(base+'/exports',json={'name':'New selection',
+            'review_policy':'include_unreviewed','query_revision':protocol['query_revision'],'split_order':'cell'},headers=self.headers)
+        self.assertEqual(exported.status_code,201,exported.get_json())
+        package=self.client.get(exported.get_json()['download_url']).get_json()
+        self.assertEqual([row['epoch_uuid'] for row in package['epochs']],self.service.ids[:1])
+
+    def test_creation_rejects_mixed_empty_mismatched_identity_and_stale_preview(self):
+        self.service.rows[self.service.ids[1]]['protocol_name']='other.example'
+        for predicate,override in [({'all': []},{}),
+                ({'all':[{'field':'protocol','operator':'eq','value':'absent'}]},{}),
+                ({'all':[{'field':'protocol','operator':'eq','value':'example'}]},{'protocol_id':'other.example'}),
+                ({'all':[{'field':'protocol','operator':'eq','value':'example'}]},{'expected_recipe_sha256':'0'*64})]:
+            candidate=self.save_candidate(predicate)
+            response=self.create_protocol(candidate,**override)
+            self.assertIn(response.status_code,(400,409),response.get_json())
+            self.assertEqual(len(self.service.protocols),1)
+            self.assertFalse(list((self.service.project_dir/'protocols').glob('*.protocol.json')))
+            self.assertEqual(self.protocol_bindings.rows,[])
+
+    def test_create_audit_failure_leaves_no_manifest_or_binding(self):
+        candidate=self.narrow(); before=copy.deepcopy(self.events.rows)
+        with patch.object(self.events,'insert1',side_effect=RuntimeError('Audit unavailable')):
+            result=self.create_protocol(candidate)
+        self.assertEqual(result.status_code,500)
+        self.assertEqual(self.events.rows,before)
+        self.assertEqual(self.protocol_bindings.rows,[])
+        self.assertFalse(list((self.service.project_dir/'protocols').glob('*.protocol.json')))
+
+    def test_manifest_publication_failure_rolls_back_new_binding(self):
+        candidate=self.narrow();before=copy.deepcopy(self.events.rows)
+        with patch('json.dump',side_effect=OSError('Disk full')):
+            result=self.create_protocol(candidate)
+        self.assertEqual(result.status_code,500,result.get_json())
+        self.assertEqual(self.protocol_bindings.rows,[])
+        self.assertEqual(self.events.rows,before)
+        self.assertEqual(len(self.service.protocols),1)
+        self.assertFalse(list((self.service.project_dir/'protocols').glob('*.protocol.json')))
+
+    def test_missing_initial_binding_never_falls_back_to_base_query(self):
+        candidate=self.narrow();created=self.create_protocol(candidate).get_json()
+        identity=created['protocol_uuid']
+        self.protocol_bindings.rows.clear()
+        with self.assertRaisesRegex(ValueError,'interrupted'):
+            self.service.query_result(identity)
+        repaired=self.create_protocol(candidate)
+        self.assertEqual(repaired.status_code,201,repaired.get_json())
+        self.assertEqual(repaired.get_json()['protocol_uuid'],identity)
+        self.assertEqual(len(self.service.query_result(identity)['epochs']),1)
+
+    def test_options_report_real_ids_and_counts(self):
+        candidate=self.narrow()
+        result=self.client.get('/api/explore/revisions/'+candidate['revision_uuid']+'/protocol-options')
+        self.assertEqual(result.status_code,200,result.get_json())
+        self.assertEqual(result.get_json()['protocols'],[{'protocol_id':'example','epoch_count':1}])
+        self.assertEqual(result.get_json()['cell_count'],1)
+
+
 # Only this module's new tests should run; inherited regression cases are already
 # discovered from test_workspace_api.py. Keep setup and helper reuse explicit.
 for _name in dir(api_tests.WorkspaceAPITests):

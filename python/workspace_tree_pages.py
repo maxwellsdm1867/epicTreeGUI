@@ -225,7 +225,12 @@ class TreePages:
                 offset = (index // limit) * limit
                 payload['offset'] = offset
                 payload['anchor'] = {'epoch_uuid':anchor,'path':path,'index':index,'offset':offset}
-            payload.update(kind='epochs',total=len(selected),epochs=[_epoch(row) for row in selected[offset:offset+limit]])
+            shown=selected[offset:offset+limit]
+            payload.update(kind='epochs',total=len(selected),epochs=[_epoch(row) for row in shown])
+            shared=getattr(self.service,'shared_annotations',None)
+            if shared:
+                annotations=shared.for_epochs(shown)
+                for row in payload['epochs']:row['annotations']=annotations[row['epoch_uuid']]
         payload['has_more'] = offset + limit < payload['total']
         return payload
 

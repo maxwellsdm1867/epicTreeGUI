@@ -4,9 +4,10 @@ import {api,number} from '../api.js';
 import './CandidateExportPanel.css';
 
 // A saved candidate is an immutable search result, not a pinned protocol.
-export default function CandidateExportPanel({candidate,onExported,disabled=false,onChange,defaultName='',defaultFormat='wheeler-sqlite'}) {
+export default function CandidateExportPanel({candidate,onExported,disabled=false,onChange,defaultName='',defaultFormat='wheeler-sqlite',onBusyChange}) {
   const [name,setName]=useState(defaultName),[format,setFormat]=useState(['wheeler-sqlite','epictree-mat','reference-json'].includes(defaultFormat)?defaultFormat:'wheeler-sqlite');
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[completed,setCompleted]=useState(null);
+  useEffect(()=>{onBusyChange?.(busy);},[busy,onBusyChange]);
   const inFlight=useRef(false),currentRevision=useRef(null);
   const revision=candidate?.revision_uuid,recipe=candidate?.recipe;
   currentRevision.current=revision;

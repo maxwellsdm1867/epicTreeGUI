@@ -22,7 +22,7 @@ DIRECTORIES = {
     'exports': ('Exports', 'Versioned reference packages and their recipes.'),
     'logs': ('Logs', 'Import jobs, app jobs, failures and storage operations.'),
     'cache': ('Derived indexes', 'Disposable metadata indexes and source projections; original recordings remain authoritative.'),
-    'backups': ('Backups', 'Reserved for verified database backups; not a live database copy.'),
+    'backups': ('Backups', 'Automatic app-state snapshots and explicitly verified database backups.'),
 }
 LOG_FOLDERS = ('imports', 'app-jobs', 'errors', 'storage')
 
@@ -144,6 +144,15 @@ class ManagedStorage:
         database = {'adapter': config.get('adapter'), 'database': config.get('database'),
                     'workspace_database': config.get('workspace_database'), 'container': container,
                     'storage_path': None, 'status': 'unavailable'}
+        if provider.get('kind') == 'native-project':
+            from workspace_native_mysql import connection_parameters
+            database.update(storage_path=str(self.root / 'database/mysql'), managed=True,
+                            runtime='bundled-mysql', container=None)
+            try:
+                connection_parameters(self.root)
+                database['status'] = 'running'
+            except (OSError, ValueError):
+                database['status'] = 'stopped'
         if container:
             result = subprocess.run(['docker', 'inspect', '--format',
                 '{"mounts":{{json .Mounts}},"running":{{json .State.Running}}}', container],

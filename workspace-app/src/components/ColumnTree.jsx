@@ -1,3 +1,4 @@
+import {revealWithin} from '../epochListScroll.js';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {ArrowLeft,ArrowRight,ChevronRight,FolderOpen,Home,Activity,GitBranch} from 'lucide-react';
 import {api,number,duration} from '../api.js';
@@ -7,6 +8,7 @@ import {columnAncestorPages,canReuseColumn,columnSelectionNeedsAnchor} from '../
 import {datedCellLabel} from '../recordingIdentity.js';
 import './TreePreview.css';
 import './ColumnTree.css';
+import AnnotationIndicator from './AnnotationIndicator.jsx';
 
 // Preserve the column interaction while loading at most one 60-row page per level.
 export default function ColumnTree(props){
@@ -74,8 +76,9 @@ export default function ColumnTree(props){
       const element=Array.from(pane?.querySelectorAll('[data-epoch-uuid]')||[]).find(item=>item.dataset.epochUuid===selected);
       if(!element)return;
       // Keep the selected path visible, adjusting each pane only as needed.
-      for(const page of current.current.slice(0,-1))panes.current.get(page.depth)?.querySelector('.tp-branch.selected')?.scrollIntoView({block:'nearest',inline:'nearest'});
-      element.scrollIntoView({block:'nearest',inline:'nearest'});
+      for(const page of current.current.slice(0,-1)){const parent=panes.current.get(page.depth);revealWithin(parent,parent?.querySelector('.tp-branch.selected'));}
+      revealWithin(pane,element);
+      revealWithin(strip.current,pane?.closest('.tp-column'),{horizontal:true,vertical:false});
       remember();
     });
     return()=>cancelAnimationFrame(frame);
@@ -83,8 +86,8 @@ export default function ColumnTree(props){
   const last=state.columns.at(-1),root=state.columns[0],path=last?.path||[];
   const ancestors=last?.ancestors||path.map((key,depth)=>state.columns[depth]?.branches?.find(branch=>branch.key===key)).filter(Boolean);
   return <section className="tree-preview column-tree" aria-label="Tree column overview">
-    <header className="tp-total"><strong>{root?`${number(root.total_epochs)} epochs`:'Loading tree…'}</strong><span>{root?`${number(root.cells)} cells · ${duration(root.duration_seconds)}`:''}</span><small>{last?.split_order.length??splits.split(',').filter(Boolean).length} split levels</small></header>
-    <nav className="tp-path" aria-label="Tree ancestry"><button disabled={state.loading} onClick={()=>load({path:[]})}><Home size={14}/> All matching epochs</button>{ancestors.map((node,index)=><span key={node.key}><ChevronRight size={12}/><button disabled={state.loading} onClick={()=>load({path:path.slice(0,index+1)})} title={branchTooltip(node)}>{branchLabel(node)}</button></span>)}</nav>
+    {props.design&&<header className="tp-total"><strong>{root?`${number(root.total_epochs)} epochs`:'Loading tree…'}</strong><span>{root?`${number(root.cells)} cells · ${duration(root.duration_seconds)}`:''}</span><small>{last?.split_order.length??splits.split(',').filter(Boolean).length} split levels</small></header>}
+    {props.design&&<nav className="tp-path" aria-label="Tree ancestry"><button disabled={state.loading} onClick={()=>load({path:[]})}><Home size={14}/> All matching epochs</button>{ancestors.map((node,index)=><span key={node.key}><ChevronRight size={12}/><button disabled={state.loading} onClick={()=>load({path:path.slice(0,index+1)})} title={branchTooltip(node)}>{branchLabel(node)}</button></span>)}</nav>}
     {state.error&&<div className="pt-error" role="alert">{state.error}<button onClick={()=>expectedRevision?callbacks.current.onRefreshPreview?.():load({reset:true})}>Reload tree overview</button></div>}
     <div className="tp-columns" ref={strip} onScroll={remember} aria-busy={state.loading}>
       {state.columns.map((page,depth)=>{
@@ -92,10 +95,10 @@ export default function ColumnTree(props){
         return <section className={`tp-column ${terminal?'tp-terminal':''} ${combined?'tp-combined-column':''}`} key={`${depth}:${page.path.join(':')}`} aria-label={`${depth+1}. ${terminal?'Epochs':readableField(field?.label,field?.field)}`}>
           <header className="tp-level-heading"><span>{terminal?<Activity size={14}/>:depth+1}</span><div><strong title={field?.field}>{terminal?'Inspect epochs':readableField(field?.label,field?.field)}</strong><small>{number(page.total)} {terminal?'epochs':'groups'} · {number(page.selection?.count??page.total_epochs)} epochs in scope</small></div></header>
           <div className="tp-column-content" ref={element=>{if(element)panes.current.set(depth,element);else panes.current.delete(depth);}} onScroll={remember}>
-            {entries.map(item=>terminal?<button className={`tp-epoch ${selected===item.epoch_uuid?'selected':''}`} data-epoch-uuid={item.epoch_uuid} aria-current={selected===item.epoch_uuid?'true':undefined} key={item.epoch_uuid} disabled={blocked} title={item.epoch_uuid} onClick={()=>{remember();callbacks.current.onSelectEpoch?.(item.epoch_uuid,item);}}><strong>{epochLeafLabel(item)}</strong><span>{datedCellLabel(item)}<ArrowRight size={13}/></span></button>:<button className={`tp-branch ${path[depth]===item.key?'selected':''}`} key={item.key} aria-expanded={path[depth]===item.key} disabled={blocked} title={branchTooltip(item,field?.field)} onClick={()=>load({path:path[depth]===item.key?page.path:item.path,offset:path[depth]===item.key?page.offset:0})}>
+            {entries.map((item,index)=>terminal?<button className={`tp-epoch ${(props.selectedEpochs?.includes(item.epoch_uuid)||(!props.selectedCell&&selected===item.epoch_uuid))?'selected':''}`} data-epoch-uuid={item.epoch_uuid} aria-current={(props.selectedEpochs?.includes(item.epoch_uuid)||(!props.selectedCell&&selected===item.epoch_uuid))?'true':undefined} key={item.epoch_uuid} disabled={blocked} title={item.epoch_uuid} onClick={event=>{remember();callbacks.current.onSelectEpoch?.(item.epoch_uuid,item,event,page,index);}}><strong>{epochLeafLabel(item)} <AnnotationIndicator epoch={item}/></strong><span className="column-epoch-protocol" title={item.protocol_name}>{item.protocol_name?.split('.').at(-1)}</span></button>:<button className={`tp-branch ${path[depth]===item.key?'selected':''}`} key={item.key} aria-expanded={path[depth]===item.key} disabled={blocked} title={branchTooltip(item,field?.field)} onClick={()=>{load({path:path[depth]===item.key?page.path:item.path,offset:path[depth]===item.key?page.offset:0});callbacks.current.onSelectBranch?.(item,field,page.revision);}}>
               <div className="tp-branch-title"><FolderOpen size={15}/><strong>{item.components?.length?'Matching combination':branchLabel(item,field?.field)}</strong><ChevronRight size={14}/></div>
               {!!item.components?.length&&<dl className="tp-combination">{item.components.map((part,index)=><div key={part.field} className={`joint-color-${index%3}`}><dt title={part.field}>{componentLabel(part)}</dt><dd>{componentValue(part)}</dd></div>)}</dl>}
-              <div className="tp-branch-counts"><span><b>{number(item.count)}</b> epochs</span><span>{number(item.cells)} {item.cells===1?'cell':'cells'}</span></div>
+              {field?.field==='cell'&&<AnnotationIndicator epoch={props.cells?.find(cell=>cell.cell_uuid===item.value)} level="cell"/>}{field?.field!=='cell'&&<div className="tp-branch-counts"><span><b>{number(item.count)}</b> epochs</span><span>{number(item.cells)} {item.cells===1?'cell':'cells'}</span></div>}
               <div className="tp-distribution" aria-hidden="true"><span style={{width:`${Math.min(100,100*item.count/Math.max(1,page.selection?.count??page.total_epochs))}%`}}/></div><small>{duration(item.duration_seconds)}</small>
             </button>)}
             {!entries.length&&!state.loading&&<p className="tp-no-groups">No matching epochs.</p>}

@@ -70,6 +70,9 @@ class CandidateExportTests(unittest.TestCase):
         self.assertEqual(result['epoch_count'],1)
         self.assertEqual((self.service.rows,self.service.details,self.service.protocols,self.case.curation.rows,self.case.protocol_bindings.rows),before)
         record=self.store.get_dataset_revision(result['dataset_uuid'])
+        returned=json.loads((Path(record['artifact_path']).parent/'annotation-return.json').read_text())
+        self.assertEqual(returned['export_uuid'],result['dataset_uuid'])
+        self.assertEqual({entry['target_uuid'] for entry in returned['targets'] if entry['target_kind']=='epoch'},{key})
         self.assertNotIn(record['protocol_uuid'],self.service.protocols)
         self.assertEqual(record['protocol_uuid'],candidate_scope_uuid(self.project,candidate['revision_uuid']))
         with sqlite3.connect('file:'+record['artifact_path']+'?mode=ro',uri=True) as db:
@@ -127,15 +130,24 @@ class CandidateExportTests(unittest.TestCase):
         self.assertEqual(self.case.protocol_bindings.rows,[])
 
     def test_stale_metadata_and_candidate_receipt_reject_before_publication(self):
+        # App setup creates export-folder documentation; rejection must preserve
+        # that baseline and publish no additional files or directories.
+        export_root=self.service.project_dir/'exports'
+        def export_contents():
+            return {str(path.relative_to(export_root)):path.read_bytes() if path.is_file() else None
+                    for path in export_root.rglob('*')}
+        before=export_contents()
         candidate=self.save()
         self.service._fingerprints[self.service.ids[0]]='c'*64
         response=self.export(candidate)
         self.assertEqual(response.status_code,409,response.get_json())
         self.assertEqual(response.get_json()['code'],'stale_candidate_export')
         self.assertEqual(self.case.datasets.rows,[])
-        self.assertEqual(list((self.service.project_dir/'exports').iterdir()),[])
+        self.assertEqual(export_contents(),before)
         wrong=self.export(candidate,expected_recipe_sha256='0'*64)
         self.assertEqual(wrong.status_code,409)
+        self.assertEqual(export_contents(),before)
+        self.assertEqual(self.case.datasets.rows,[])
 
     def test_writer_failure_creates_no_success_dataset_or_curation(self):
         candidate=self.save()
