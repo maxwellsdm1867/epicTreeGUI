@@ -148,3 +148,7 @@ no warnings.
 - Closed/reopened the native demo project, then copied a fresh synthetic H5 directly into `raw-uploads`. The watcher automatically imported it after settling: one recording, three cells, nine epochs, zero new protocol types. Three saved-query proposals were created without approval.
 - Verified the job's retained path equals the dropped path, exactly one matching managed H5 exists, and `original_removal_safe` is false for this in-place recording. Sidebar pinned protocols displayed pending +3-cell updates.
 - Browser confirmed Import H5s and Open H5 folder controls. Data stores showed 268.4 MB H5, 23.4 MB parsed metadata, 291.8 MB combined, with per-recording metadata sizes. These totals exclude MySQL, caches, exports, logs and unregistered files; unavailable sizes are marked partial.
+
+### Automatic completion review (2026-09-29)
+
+Successful import completion now opens the global Review imported data dialog from any workspace page. Existing history on page load does not reopen it. Verified with a fresh synthetic watched-folder import while on Data stores: dialog appeared without clicking, showing +1 recording/+3 cells/+9 epochs and two pinned protocol proposals with Approve All. Proposals remain pending for user inspection. Frontend 211 tests and production build passed.
