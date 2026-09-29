@@ -96,6 +96,8 @@ export default function HierarchyTree(props){
     commit(old=>({...old,expanded:[],loading:false,loadingPath:null}));
     callbacks.current.onStatus?.({loading:false,error:null});
   }
+  const previousCollapseRequest=useRef(props.collapseRequest);
+  useEffect(()=>{if(previousCollapseRequest.current!==props.collapseRequest){previousCollapseRequest.current=props.collapseRequest;collapseAll();}},[props.collapseRequest]);
   function branchKeys(event,branch,opened){
     if(event.key==='ArrowRight'){event.preventDefault();event.stopPropagation();if(!opened)toggle(branch);else event.currentTarget.closest('li')?.querySelector('ul button')?.focus({preventScroll:true});}
     if(event.key==='ArrowLeft'){event.preventDefault();event.stopPropagation();if(opened)toggle(branch);else event.currentTarget.closest('ul')?.closest('li')?.querySelector(':scope > button')?.focus({preventScroll:true});}
@@ -120,6 +122,6 @@ export default function HierarchyTree(props){
     {state.error&&<div className="ht-error" role="alert">{state.error}<button onClick={()=>expectedRevision?callbacks.current.onRefreshPreview?.():load({reset:true})}><RefreshCw size={13}/> Refresh tree</button></div>}
     {state.notice&&<div className="ht-notice" role="status">{state.notice}</div>}
     <div className="ht-scroll" ref={scroll} aria-busy={state.loading} onScroll={()=>{if(!scrollFrame.current)scrollFrame.current=requestAnimationFrame(()=>{scrollFrame.current=null;remember();});}}>{root?renderPage(root,true):!state.error&&<p className="ht-loading" role="status">Loading tree…</p>}</div>
-    <footer className="ht-footer"><span>Expand groups to inspect epochs. Grouping preserves the selection.</span><button disabled={blocked||!state.expanded.length} onClick={collapseAll}>Collapse all</button></footer>
+    {!props.externalCollapseControl&&<footer className="ht-footer"><button disabled={blocked||!state.expanded.length} onClick={collapseAll}>Collapse all</button></footer>}
   </section>;
 }

@@ -26,18 +26,20 @@ function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,disab
     {page.data&&<div className="pagination"><button aria-label={`Previous epochs for ${datedCellLabel(cell,true)}`} disabled={disabled||page.loading||!offset} onClick={()=>setOffset(Math.max(0,offset-60))}>Previous</button><span>{page.data.total?offset+1:0}–{Math.min(offset+60,page.data.total)} of {number(page.data.total)}</span><button aria-label={`Next epochs for ${datedCellLabel(cell,true)}`} disabled={disabled||page.loading||offset+60>=page.data.total} onClick={()=>setOffset(offset+60)}>Next</button></div>}
   </Status>;
 }
-function CellBranch({cell,dateOpen,onSelectCell,selectedCell,...props}){
+function CellBranch({cell,dateOpen,onSelectCell,selectedCell,collapseRequest,...props}){
   const [open,setOpen]=useState(false);
+  useEffect(()=>setOpen(false),[collapseRequest]);
   return <details className="cell-tree-cell" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
     <summary className={selectedCell===cell.cell_uuid?'selected-cell':''} onClick={()=>onSelectCell(cell)}><strong>{cell.label||cell.cell_label||'Unlabeled cell'}</strong></summary>
     {dateOpen&&open&&<CellEpochs cell={cell} {...props}/>}
   </details>;
 }
-function DateBranch({group,...props}){
+function DateBranch({group,collapseRequest,...props}){
   const [open,setOpen]=useState(false);
+  useEffect(()=>setOpen(false),[collapseRequest]);
   return <details className="cell-tree-date" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
     <summary><strong>{group.date}</strong></summary>
-    {group.cells.map(cell=><CellBranch key={cell.cell_uuid} cell={cell} dateOpen={open} {...props}/>)}
+    {group.cells.map(cell=><CellBranch collapseRequest={collapseRequest} key={cell.cell_uuid} cell={cell} dateOpen={open} {...props}/>)}
   </details>;
 }
 export default function InspectionCellTree({cells,targets,setTargets,disabled,onFocus,onSelectCell,...props}){
