@@ -118,3 +118,26 @@ modal automatically; the review dialog is available explicitly from Review impor
 The browser verified a real duplicate import notification and automatic expiry,
 with no persistent header bar or automatic review dialog. App update notices also
 expire; their availability indicator remains in Release / Publish.
+
+## Pinned query approval demonstration
+
+A synthetic H5 fixture derived from the read-only test recording (fresh, disjoint
+UUIDs and explicit Synthetic demo cell labels) added 3 cells and 9 epochs to the
+disposable project. Automatic saved-query reruns produced three candidates:
+Variable Mean Noise +3 epochs, Expanding Spots +3 epochs, and unpinned Single Spot
++3 epochs. The overall protocol-type delta was correctly zero for known names.
+
+The browser approved Variable Mean Noise individually (1,640 to 1,643 epochs),
+then Approve All updated only the remaining pinned Expanding Spots dataset (255
+to 258 epochs). Single Spot remained pending. Both pinned sidebar entries stayed
+in place; no file export was generated. Cards now show cells, epochs and compact
+before/after bars, with affected cells and navigation inside collapsed Details.
+Approve All remains visible in the review header while scrolling.
+
+This real run caught a DataJoint lineage mismatch in the new protocol-type count.
+The fix restricts by project experiment keys rather than joining unrelated integer
+lineages; a real native-MySQL regression reproduces that schema distinction.
+The final backend suite passed 617 tests with native integration enabled;
+211 frontend tests and the production build passed. The unsuccessful test attempt
+remains in demo history; it added no source records and the retry completed with
+no warnings.

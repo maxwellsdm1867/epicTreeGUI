@@ -1219,7 +1219,7 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                 if duplicate.get('project_uuid') != service.project['project_uuid']:
                     raise ValueError('This exact file is already registered to another project; explicit linking is required.')
                 job.update(status='duplicate', finished_at=now(), existing_source=duplicate,
-                           catalog_delta={key + '_added': 0 for key in ('sources', 'cells', 'epochs', 'responses', 'stimuli')},
+                           catalog_delta={key + '_added': 0 for key in ('sources', 'cells', 'epochs', 'responses', 'stimuli', 'protocol_types')},
                            message='Already imported. No parsing or new catalog records; registration and query participation are unchanged.')
                 reporter.emit('duplicate', outcome='completed', catalog_committed=False)
                 if job.get('managed_upload'):

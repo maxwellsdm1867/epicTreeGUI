@@ -65,6 +65,45 @@ class Records:
 
 
 class ImportIdentityTests(unittest.TestCase):
+    def test_acquisition_protocol_delta_uses_only_incoming_names_and_project_sources(self):
+        source = Mock()
+        experiments = [7, 12]
+        class Source:
+            def __and__(self, restriction):
+                source(restriction)
+                return self
+            def fetch(self, field):
+                assert field == 'experiment_id'
+                return experiments
+        class Blocks:
+            def __and__(self, restriction):
+                self.restriction = restriction
+                return self
+            def proj(self, field):
+                self.field = field
+                return self
+        class Protocols:
+            def __init__(self):
+                self.restrictions = []
+            def __and__(self, restriction):
+                self.restrictions.append(restriction)
+                return self
+            def fetch(self, field):
+                self.field = field
+                return ['known', 'known']
+        blocks, protocols = Blocks(), Protocols()
+        catalog = SimpleNamespace(EpochBlock=blocks, Protocol=protocols)
+        result = workspace.new_project_protocol_types(catalog, Source(), 'project-a', ['known', 'new', 'new'])
+        self.assertEqual(result, {'new'})
+        source.assert_called_once_with({'project_uuid': 'project-a'})
+        self.assertEqual(blocks.restriction, [{'experiment_id': 7}, {'experiment_id': 12}])
+        self.assertEqual(blocks.field, 'protocol_id')
+        self.assertEqual(protocols.restrictions, [[{'name': 'known'}, {'name': 'new'}], blocks])
+        self.assertEqual(protocols.field, 'name')
+
+    def test_empty_protocol_import_performs_no_catalog_lookup(self):
+        self.assertEqual(workspace.new_project_protocol_types(None, None, 'project', []), set())
+
     def test_each_supported_identity_is_checked_globally(self):
         for name, identity in [('Cell', 'new-cell'), ('EpochGroup', 'new-group'),
                                ('EpochBlock', 'new-block'), ('Epoch', 'new-epoch-0')]:
@@ -171,7 +210,7 @@ class ImportIdentityTests(unittest.TestCase):
                 result = workspace.import_catalog(project, data, manifest, project, 'fixture-container')
             self.assertEqual(result['status'], 'already_imported')
             self.assertEqual(result['catalog_delta'], {'sources_added': 0, 'cells_added': 0,
-                'epochs_added': 0, 'responses_added': 0, 'stimuli_added': 0})
+                'epochs_added': 0, 'responses_added': 0, 'stimuli_added': 0, 'protocol_types_added': 0})
             guard.assert_not_called()
             population.append_experiment.assert_not_called()
 

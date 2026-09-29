@@ -438,6 +438,26 @@ def evaluate_protocol_file(file):
             "source_revisions": [s["source_sha256"] for s in sources]}
 
 
+def new_project_protocol_types(catalog, Source, project_id, incoming_names):
+    """Find new acquisition names with a project-scoped SQL semi-join.
+
+    Only names in this import are returned from SQL; epochs and catalog metadata
+    are never loaded to count protocol types. Saved/pinned queries are unrelated.
+    """
+    incoming = set(incoming_names)
+    if not incoming:
+        return set()
+    # Source.experiment_id is a plain integer rather than a DataJoint FK.
+    # Materialize only these small registration keys to avoid an invalid
+    # relational restriction across incompatible attribute lineages.
+    experiment_ids = (Source & {'project_uuid': project_id}).fetch('experiment_id')
+    if not len(experiment_ids):
+        return incoming
+    blocks = (catalog.EpochBlock & [{'experiment_id': int(key)} for key in experiment_ids]).proj('protocol_id')
+    existing = (catalog.Protocol & [{'name': name} for name in sorted(incoming)] & blocks).fetch('name')
+    return incoming - set(existing)
+
+
 def import_catalog(project_dir, experiment, manifest, folder, container, progress=None):
     emit = progress or (lambda stage, **fields: None)
     dj = connect(container, project_dir=project_dir) if isinstance(container, dict) else connect(container)
@@ -480,11 +500,14 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
                     raise ValueError("Source belongs to another project; explicit linking is required")
                 experiment_id = old["experiment_id"]
                 outcome = "already_imported"
+                protocol_types_added = 0
             else:
                 if catalog.Experiment & [{"h5_uuid": experiment["uuid"]},
                                          {"exp_name": Path(manifest["source_path"]).stem}]:
                     raise ValueError("Existing experiment needs source/version reconciliation")
                 assert_new_catalog_identities(experiment, catalog)
+                protocol_types_added = len(new_project_protocol_types(
+                    catalog, Source, project_id, manifest['protocol_epoch_counts']))
                 population.configure_tables(catalog)
                 population.append_experiment(str(folder / "metadata.catalog.json"),
                     manifest["source_path"], str(folder / "tags.json"), experiment,
@@ -529,6 +552,7 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
         # transaction above. These are actual additions, not source totals.
         manifest['catalog_delta'] = {
             'sources_added': int(outcome == 'imported'),
+            'protocol_types_added': protocol_types_added,
             **{key + '_added': manifest['counts'][key] if outcome == 'imported' else 0
                for key in ('cells', 'epochs', 'responses', 'stimuli')}}
         stage = "workspace_files"

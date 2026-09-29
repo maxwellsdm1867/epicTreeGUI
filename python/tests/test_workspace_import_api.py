@@ -57,7 +57,7 @@ class ImportPreflightAPITests(unittest.TestCase):
         job = self.latest_job()
         self.assertEqual(job['status'], 'duplicate')
         self.assertEqual(job['catalog_delta'], dict.fromkeys(
-            ['sources_added', 'cells_added', 'epochs_added', 'responses_added', 'stimuli_added'], 0))
+            ['sources_added', 'cells_added', 'epochs_added', 'responses_added', 'stimuli_added', 'protocol_types_added'], 0))
         self.assertEqual(job['existing_source']['source_path'], str(self.source))
         self.assertEqual(renamed.read_bytes(), self.bytes)
         self.assertEqual((self.case.sources.rows, self.case.data_store_states.rows), before)
@@ -72,7 +72,7 @@ class ImportPreflightAPITests(unittest.TestCase):
         job = self.latest_job()
         self.assertEqual(job['status'], 'duplicate')
         self.assertEqual(job['catalog_delta'], dict.fromkeys(
-            ['sources_added', 'cells_added', 'epochs_added', 'responses_added', 'stimuli_added'], 0))
+            ['sources_added', 'cells_added', 'epochs_added', 'responses_added', 'stimuli_added', 'protocol_types_added'], 0))
         self.assertTrue(job['duplicate_staging_removed'])
         self.assertFalse(Path(job['source']).exists())
         self.assertTrue(self.source.exists())

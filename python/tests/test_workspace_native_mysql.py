@@ -194,6 +194,46 @@ class NativeMysqlTests(unittest.TestCase):
             self.assertIsNone(native._machine_identity())
 
     @unittest.skipUnless(os.environ.get('RIEKE_TEST_NATIVE_MYSQL') == '1', 'opt-in private native MySQL test')
+    def test_protocol_delta_with_real_datajoint_attribute_lineages(self):
+        ensure_project_database(self.root)
+        try:
+            script = r'''import sys
+from types import SimpleNamespace
+import datajoint as dj
+from workspace_native_mysql import connection_parameters
+from recording_workspace import new_project_protocol_types
+settings = connection_parameters(sys.argv[1])
+connection = dj.Connection(**settings)
+schema = dj.Schema('protocol_delta_fixture', connection=connection)
+@schema
+class Experiment(dj.Manual):
+    definition = "experiment_id: int"
+@schema
+class Protocol(dj.Manual):
+    definition = "protocol_id: int\n---\nname: varchar(255)"
+@schema
+class EpochBlock(dj.Manual):
+    definition = "block_id: int\n---\n-> Experiment\n-> Protocol"
+@schema
+class Source(dj.Manual):
+    definition = "source_id: int\n---\nproject_uuid: varchar(36)\nexperiment_id: int"
+Experiment.insert([{'experiment_id': 1}, {'experiment_id': 2}])
+Protocol.insert([{'protocol_id': 1, 'name': 'known'}, {'protocol_id': 2, 'name': 'foreign'}])
+EpochBlock.insert([{'block_id': 1, 'experiment_id': 1, 'protocol_id': 1}, {'block_id': 2, 'experiment_id': 2, 'protocol_id': 2}])
+Source.insert([{'source_id': 1, 'project_uuid': 'mine', 'experiment_id': 1}, {'source_id': 2, 'project_uuid': 'other', 'experiment_id': 2}])
+catalog = SimpleNamespace(EpochBlock=EpochBlock, Protocol=Protocol)
+assert new_project_protocol_types(catalog, Source, 'mine', ['known', 'foreign', 'new']) == {'foreign', 'new'}
+assert new_project_protocol_types(catalog, Source, 'empty', ['known']) == {'known'}
+connection.close()
+'''
+            result = subprocess.run([sys.executable, '-c', script, str(self.root)],
+                capture_output=True, text=True, timeout=30,
+                env={**os.environ, 'PYTHONPATH': str(native.ROOT / 'python')})
+            self.assertEqual(result.returncode, 0, result.stderr)
+        finally:
+            native.stop_native_database(self.root)
+
+    @unittest.skipUnless(os.environ.get('RIEKE_TEST_NATIVE_MYSQL') == '1', 'opt-in private native MySQL test')
     def test_project_api_process_can_close_chooser_owned_database(self):
         runtime = ensure_project_database(self.root)
         try:
