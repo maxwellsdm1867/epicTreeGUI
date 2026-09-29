@@ -1,6 +1,5 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {Check,X} from 'lucide-react';
-import AnnotationIndicator from './AnnotationIndicator.jsx';
+import EpochInclusionToggle from './EpochInclusionToggle.jsx';
 import {api,humanize,number} from '../api.js';
 import {epochPageRequest} from '../epochBrowserSource.js';
 import {epochSelectionRange,toggleEpochSelection,mergeEpochSelection} from '../epochSelection.js';
@@ -10,36 +9,37 @@ import {Status} from './Common.jsx';
 import './InspectionCellTree.css';
 import {useEpochBrowserPage} from '../useEpochBrowserPage.js';
 
-function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,onSelectPage,disabled,onToggleInclusion}){
+function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,disabled,onToggleInclusion}){
   const [offset,setOffset]=useState(0);
   const page=useEpochBrowserPage(source,{cellUuid:cell.cell_uuid,offset},revision);
   return <Status {...page} retry={page.reload}>
-    <div className="cell-epoch-actions"><button disabled={disabled||page.loading} onClick={()=>onSelectPage(page.data?.epochs||[])}>Select this page</button></div>
     {(page.data?.epochs||[]).map((epoch,index)=><div key={epoch.epoch_uuid} className={`epoch-row cell-tree-epoch ${focused===epoch.epoch_uuid?'active':''} ${targets.includes(epoch.epoch_uuid)?'bulk-selected':''} ${epoch.curation?.included===false?'analysis-excluded':''}`}>
       <button disabled={disabled||page.loading} aria-current={focused===epoch.epoch_uuid?'true':undefined} aria-pressed={targets.includes(epoch.epoch_uuid)||(!targets.length&&focused===epoch.epoch_uuid)} onMouseDown={event=>{if(event.shiftKey)event.preventDefault();}} onClick={event=>onSelect(event,{cellUuid:cell.cell_uuid,index:offset+index,uuid:epoch.epoch_uuid},epoch,page.data)} aria-label={`Inspect ${datedCellLabel(cell,true)} epoch ${offset+index+1}`}>
         <strong>{offset+index+1}</strong>
         <time>{epoch.start_time?.split(/[T ]/)[1]?.slice(0,8)||'—'}</time>
         <span className="epoch-short-protocol" title={humanize(epoch.protocol_name?.split('.').at(-1))}>{humanize(epoch.protocol_name?.split('.').at(-1))||'—'}</span>
-        <AnnotationIndicator epoch={epoch}/>
-        {epoch.curation?.included===false&&<span className="epoch-excluded" title="Excluded from analysis; recording retained">×</span>}
+
+
       </button>
-      {onToggleInclusion&&<button className="epoch-analysis-toggle" disabled={disabled||page.loading} aria-label={`Include ${datedCellLabel(cell,true)} epoch ${offset+index+1} in analysis`} aria-pressed={epoch.curation?.included!==false} title={epoch.curation?.included===false?'Excluded from analysis. Click to include.':'Included in analysis. Click to exclude; recording stays here.'} onClick={()=>onToggleInclusion(epoch,epoch.curation?.included===false)}>{epoch.curation?.included===false?<X size={13}/>:<Check size={13}/>}</button>}
+      {onToggleInclusion&&<EpochInclusionToggle epoch={epoch} label={`${datedCellLabel(cell,true)} epoch ${offset+index+1}`} disabled={disabled||page.loading} onToggle={onToggleInclusion}/>}
     </div>)}
     {page.data&&<div className="pagination"><button aria-label={`Previous epochs for ${datedCellLabel(cell,true)}`} disabled={disabled||page.loading||!offset} onClick={()=>setOffset(Math.max(0,offset-60))}>Previous</button><span>{page.data.total?offset+1:0}–{Math.min(offset+60,page.data.total)} of {number(page.data.total)}</span><button aria-label={`Next epochs for ${datedCellLabel(cell,true)}`} disabled={disabled||page.loading||offset+60>=page.data.total} onClick={()=>setOffset(offset+60)}>Next</button></div>}
   </Status>;
 }
-function CellBranch({cell,dateOpen,onSelectCell,selectedCell,...props}){
+function CellBranch({cell,dateOpen,onSelectCell,selectedCell,collapseRequest,...props}){
   const [open,setOpen]=useState(false);
+  useEffect(()=>setOpen(false),[collapseRequest]);
   return <details className="cell-tree-cell" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
-    <summary className={selectedCell===cell.cell_uuid?'selected-cell':''} onClick={()=>onSelectCell(cell)}><strong>{cell.label||cell.cell_label||'Unlabeled cell'}</strong><AnnotationIndicator epoch={cell} level="cell"/></summary>
+    <summary className={selectedCell===cell.cell_uuid?'selected-cell':''} onClick={()=>onSelectCell(cell)}><strong>{cell.label||cell.cell_label||'Unlabeled cell'}</strong></summary>
     {dateOpen&&open&&<CellEpochs cell={cell} {...props}/>}
   </details>;
 }
-function DateBranch({group,...props}){
+function DateBranch({group,collapseRequest,...props}){
   const [open,setOpen]=useState(false);
+  useEffect(()=>setOpen(false),[collapseRequest]);
   return <details className="cell-tree-date" open={open} onToggle={event=>setOpen(event.currentTarget.open)}>
     <summary><strong>{group.date}</strong></summary>
-    {group.cells.map(cell=><CellBranch key={cell.cell_uuid} cell={cell} dateOpen={open} {...props}/>)}
+    {group.cells.map(cell=><CellBranch collapseRequest={collapseRequest} key={cell.cell_uuid} cell={cell} dateOpen={open} {...props}/>)}
   </details>;
 }
 export default function InspectionCellTree({cells,targets,setTargets,disabled,onFocus,onSelectCell,...props}){
@@ -48,7 +48,7 @@ export default function InspectionCellTree({cells,targets,setTargets,disabled,on
   const [selecting,setSelecting]=useState(false),[error,setError]=useState('');
   const scope=JSON.stringify(props.source);
   useEffect(()=>{anchor.current=null;request.current?.abort();setSelecting(false);return()=>request.current?.abort();},[scope]);
-  function selectPage(rows){try{if(rows[0])onFocus(rows[0].epoch_uuid,rows[0]);setTargets(mergeEpochSelection(targets,rows.map(row=>row.epoch_uuid)));setError('');}catch(error){setError(error.message);}}
+
   async function selectCell(cell){
     if(disabled||selecting)return;
     anchor.current=null;setError('');setSelecting(true);
@@ -84,5 +84,5 @@ export default function InspectionCellTree({cells,targets,setTargets,disabled,on
     }catch(error){if(error.name!=='AbortError')setError(error.message);}
     finally{setSelecting(false);}
   }
-  return <div className="inspection-cell-tree" aria-label="All matching dates, cells and epochs" title="⌘/Ctrl-click to select epochs; Shift-click for a range">{error&&<p role="alert">{error}</p>}{selecting&&<p role="status">Selecting epoch range…</p>}{dates.map(group=><DateBranch key={group.date} group={group} {...props} targets={targets} onFocus={onFocus} onSelectCell={selectCell} onSelect={select} onSelectPage={selectPage} disabled={disabled||selecting}/>)}</div>;
+  return <div className="inspection-cell-tree" aria-label="All matching dates, cells and epochs" title="⌘/Ctrl-click to select epochs; Shift-click for a range">{error&&<p role="alert">{error}</p>}{selecting&&<p role="status">Selecting epoch range…</p>}{!dates.length&&<p role="status">No epochs match the current filters.</p>}{dates.map(group=><DateBranch key={group.date} group={group} {...props} targets={targets} onFocus={onFocus} onSelectCell={selectCell} onSelect={select} disabled={disabled||selecting}/>)}</div>;
 }

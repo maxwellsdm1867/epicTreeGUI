@@ -47,6 +47,8 @@ class DiskIndexTests(unittest.TestCase):
         catalog,values=tree.catalog(self.rows,self.details,sources=self.sources)
         self.assertEqual(index.predicate_catalog(),predicates.predicate_catalog(catalog,values))
         tests=[{'field':'parameters/a~1b~0','operator':op,**({'value':value} if op not in predicates.UNARY else {})} for op,value in [('eq',1),('eq',True),('eq',[0,675]),('ne',1),('contains',1),('exists',None),('missing',None),('is_null',None)]]
+        tests += [{'field':'epoch','operator':'eq','value':'epoch-1'}]
+        self.assertEqual(index.match({'field':'epoch','operator':'eq','value':'epoch-1'})[1], ['epoch-1'])
         tests += [{'not':{'field':'parameters/sometimes','operator':'eq','value':2}}, {'all':[]},{'any':[]},{'all':[{'field':'parameters/frequencyCutoff','operator':'gte','value':100},{'any':[{'field':'parameters/sometimes','operator':'missing'},{'field':'parameters/sometimes','operator':'is_null'}]}]}]
         for predicate in tests:
             expected=predicates.evaluate(predicate,catalog,values)
@@ -96,7 +98,7 @@ class DiskIndexTests(unittest.TestCase):
         self.assertIsNotNone(opened._catalog_cache)
         self.assertIsNotNone(opened._predicate_cache)
         mutated=opened.catalog();mutated['fields'].clear()
-        self.assertEqual(len(opened.catalog()['fields']),8)
+        self.assertEqual(len(opened.catalog()['fields']),len(tree.BASE_FIELDS))
     def test_truncated_choices_and_numeric_identity_exact(self):
         rows,details,sources=fixture(160)
         sequence=[1,1.0,True,-0.0,0.0,0,None,2**60,2**60+1,float(2**60)]+list(range(100))+[1.0,49,99]*16

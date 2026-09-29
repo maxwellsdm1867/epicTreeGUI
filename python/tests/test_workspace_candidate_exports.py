@@ -56,6 +56,20 @@ class CandidateExportTests(unittest.TestCase):
         return self.client.post('/api/explore/revisions/'+candidate['revision_uuid']+'/exports',json={
             'format':format,'expected_recipe_sha256':candidate['recipe']['full_recipe_sha256'],**options},headers=self.headers)
 
+    def test_focused_search_epoch_uuid_intersects_query_and_exports_one_row(self):
+        key = self.service.ids[1]  # Both rows have the same block epoch number.
+        candidate = self.save({'all': [
+            {'field': 'protocol', 'operator': 'eq', 'value': 'example'},
+            {'field': 'epoch', 'operator': 'eq', 'value': key}]})
+        self.assertEqual(candidate['recipe']['epoch_count'], 1)
+        response = self.export(candidate, 'wheeler-sqlite')
+        self.assertEqual(response.status_code, 201, response.get_json())
+        saved = self.store.get_dataset_revision(response.get_json()['dataset_uuid'])
+        self.assertEqual([row['uuid'] for row in saved['recipe']['epochs']], [key])
+        self.assertEqual(response.get_json()['epoch_count'], 1)
+        self.assertFalse(self.case.curation.rows)
+        self.assertFalse(self.case.protocol_bindings.rows)
+
     def test_sqlite_exact_candidate_ignores_unrelated_protocol_masks_and_keeps_history(self):
         key=self.service.ids[0]
         self.store.update(self.service.protocol_id,[key],{'included':False,'tags_add':['protocol-only']},

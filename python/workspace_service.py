@@ -52,14 +52,40 @@ def _fingerprint(epoch):
 
 def validate_filters(filters):
     filters = {} if filters is None else filters
-    if not isinstance(filters, dict) or set(filters) - {'cell_uuid', 'cell_type', 'group_label'}:
-        raise ValueError('Unsupported filter; use cell_uuid, cell_type, or group_label')
+    if not isinstance(filters, dict) or set(filters) - {'epoch_uuid', 'cell_uuid', 'cell_type', 'group_label', 'tag', 'tagged', 'tag_predicate'}:
+        raise ValueError('Unsupported filter; use epoch_uuid, cell_uuid, cell_type, group_label, tag, tagged, or tag_predicate')
     if any(not isinstance(value, str) for value in filters.values()):
         raise ValueError('Filter values must be text')
+    if 'tag' in filters:
+        from workspace_annotations import text
+        text(filters['tag'])
+    if 'tagged' in filters and filters['tagged'] != 'true':
+        raise ValueError('The tagged filter must be the text true')
+    if 'tag_predicate' in filters:
+        predicate = validate_tag_filter_predicate(filters['tag_predicate'])
+        filters = {**filters, 'tag_predicate': json.dumps(predicate, sort_keys=True, separators=(',', ':'), allow_nan=False)}
     cleaned = {k: v for k, v in filters.items() if v}
+    if 'epoch_uuid' in cleaned:
+        cleaned['epoch_uuid'] = _uuid(cleaned['epoch_uuid'])
     if 'cell_uuid' in cleaned:
         cleaned['cell_uuid'] = _uuid(cleaned['cell_uuid'])
     return cleaned
+
+
+TAG_FILTER_FIELDS = ('annotations/cell/tags', 'annotations/epoch/tags', 'annotations/effective/tags')
+
+
+def validate_tag_filter_predicate(value):
+    """Use the regular bounded predicate grammar, limited to shared tag arrays."""
+    if not isinstance(value, str) or len(value) > 65536:
+        raise ValueError('Tag predicate must be JSON text up to 65536 characters')
+    try:
+        predicate = json.loads(value)
+    except (ValueError, RecursionError) as error:
+        raise ValueError('Malformed tag predicate JSON') from error
+    from workspace_predicates import validate
+    return validate(predicate, {'fields': [{'id': key} for key in TAG_FILTER_FIELDS]},
+                    {'tag_schema': {key: ['example tag'] for key in TAG_FILTER_FIELDS}})
 
 
 def bounded_window(start, count, total, maximum=100000):
@@ -581,8 +607,32 @@ class WorkspaceService:
         result = self.query_result(protocol_uuid)
         curation = self._curation(protocol_uuid)
         rows = [self._decorate(self.rows[member['uuid']], curation) for member in result['epochs']]
-        return sorted((row for row in rows if all(row.get(k) == v for k, v in filters.items())),
-                      key=lambda row: (row['date'], row['start_time'], row['epoch_uuid']))
+        return self._filter_rows(rows, filters)
+
+    def _filter_rows(self, rows, filters):
+        """Narrow the current dataset without changing membership or annotations.
+
+        Shared cell tags inherit to epochs. Protocol curation tags are a distinct
+        scope and do not satisfy these shared annotation filters.
+        """
+        ordinary = {key: value for key, value in filters.items() if key not in {'tag', 'tagged', 'tag_predicate'}}
+        rows = [row for row in rows if all(row.get(key) == value for key, value in ordinary.items())]
+        if any(key in filters for key in ('tag', 'tagged', 'tag_predicate')):
+            shared = getattr(self, 'shared_annotations', None)
+            annotations = shared.for_epochs(rows) if shared else {}
+            from workspace_predicates import matches
+            predicate = validate_tag_filter_predicate(filters['tag_predicate']) if 'tag_predicate' in filters else None
+            selected = []
+            for row in rows:
+                tags = {chip['tag'] for chip in annotations.get(row['epoch_uuid'], {}).get('effective_tags', [])}
+                if ('tag' not in filters or filters['tag'] in tags) and ('tagged' not in filters or tags):
+                    annotation = annotations.get(row['epoch_uuid'], {})
+                    current = {field: sorted({chip['tag'] for chip in annotation.get(scope, [])})
+                               for field, scope in zip(TAG_FILTER_FIELDS, ('cell_tags', 'epoch_tags', 'effective_tags'))}
+                    if predicate is None or matches(predicate, current):
+                        selected.append(row)
+            rows = selected
+        return sorted(rows, key=lambda row: (row['date'], row['start_time'], row['epoch_uuid']))
 
     @staticmethod
     def _counts(rows):
@@ -681,7 +731,9 @@ class WorkspaceService:
         binding = self.binding(protocol_uuid) if protocol_uuid else None
         scope = self.source_scope() if protocol_uuid is None else None
         scope_revision = scope['revision'] if scope else None
-        key = (protocol_uuid, binding['version'] if binding else 0, scope_revision, tuple(sorted(filters.items())))
+        shared = getattr(self, 'shared_annotations', None)
+        tag_revision = shared.snapshot()['revision'] if shared and any(key in filters for key in ('tag', 'tagged', 'tag_predicate')) else None
+        key = (protocol_uuid, binding['version'] if binding else 0, scope_revision, tuple(sorted(filters.items())), tag_revision)
         if key in cache:
             result = cache.pop(key)
             cache[key] = result  # Most recently used, without recomputation.
@@ -713,8 +765,7 @@ class WorkspaceService:
         self._ready()
         filters = validate_filters(filters)
         active = set(self.source_scope()['active_source_revisions'])
-        return sorted((row for row in self.rows.values() if row['source_sha256'] in active and all(row.get(key) == value for key, value in filters.items())),
-                      key=lambda row: (row['date'], row['start_time'], row['epoch_uuid']))
+        return self._filter_rows([row for row in self.rows.values() if row['source_sha256'] in active], filters)
 
     def validate_tree_splits(self, protocol_uuid, splits):
         fields = self.tree_fields(protocol_uuid)['fields']

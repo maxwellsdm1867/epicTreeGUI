@@ -221,6 +221,110 @@ class SharedAnnotationTests(unittest.TestCase):
         for raw in ('limit=true','limit=1.5','limit=-1','limit=1&limit=2','limit=%D9%A1'):
             with self.subTest(raw=raw):self.assertEqual(self.client.get('/api/annotation-tags?'+raw).status_code,400)
 
+    def test_protocol_local_tag_filter_matches_inherited_and_direct_tags_across_views_and_export(self):
+        base = '/api/protocols/' + self.service.protocol_id
+        original = copy.deepcopy(self.service.query_result(self.service.protocol_id))
+        self.edit('cell', self.cell, ['selected'])
+        self.edit('epoch', self.second, ['other'])
+        summary = self.client.get(base + '?tag=selected').get_json()
+        self.assertEqual(summary['counts']['epochs'], 1)
+        self.assertEqual([cell['cell_uuid'] for cell in summary['cells']], [self.cell])
+        page = self.client.get(base + '/epochs?tag=selected').get_json()
+        self.assertEqual([row['epoch_uuid'] for row in page['epochs']], [self.first])
+        tree = self.client.get(base + '/tree?tag=selected&splits=cell')
+        self.assertEqual(tree.status_code, 200, tree.get_json())
+        self.assertEqual(tree.get_json()['count'], 1)
+        self.assertEqual(tree.get_json()['children'][0]['epoch_uuids'], [self.first])
+        fields = self.client.get(base + '/tree-fields?tag=selected')
+        self.assertEqual(fields.status_code, 200, fields.get_json())
+        paged = self.client.post('/api/tree-pages', json={
+            'protocol_uuid': self.service.protocol_id, 'filters': {'tag': 'selected'},
+            'splits': 'cell'}, headers=self.headers).get_json()
+        self.assertEqual(paged['total_epochs'], 1)
+        leaf = self.client.post('/api/tree-pages', json={
+            'protocol_uuid': self.service.protocol_id, 'filters': {'tag': 'selected'},
+            'splits': 'cell', 'path': paged['branches'][0]['path'],
+            'revision': paged['revision']}, headers=self.headers).get_json()
+        self.assertEqual([row['epoch_uuid'] for row in leaf['epochs']], [self.first])
+        self.assertEqual(self.client.get(base + '/epochs?tagged=true').get_json()['total'], 2)
+        self.assertEqual(self.client.get(base + '/epochs?tag=Selected').get_json()['total'], 0)
+        exported = self.client.post(base + '/exports', json={
+            'query_revision': summary['query_revision'], 'filters': {'tag': 'selected'}}, headers=self.headers)
+        self.assertEqual(exported.status_code, 201, exported.get_json())
+        response = self.client.get(exported.get_json()['download_url'])
+        package = json.loads(response.data); response.close()
+        self.assertEqual([row['epoch_uuid'] for row in package['epochs']], [self.first])
+        self.assertEqual(package['recipe']['options']['filters'], {'tag': 'selected'})
+        self.assertEqual(self.service.query_result(self.service.protocol_id), original)
+
+    def test_protocol_tag_predicate_all_any_and_negation_keep_tree_and_exports_consistent(self):
+        base = '/api/protocols/' + self.service.protocol_id
+        original = copy.deepcopy(self.service.query_result(self.service.protocol_id))
+        self.edit('cell', self.cell, ['good'])
+        self.edit('epoch', self.first, ['inspect'])
+        self.edit('epoch', self.second, ['reject'])
+        def rule(tag, field='annotations/effective/tags'):
+            return {'field': field, 'operator': 'contains', 'value': tag}
+        cases = [({'all': [rule('good'), rule('inspect'), {'not': rule('reject')}]}, [self.first]),
+                 ({'any': [rule('good'), rule('reject')]}, [self.first, self.second]),
+                 ({'all': [rule('good', 'annotations/epoch/tags')]}, []),
+                 ({'all': [{'not': rule('reject')}]}, [self.first])]
+        for predicate, expected in cases:
+            with self.subTest(predicate=predicate):
+                filters = {'tag_predicate': json.dumps(predicate)}
+                response = self.client.get(base, query_string=filters)
+                self.assertEqual(response.status_code, 200, response.get_json())
+                summary = response.get_json()
+                self.assertEqual(summary['counts']['epochs'], len(expected))
+                page = self.client.get(base + '/epochs', query_string=filters).get_json()
+                self.assertEqual([row['epoch_uuid'] for row in page['epochs']], expected)
+                tree = self.client.get(base + '/tree', query_string={**filters, 'splits': 'cell'}).get_json()
+                self.assertEqual(tree['count'], len(expected))
+                paged = self.client.post('/api/tree-pages', json={
+                    'protocol_uuid': self.service.protocol_id, 'filters': filters,
+                    'splits': 'cell'}, headers=self.headers).get_json()
+                self.assertEqual(paged['total_epochs'], len(expected))
+                if expected:
+                    exported = self.client.post(base + '/exports', json={
+                        'query_revision': summary['query_revision'], 'filters': filters}, headers=self.headers)
+                    self.assertEqual(exported.status_code, 201, exported.get_json())
+                    download = self.client.get(exported.get_json()['download_url'])
+                    package = json.loads(download.data); download.close()
+                    self.assertEqual([row['epoch_uuid'] for row in package['epochs']], expected)
+        self.assertEqual(self.service.query_result(self.service.protocol_id), original)
+
+    def test_protocol_tag_predicate_rejects_non_tag_fields_and_invalid_ast(self):
+        base = '/api/protocols/' + self.service.protocol_id
+        predicates = ['{', 'null', json.dumps({'field': 'parameters/example', 'operator': 'eq', 'value': 1}),
+            json.dumps({'field': 'annotations/effective/tags', 'operator': 'contains', 'value': 3}),
+            json.dumps({'field': 'annotations/effective/tags', 'operator': 'unknown', 'value': 'x'}),
+            json.dumps({'all': [], 'extra': True}), json.dumps({'not': {'all': []}, 'extra': True})]
+        for predicate in predicates:
+            with self.subTest(predicate=predicate):
+                filters = {'tag_predicate': predicate}
+                self.assertEqual(self.client.get(base + '/epochs', query_string=filters).status_code, 400)
+                self.assertEqual(self.client.post('/api/tree-pages', json={
+                    'protocol_uuid': self.service.protocol_id, 'filters': filters}, headers=self.headers).status_code, 400)
+
+    def test_tag_filter_tree_fields_refresh_after_annotation_change_and_reject_malformed_filters(self):
+        base = '/api/protocols/' + self.service.protocol_id
+        self.edit('epoch', self.first, ['selected'])
+        before = self.service._tree_fields(self.service.protocol_id, {'tag': 'selected'})
+        self.edit('epoch', self.first, remove=['selected'], revision=1)
+        self.edit('epoch', self.second, ['selected'])
+        after = self.service._tree_fields(self.service.protocol_id, {'tag': 'selected'})
+        self.assertNotEqual(before[1], after[1])
+        self.assertEqual([row['epoch_uuid'] for row in self.service.filtered_rows(
+            self.service.protocol_id, {'tag': 'selected'})], [self.second])
+        for query in ('tagged=false', 'tagged=1', 'tag=', 'tag=%20selected', 'tag=selected%0A', 'tag=selected&tag=other', 'tagged=true&tagged=false'):
+            with self.subTest(query=query):
+                self.assertEqual(self.client.get(base + '/epochs?' + query).status_code, 400)
+        for filters in ({'tag': True}, {'tagged': True}, {'tag': ['selected']}, {'tagged': ''}):
+            with self.subTest(filters=filters):
+                response = self.client.post('/api/tree-pages', json={
+                    'protocol_uuid': self.service.protocol_id, 'filters': filters}, headers=self.headers)
+                self.assertEqual(response.status_code, 400)
+
     def test_protocol_export_freezes_annotations_and_stale_tags_reject_old_revision(self):
         base='/api/protocols/'+self.service.protocol_id
         previous=self.client.get(base).get_json()['query_revision']

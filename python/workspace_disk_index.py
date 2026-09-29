@@ -22,7 +22,7 @@ from urllib.parse import unquote
 import workspace_tree as tree
 import workspace_predicates as predicates
 
-FORMAT = 1
+FORMAT = 2  # Epoch identity is now an indexed predicate field.
 CHUNK_SIZE = 256
 CACHE_SIZE = 64
 
@@ -432,7 +432,7 @@ def _suggest(fields,index,ids,family):
     for field in fields:
         field.update(suggested_rank=None,suggestion_reason='')
         count=field['recorded_distinct_count'];high=count>24 or count>max(5,len(ids)*.25);field['high_cardinality']=high
-        if not field['varying'] or high or field.get('grouping_role')=='technical' or field['id'] in {'block','block time','group'}: continue
+        if not field['varying'] or high or field.get('grouping_role')=='technical' or field['id'] in {'epoch','block','block time','group'}: continue
         if field['id'].rsplit('/',1)[-1].lower() in {'seed','uuid','id'}: continue
         candidates.append(field)
     candidates.sort(key=lambda f:(priority.get(f['id'],20 if f['category']=='Parameters' else 30),not f.get('varies_within_cell',False),f['missing_count'],f['recorded_distinct_count'],f['id']))
