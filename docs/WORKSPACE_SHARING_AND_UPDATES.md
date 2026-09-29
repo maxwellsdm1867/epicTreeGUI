@@ -47,8 +47,10 @@ checksums, and rebases current file locations. Scientific UUIDs are preserved.
 Closing a browser tab alone does not close a project database. Copying an open
 MySQL data directory is unsupported; relocated folders marked unclean are refused.
 
-New path-based recording imports into native projects are copied into `raw-uploads`
-so the folder retains them. Older projects may still reference external recordings;
+New recording imports are copied into `raw-uploads` and verified by checksum
+before parsing, so lazy traces use the project copy. After a successful import
+confirms that verified copy, the original outside the project can be removed;
+keep the managed copy in place. Older projects may still reference external recordings;
 opening a moved folder reports missing dependencies rather than silently dropping
 its data. Copies develop independently; this is not a synchronization or merge
 mechanism. The direct-folder path is validated on Apple Silicon macOS with the

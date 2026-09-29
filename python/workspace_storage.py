@@ -17,7 +17,7 @@ DIRECTORIES = {
     'database': ('Main database', 'Database service configuration and managed MySQL storage.'),
     'protocols': ('Protocol queries', 'Reusable protocol query definitions.'),
     'imports': ('Parsed recordings', 'Validated metadata, source pointers and parse manifests.'),
-    'raw-uploads': ('Uploaded recordings', 'Local copies selected through the browser.'),
+    'raw-uploads': ('Managed recordings', 'Verified project copies used for lazy waveform loading; keep these files in the project.'),
     'query-snapshots': ('Query snapshots', 'Frozen query baselines for comparisons.'),
     'exports': ('Exports', 'Versioned reference packages and their recipes.'),
     'logs': ('Logs', 'Import jobs, app jobs, failures and storage operations.'),

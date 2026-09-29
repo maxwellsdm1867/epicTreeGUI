@@ -131,7 +131,7 @@ Open <http://127.0.0.1:8766> and select your project. You do not need to rerun
 | An existing project requests Docker | It is a legacy Docker-backed project. Keep its original configuration and arrange explicit migration; new native projects do not need Docker. |
 | Port 8766 is occupied | Launch with `--port 8870` as shown above and open the matching URL. |
 | `init` says the workspace already exists | Use its existing `rieke-workspace.py` launcher; do not delete project files to initialize again. |
-| Traces cannot be read | Reconnect the drive holding the original H5 files. Exports contain source references, not bundled waveforms. |
+| Traces cannot be read | Restore access to the project-managed H5 copy, or to the original drive for older linked imports. Exports contain source references, not bundled waveforms. |
 
 For a diagnostic report, run `python3 rieke.py doctor --json` from the application
 checkout. Review paths before sharing the report. Project diagnostics live under
@@ -156,7 +156,7 @@ RiekeLabWorkspace/
     database/                service configuration and persistent MySQL files
     protocols/               saved protocol queries
     imports/                 parsed metadata and source references
-    raw-uploads/             recordings uploaded through the browser
+    raw-uploads/             verified project-managed H5 recordings
     query-snapshots/          frozen query baselines
     exports/                 exported data/reference packages
     logs/                    import, application, error and storage logs
@@ -164,9 +164,12 @@ RiekeLabWorkspace/
     backups/                 reserved location for verified backups
 ```
 
-Path-based imports reference original recordings in place; browser uploads keep
-copies in `raw-uploads`. Keep referenced external drives available. The `backups`
-folder does not itself create backups. A running MySQL directory is not a valid
+New imports, whether selected by path or uploaded, keep a checksum-verified copy
+in `raw-uploads`; lazy traces read that project copy. After the app confirms a
+successful import and verified copy, you may remove the original from Downloads.
+Do not move or delete the managed copy inside the project. Older imports may
+still link to external recordings, so keep those external files available. The
+`backups` folder does not itself create backups. A running MySQL directory is not a valid
 file-copy backup.
 
 For a native project, choose **Project folder → Close project**, wait for the

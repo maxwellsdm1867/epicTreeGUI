@@ -524,8 +524,16 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
             event(outcome, {"source_sha256": manifest["source_sha256"],
                             "experiment_uuid": experiment["uuid"],
                             "counts": manifest["counts"], "warnings": manifest["warnings"]})
+        # Every new Cell/Epoch UUID was checked absent under the import lock,
+        # then inserted membership and stream counts were verified in the
+        # transaction above. These are actual additions, not source totals.
+        manifest['catalog_delta'] = {
+            'sources_added': int(outcome == 'imported'),
+            **{key + '_added': manifest['counts'][key] if outcome == 'imported' else 0
+               for key in ('cells', 'epochs', 'responses', 'stimuli')}}
         stage = "workspace_files"
-        emit("catalog_committed", commit_state="committed", catalog_committed=True, counts=manifest["counts"])
+        emit("catalog_committed", commit_state="committed", catalog_committed=True,
+             counts=manifest["counts"], catalog_delta=manifest['catalog_delta'])
         sync_job_history(project_dir, Event, project_id)
         existing_catalog = json.loads((project_dir / 'catalog.json').read_text()) if (project_dir / 'catalog.json').exists() else {}
         catalog_file = {**existing_catalog, "format": "recording-catalog-reference", "version": 1,

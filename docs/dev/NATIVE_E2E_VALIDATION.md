@@ -68,3 +68,26 @@ standalone app installer has not been produced. Automatic release checks and
 notifications are implemented; no stable signed release or trusted production
 signing key has been published. Release staging/activation tests do not establish
 that a public update can already be installed.
+
+## Import and selection follow-up
+
+The project rail's plus opens both New project and Open project. New project
+accepts an absolute root folder and creates a new isolated child folder; existing
+nonempty folders are never overwritten. A browser-created project under a second
+root imported the same real H5 fixture and automatically opened the review dialog.
+It showed +1 recording, +3 cells, +1,915 epochs, +2,190 responses and +1,915 stimuli,
+separately from source totals, plus the verified managed-copy confirmation.
+
+New imports (including path imports) always use a checksum-verified project copy.
+Regression tests remove the original and read a waveform from the managed copy.
+Only completed verified imports offer original-removal guidance. Old linked files
+and duplicates do not receive that confirmation.
+
+Protocol review supports independent approval, guarded Approve All, inspection,
+and dismissal without approval. Analysis inclusion defaults on. Its per-row toggle
+updates the existing protocol mask without deleting or hiding the recording.
+Epoch selection uses row highlighting, Ctrl/Command-click and Shift-click; the
+redundant selection checkbox is removed and row labels display only the number.
+The browser verified exclusion with the waveform still visible. The updated
+backend suite passed 593 tests with native integration enabled, and 209 frontend
+tests plus production build passed.

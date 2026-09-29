@@ -91,6 +91,21 @@ class ProjectStartupTests(unittest.TestCase):
         self.assertEqual(client.post('/api/projects',json={'name':'Two','source':'copied.h5'},headers=headers).status_code,400)
         self.assertEqual(client.post('/api/projects',json={'name':'Two'},headers={**headers,'Origin':'https://foreign.example'}).status_code,403)
 
+    def test_create_in_chosen_root_preserves_existing_folders(self):
+        client=create_launcher(self.root,self.root/'retinanalysis').test_client()
+        headers={'X-Workspace-Request':'1'}
+        other=self.root/'another workspace'
+        response=client.post('/api/projects',json={'name':'Elsewhere','root_directory':str(other),'directory':'study'},headers=headers)
+        self.assertEqual(response.status_code,201)
+        folder=Path(response.get_json()['project']['path'])
+        self.assertEqual(folder,(other/'study').resolve())
+        before=(folder/'project.json').read_bytes()
+        duplicate=client.post('/api/projects',json={'name':'Other','root_directory':str(other),'directory':'study'},headers=headers)
+        self.assertEqual(duplicate.status_code,400)
+        self.assertEqual((folder/'project.json').read_bytes(),before)
+        for root in ['', 'relative', 42]:
+            self.assertEqual(client.post('/api/projects',json={'name':'Bad','root_directory':root},headers=headers).status_code,400)
+
     def test_open_route_passes_uuid_and_remains_separate_from_creation(self):
         project=create_project(self.root,'Route test')
         client=create_launcher(self.root,self.root/'retinanalysis').test_client()

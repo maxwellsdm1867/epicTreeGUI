@@ -36,5 +36,16 @@ class NativeConnectionTests(unittest.TestCase):
                 retain_recording(project,source,expected)
             self.assertEqual(len(list((project/'raw-uploads').iterdir())),1)
 
+    def test_existing_managed_copy_is_reverified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            source = project / 'original.h5'
+            source.write_bytes(b'original')
+            expected = hashlib.sha256(source.read_bytes()).hexdigest()
+            retained = retain_recording(project, source, expected)
+            retained.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError, 'changed'):
+                retain_recording(project, retained, expected)
+
 
 if __name__=='__main__':unittest.main()

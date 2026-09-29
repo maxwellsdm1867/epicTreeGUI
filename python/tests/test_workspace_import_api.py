@@ -56,6 +56,8 @@ class ImportPreflightAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         job = self.latest_job()
         self.assertEqual(job['status'], 'duplicate')
+        self.assertEqual(job['catalog_delta'], dict.fromkeys(
+            ['sources_added', 'cells_added', 'epochs_added', 'responses_added', 'stimuli_added'], 0))
         self.assertEqual(job['existing_source']['source_path'], str(self.source))
         self.assertEqual(renamed.read_bytes(), self.bytes)
         self.assertEqual((self.case.sources.rows, self.case.data_store_states.rows), before)
@@ -69,6 +71,8 @@ class ImportPreflightAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         job = self.latest_job()
         self.assertEqual(job['status'], 'duplicate')
+        self.assertEqual(job['catalog_delta'], dict.fromkeys(
+            ['sources_added', 'cells_added', 'epochs_added', 'responses_added', 'stimuli_added'], 0))
         self.assertTrue(job['duplicate_staging_removed'])
         self.assertFalse(Path(job['source']).exists())
         self.assertTrue(self.source.exists())
@@ -90,10 +94,48 @@ class ImportPreflightAPITests(unittest.TestCase):
         parser.assert_called_once()
         job = self.latest_job()
         self.assertEqual(job['status'], 'failed')
+        self.assertFalse(job['recording_storage']['original_removal_safe'])
         self.assertEqual(len(job['duplicate_check']['same_name_warnings']), 1)
         self.assertIn('Existing recording identities require reconciliation', job['error'])
         self.assertFalse(self.case.data_store_states.rows)
         self.assertEqual(len(self.case.sources.rows), 1)
+
+    def test_new_path_import_uses_verified_managed_copy_for_every_provider(self):
+        self.source.write_bytes(b'new source bytes')
+        def parse(command, stdout, stderr):
+            retained = Path(command[2])
+            self.assertNotEqual(retained, self.source)
+            self.assertTrue(retained.is_relative_to(Path(self.case.temp.name).resolve() / 'raw-uploads'))
+            self.assertEqual(retained.read_bytes(), self.source.read_bytes())
+            from workspace_import_progress import ProgressReporter
+            ProgressReporter(command[command.index('--progress-file') + 1]).emit(
+                'catalog_committed', commit_state='committed', catalog_committed=True,
+                catalog_delta={'sources_added': 1, 'cells_added': 2, 'epochs_added': 9,
+                               'responses_added': 9, 'stimuli_added': 9})
+            return type('Completed', (), {'returncode': 0})()
+        with patch('workspace_api.subprocess.run', side_effect=parse):
+            self.case.client.post('/api/imports', json={'source_path': str(self.source)}, headers=self.case.headers)
+        job = self.latest_job()
+        self.assertIn(job['status'], {'complete', 'complete_with_warnings'}, job)
+        self.assertTrue(job['recording_storage']['original_removal_safe'])
+        self.assertTrue(job['recording_storage']['verified'])
+        self.assertTrue(job['retained_in_project'])
+        self.assertTrue(self.source.exists())
+        self.assertEqual(job['catalog_delta']['epochs_added'], 9)
+        self.assertEqual(job['catalog_delta']['cells_added'], 2)
+
+    def test_new_upload_reports_verified_copy_only_after_success(self):
+        with patch('workspace_api.subprocess.run') as parser:
+            parser.return_value.returncode = 0
+            self.case.client.post('/api/imports',
+                data={'file': (io.BytesIO(b'new uploaded bytes'), 'uploaded.h5')},
+                content_type='multipart/form-data', headers=self.case.headers)
+        job = self.latest_job()
+        self.assertIn(job['status'], {'complete', 'complete_with_warnings'}, job)
+        self.assertTrue(job['recording_storage']['original_removal_safe'])
+        self.assertTrue(job['recording_storage']['verified'])
+        self.assertTrue(job['retained_in_project'])
+        self.assertEqual(Path(job['source']).read_bytes(), b'new uploaded bytes')
 
     def test_identical_source_in_other_project_fails_without_relinking(self):
         self.case.sources.rows[0]['project_uuid'] = '00000000-0000-0000-0000-000000000001'

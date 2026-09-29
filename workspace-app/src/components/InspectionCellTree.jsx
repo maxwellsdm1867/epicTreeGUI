@@ -1,4 +1,5 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
+import {Check,X} from 'lucide-react';
 import AnnotationIndicator from './AnnotationIndicator.jsx';
 import {api,humanize,number} from '../api.js';
 import {epochPageRequest} from '../epochBrowserSource.js';
@@ -9,20 +10,20 @@ import {Status} from './Common.jsx';
 import './InspectionCellTree.css';
 import {useEpochBrowserPage} from '../useEpochBrowserPage.js';
 
-function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,onSelectPage,disabled}){
+function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,onSelectPage,disabled,onToggleInclusion}){
   const [offset,setOffset]=useState(0);
   const page=useEpochBrowserPage(source,{cellUuid:cell.cell_uuid,offset},revision);
   return <Status {...page} retry={page.reload}>
     <div className="cell-epoch-actions"><button disabled={disabled||page.loading} onClick={()=>onSelectPage(page.data?.epochs||[])}>Select this page</button></div>
-    {(page.data?.epochs||[]).map((epoch,index)=><div key={epoch.epoch_uuid} className={`epoch-row cell-tree-epoch ${focused===epoch.epoch_uuid?'active':''} ${targets.includes(epoch.epoch_uuid)?'bulk-selected':''}`}>
-      <input type="checkbox" disabled={disabled||page.loading} checked={targets.includes(epoch.epoch_uuid)} aria-label={`Select ${datedCellLabel(cell,true)} epoch ${offset+index+1}`} onChange={()=>{}} onClick={event=>onSelect(event,{cellUuid:cell.cell_uuid,index:offset+index,uuid:epoch.epoch_uuid},epoch,page.data,true)}/>
-      <button disabled={disabled||page.loading} aria-current={focused===epoch.epoch_uuid?'true':undefined} onMouseDown={event=>{if(event.shiftKey)event.preventDefault();}} onClick={event=>onSelect(event,{cellUuid:cell.cell_uuid,index:offset+index,uuid:epoch.epoch_uuid},epoch,page.data)} aria-label={`Inspect ${datedCellLabel(cell,true)} epoch ${offset+index+1}`}>
-        <strong>Epoch {offset+index+1}</strong>
+    {(page.data?.epochs||[]).map((epoch,index)=><div key={epoch.epoch_uuid} className={`epoch-row cell-tree-epoch ${focused===epoch.epoch_uuid?'active':''} ${targets.includes(epoch.epoch_uuid)?'bulk-selected':''} ${epoch.curation?.included===false?'analysis-excluded':''}`}>
+      <button disabled={disabled||page.loading} aria-current={focused===epoch.epoch_uuid?'true':undefined} aria-pressed={targets.includes(epoch.epoch_uuid)||(!targets.length&&focused===epoch.epoch_uuid)} onMouseDown={event=>{if(event.shiftKey)event.preventDefault();}} onClick={event=>onSelect(event,{cellUuid:cell.cell_uuid,index:offset+index,uuid:epoch.epoch_uuid},epoch,page.data)} aria-label={`Inspect ${datedCellLabel(cell,true)} epoch ${offset+index+1}`}>
+        <strong>{offset+index+1}</strong>
         <time>{epoch.start_time?.split(/[T ]/)[1]?.slice(0,8)||'—'}</time>
         <span className="epoch-short-protocol" title={humanize(epoch.protocol_name?.split('.').at(-1))}>{humanize(epoch.protocol_name?.split('.').at(-1))||'—'}</span>
         <AnnotationIndicator epoch={epoch}/>
-        {epoch.curation?.included===false&&<span className="epoch-excluded" title="Excluded from this protocol">×</span>}
+        {epoch.curation?.included===false&&<span className="epoch-excluded" title="Excluded from analysis; recording retained">×</span>}
       </button>
+      {onToggleInclusion&&<button className="epoch-analysis-toggle" disabled={disabled||page.loading} aria-label={`Include ${datedCellLabel(cell,true)} epoch ${offset+index+1} in analysis`} aria-pressed={epoch.curation?.included!==false} title={epoch.curation?.included===false?'Excluded from analysis. Click to include.':'Included in analysis. Click to exclude; recording stays here.'} onClick={()=>onToggleInclusion(epoch,epoch.curation?.included===false)}>{epoch.curation?.included===false?<X size={13}/>:<Check size={13}/>}</button>}
     </div>)}
     {page.data&&<div className="pagination"><button aria-label={`Previous epochs for ${datedCellLabel(cell,true)}`} disabled={disabled||page.loading||!offset} onClick={()=>setOffset(Math.max(0,offset-60))}>Previous</button><span>{page.data.total?offset+1:0}–{Math.min(offset+60,page.data.total)} of {number(page.data.total)}</span><button aria-label={`Next epochs for ${datedCellLabel(cell,true)}`} disabled={disabled||page.loading||offset+60>=page.data.total} onClick={()=>setOffset(offset+60)}>Next</button></div>}
   </Status>;
@@ -59,9 +60,9 @@ export default function InspectionCellTree({cells,targets,setTargets,disabled,on
     }catch(error){if(error.name!=='AbortError')setError(error.message);}
     finally{setSelecting(false);}
   }
-  async function select(event,target,epoch,page,checkbox=false){
+  async function select(event,target,epoch,page){
     if(disabled||selecting)return;
-    const shift=event.shiftKey,multiple=checkbox||event.metaKey||event.ctrlKey;
+    const shift=event.shiftKey,multiple=event.metaKey||event.ctrlKey;
     setError('');
     onFocus(target.uuid,epoch);
     if(!multiple&&!shift)setTargets([]);

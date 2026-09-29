@@ -22,3 +22,8 @@
 .inspection-cell-tree .cell-tree-cell>summary>.annotation-row-pills{margin-left:8px;vertical-align:middle}
 .inspection-cell-tree .cell-tree-date>summary{padding:7px 6px}
 .cell-epoch-actions{padding:3px 5px}.cell-epoch-actions button{font-size:10px;padding:2px 5px}
+
+.inspector .cell-tree-epoch>.epoch-analysis-toggle{flex:0 0 23px;justify-content:center;min-height:23px;border:1px solid transparent;border-radius:4px;color:#397267}
+.inspector .cell-tree-epoch>.epoch-analysis-toggle[aria-pressed=false]{color:#945541;background:#f8eee9}
+.inspector .cell-tree-epoch>.epoch-analysis-toggle:hover{border-color:var(--border);background:var(--surface-subtle)}
+.inspector .cell-tree-epoch.analysis-excluded>button>strong{color:var(--ink-muted)}

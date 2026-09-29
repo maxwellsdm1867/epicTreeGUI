@@ -59,3 +59,10 @@ export function importMonitorDelay({loading,pending,error,watching=false}){
 export function shouldRefreshImportCompletion(previous,current,watchingRequest=false,recovered=false){
   return recovered||(previous!==current&&(previous!==null||(watchingRequest&&current!=='')));
 }
+
+export function completedImportToReview(previousJobs,jobs=[],watching=false){
+  if(previousJobs===null&&!watching)return null;
+  const successful=job=>['complete','completed','success'].includes(job.status)||(job.status==='complete_with_warnings'&&job.catalog_committed===true);
+  const previous=new Set((previousJobs||[]).filter(successful).map(job=>job.job_uuid));
+  return jobs.filter(job=>successful(job)&&!previous.has(job.job_uuid)).sort((a,b)=>String(b.finished_at||'').localeCompare(String(a.finished_at||'')))[0]?.job_uuid||null;
+}

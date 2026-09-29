@@ -192,14 +192,14 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
   // Persist grouping only after the server has successfully built that tree.
   useEffect(()=>{if(previousExternalSplit.current===externalSplitKey&&tree.data&&!tree.loading&&!tree.error&&tree.data.split_order?.join(',')===splits)onSplitChange?.(tree.data.split_order);},[tree.data,tree.loading,tree.error,splits,onSplitChange,externalSplitKey]);
   useEffect(()=>{if(previousExternalSplit.current!==externalSplitKey){previousExternalSplit.current=externalSplitKey;if(splits!==externalSplitKey){setSplits(externalSplitKey);setDesignPath([]);setDesignNavigation(null);}}},[externalSplitKey,splits]);
-  async function curate(changes, scope='selection') {
+  async function curate(changes, scope='selection', epochUuid=null) {
     if(busy)return;
-    const uuids=resolveCurationTargets(focused,targets,scope);
+    const uuids=epochUuid?[epochUuid]:resolveCurationTargets(focused,targets,scope);
     if(!uuids.length)return;
     setBusy(true);setError('');setOperationMessage('Saving curation changes…');
     try {
       const states=await Promise.all(uuids.map(uuid=>api(`/epochs/${uuid}?protocol_uuid=${id}`)));
-      if(!curationMatchesCellFocus(states,focusCell))throw new Error('Cell focus changed. Clear the selection and select epochs in the current cell before saving.');
+      if(!epochUuid&&!curationMatchesCellFocus(states,focusCell))throw new Error('Cell focus changed. Clear the selection and select epochs in the current cell before saving.');
       const expected_revisions=Object.fromEntries(states.map(e=>[e.epoch_uuid,e.curation?.revision||0]));
       await api(`/protocols/${id}/curation`,{method:'POST',body:{epoch_uuids:uuids,changes,expected_revisions,query_revision:protocol.query_revision}});
       setTag('');onChange();
@@ -314,7 +314,7 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
           <div className="inspection-tree-edit"><span>{splits?`${splits.split(',').length} splits`:'Flat epoch list'}</span><button onClick={()=>setDesignMode(true)}><GitBranch size={13}/> Edit tree</button></div>
           <PagedTree cells={protocol.cells} selectedEpochs={targets} setSelectedEpochs={selectOverviewTargets} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});}} presentation="tree" protocolId={id} filters={filters} splits={splits} revision={revision} selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onSelectEpoch={focusTreeEpoch} onMetadata={receiveTree} onStatus={setTreeStatus}/>
         </>:<>
-          <div ref={epochListRef} className="tree-scroll" aria-label="Date, cell and epoch overview"><InspectionCellTree key={`${id}:${protocolSearch}`} cells={protocol.cells||[]} source={{kind:'protocol',protocolId:id,query:protocolSearch}} revision={revision} focused={cellTagRequest?null:focused} onFocus={focusTreeEpoch} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cell,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);}} targets={targets} setTargets={selectOverviewTargets} disabled={busy}/></div>
+          <div ref={epochListRef} className="tree-scroll" aria-label="Date, cell and epoch overview"><InspectionCellTree key={`${id}:${protocolSearch}`} cells={protocol.cells||[]} source={{kind:'protocol',protocolId:id,query:protocolSearch}} revision={revision} focused={cellTagRequest?null:focused} onFocus={focusTreeEpoch} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cell,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);}} targets={targets} setTargets={selectOverviewTargets} disabled={busy} onToggleInclusion={(epoch,included)=>curate({included},'focused',epoch.epoch_uuid)}/></div>
           {!metadataOpen&&<StableContent className="stable-tag-dock" scope={id} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} error={epoch.error} retry={epoch.reload}>{tagEntry}</StableContent>}
         </>}
       </aside>}
@@ -328,15 +328,15 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
 
         <Trace epoch={focusedEpoch} revision={revision}/>
         <div className="curation-bar">
-          <button disabled={busy} onClick={()=>curate({included:true})}><Check size={14}/> Include {actionScope}</button>
-          <button disabled={busy} onClick={()=>curate({included:false})}><X size={14}/> Exclude {actionScope}</button>
+          <label className="analysis-inclusion-toggle"><input type="checkbox" checked={focusedEpoch.curation?.included!==false} disabled={busy} onChange={event=>curate({included:event.target.checked},'focused')}/> Include in analysis</label>
+          <span className="analysis-inclusion-help">{focusedEpoch.curation?.included===false?'Excluded from this pinned dataset’s analysis exports. Still available to inspect.':'Included in this pinned dataset’s analysis exports.'}</span>
           {!metadataOpen&&(!treeOpen||treeMode)&&tagEntry}
         </div>
         {busy&&<p className="curation-progress" role="status">{operationMessage}</p>}
         <div className="tags"><span>Dataset-only tags:</span>
           {(focusedEpoch.curation?.tags||[]).map(t=><button key={t} disabled={busy} aria-label={`Remove tag ${t} from focused epoch only`} title="Remove from focused epoch only" onClick={()=>curate({tags_remove:[t]},'focused')}>{t}<X size={13}/></button>)}
           {!focusedEpoch.curation?.tags?.length&&<span>No tags</span>}
-          {focusedEpoch.curation?.included===false&&<Badge kind="warning">Focused epoch excluded from export</Badge>}
+          {focusedEpoch.curation?.included===false&&<Badge kind="warning">Excluded from analysis · recording retained</Badge>}
         </div>
         <details className="optional-review"><summary>Optional review marker · {focusedEpoch.curation?.review_state==='approved'?'Reviewed':'Not marked'}</summary>
           <p>Use this marker if it helps your workflow. Included epochs can be exported without it; “reviewed only” is an optional export filter.</p>

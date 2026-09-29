@@ -24,9 +24,14 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
     @app.post('/api/projects')
     def project_create():
         body = request.get_json(silent=True)
-        if request.args or not isinstance(body, dict) or set(body) - {'name','directory'}:
-            raise ValueError('Project creation accepts a name and optional managed folder')
-        project = create_project(root_provider(), body.get('name'), directory=body.get('directory'))
+        if request.args or not isinstance(body, dict) or set(body) - {'name','directory','root_directory'}:
+            raise ValueError('Project creation accepts a name, optional root directory and project folder')
+        selected_root = body.get('root_directory')
+        if selected_root is not None:
+            if not isinstance(selected_root, str) or not selected_root.strip() or not Path(selected_root.strip()).expanduser().is_absolute():
+                raise ValueError('Choose an absolute root folder for the new project')
+            selected_root = managed_root(selected_root.strip())
+        project = create_project(selected_root or root_provider(), body.get('name'), directory=body.get('directory'))
         return jsonify(project=project, database_status='not_started',
             message='Empty project created. Opening it prepares its own database; no recording is required.'), 201
 

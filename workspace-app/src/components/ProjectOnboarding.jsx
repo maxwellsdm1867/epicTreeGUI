@@ -5,7 +5,7 @@ import {projectColor} from './ProjectNavigator.jsx';
 import './ProjectOnboarding.css';
 
 export default function ProjectOnboarding({registry,onSelect,onCreated,onCancel,onWorkspaceChanged,onOpenProject,createOnly=false,loading=false,error=null}){
-  const [creating,setCreating]=useState(createOnly),[name,setName]=useState(''),[directory,setDirectory]=useState(''),[busy,setBusy]=useState(false),[failure,setFailure]=useState(''),[created,setCreated]=useState(null);
+  const [creating,setCreating]=useState(createOnly),[name,setName]=useState(''),[directory,setDirectory]=useState(''),[newRoot,setNewRoot]=useState(''),[busy,setBusy]=useState(false),[failure,setFailure]=useState(''),[created,setCreated]=useState(null);
   const [selectedRegistry,setSelectedRegistry]=useState(null),[rootEditing,setRootEditing]=useState(false),[rootPath,setRootPath]=useState(registry?.managed_root||''),[rootMessage,setRootMessage]=useState('');
   const currentRegistry=selectedRegistry||registry;
   const projects=currentRegistry?.projects||[];
@@ -21,7 +21,7 @@ export default function ProjectOnboarding({registry,onSelect,onCreated,onCancel,
   async function create(event){
     event.preventDefault();if(busy||!name.trim())return;
     setBusy(true);setFailure('');
-    try{const result=await api('/projects',{method:'POST',body:{name:name.trim(),...(directory.trim()?{directory:directory.trim()}:{})}});if(!result.project?.uuid)throw new Error('The server did not return a project identity. Refresh the project list before retrying.');setCreated(result.project);await onCreated?.(result.project);}
+    try{const result=await api('/projects',{method:'POST',body:{name:name.trim(),...(newRoot.trim()?{root_directory:newRoot.trim()}:{}),...(directory.trim()?{directory:directory.trim()}:{})}});if(!result.project?.uuid)throw new Error('The server did not return a project identity. Refresh the project list before retrying.');setCreated(result.project);await onCreated?.(result.project);}
     catch(error){setFailure(error.message);}finally{setBusy(false);}
   }
   return <section className={`project-onboarding ${createOnly?'creation-only':''}`} aria-label="Project setup">
@@ -34,8 +34,9 @@ export default function ProjectOnboarding({registry,onSelect,onCreated,onCancel,
     {rootMessage&&<p role="status">{rootMessage}</p>}
     {created?<div className="onboarding-created" role="status"><strong>{created.name} was created.</strong><span>{created.path}</span><p role={loading?'status':undefined}>{loading?<><LoaderCircle size={15} className="spin"/> Preparing the project database and opening the workspace…</>:'No H5 file is required. Open the project to add recordings when ready.'}</p><div className="onboarding-actions"><button disabled={loading} className="primary" onClick={()=>onSelect?.(created)}>Open project <ArrowRight size={15}/></button>{!createOnly&&<button disabled={loading} onClick={()=>{setCreated(null);setCreating(false);setFailure('');}}>Back to projects</button>}</div></div>:creating?<form onSubmit={create}>
       <label>Project name<input autoFocus required maxLength={120} value={name} disabled={busy} onChange={event=>setName(event.target.value)} placeholder="e.g. Spike response study"/></label>
+      <label>Root folder<input value={newRoot} disabled={busy} onChange={event=>setNewRoot(event.target.value)} placeholder={currentRegistry?.managed_root||'/absolute/path/to/projects'}/><small>Leave blank to use the project location above. A new project gets its own folder here.</small></label>
       <label>Project folder <small>Optional · leave blank for a unique folder</small><input value={directory} disabled={busy} onChange={event=>setDirectory(event.target.value)} placeholder="Automatic: project name + unique ID"/></label>
-      <div className="onboarding-location"><FolderOpen size={16}/><span>Stored under <strong>{currentRegistry?.managed_root||'the managed project directory'}</strong><small>Only a new or empty direct folder is accepted. Application code stays separate.</small></span></div>
+      <div className="onboarding-location"><FolderOpen size={16}/><span>Stored under <strong>{newRoot.trim()||currentRegistry?.managed_root||'the managed project directory'}</strong><small>Only a new or empty direct folder is accepted. Application code stays separate.</small></span></div>
       <footer>{!createOnly&&<button type="button" disabled={busy} onClick={()=>setCreating(false)}>Back to projects</button>}<button type="submit" className="primary" disabled={busy||!name.trim()}>{busy?<><LoaderCircle size={15} className="spin"/> Creating project…</>:<>Create & open project <ArrowRight size={15}/></>}</button></footer>
     </form>:<>
       <div className="onboarding-list-heading"><h2>Projects in this location</h2><span>{projects.length} project{projects.length===1?'':'s'}</span></div>

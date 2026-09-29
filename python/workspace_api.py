@@ -1219,6 +1219,7 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                 if duplicate.get('project_uuid') != service.project['project_uuid']:
                     raise ValueError('This exact file is already registered to another project; explicit linking is required.')
                 job.update(status='duplicate', finished_at=now(), existing_source=duplicate,
+                           catalog_delta={key + '_added': 0 for key in ('sources', 'cells', 'epochs', 'responses', 'stimuli')},
                            message='Already imported. No parsing or new catalog records; registration and query participation are unchanged.')
                 reporter.emit('duplicate', outcome='completed', catalog_committed=False)
                 if job.get('managed_upload'):
@@ -1233,13 +1234,16 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
                         job['duplicate_staging_removed'] = False
                         job['staging_cleanup_error'] = str(cleanup_error)
                 return
-            if service.config.get('connection', {}).get('credential_provider', {}).get('kind') == 'native-project':
-                from workspace_recording_files import retain_recording
-                original_source = source
-                source = retain_recording(project_dir, source, check['source_sha256'])
-                if source != original_source:
-                    job.update(source=str(source), original_source=str(original_source), retained_in_project=True)
-                    write_json(job_file, job)
+            from workspace_recording_files import retain_recording
+            original_source = source
+            source = retain_recording(project_dir, source, check['source_sha256'])
+            job.update(source=str(source), retained_in_project=True,
+                recording_storage={'kind': 'managed_copy', 'path': str(source),
+                    'sha256': check['source_sha256'], 'verified': True,
+                    'original_removal_safe': False})
+            if source != original_source:
+                job['original_source'] = str(original_source)
+            write_json(job_file, job)
             job.update(status='freezing_baselines')
             reporter.emit('freezing_baselines')
             write_json(job_file, job)
@@ -1264,6 +1268,8 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             child, progress_error = progress_for(job_file, job)
             if child:
                 reporter.current = child
+                if child.get('commit_state') == 'committed' and isinstance(child.get('catalog_delta'), dict):
+                    job['catalog_delta'] = child['catalog_delta']
             if completed.returncode:
                 with log_file.open('rb') as log:
                     log.seek(0, 2)
@@ -1302,6 +1308,7 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             except Exception as query_error:
                 job['warnings'].append({'stage': 'post_import_refresh', 'message': str(query_error)})
                 app.logger.exception('Import succeeded; post-import query suggestions could not complete')
+            job['recording_storage']['original_removal_safe'] = True
             job.update(status='complete_with_warnings' if job['warnings'] else 'complete', finished_at=now())
             reporter.emit('complete', outcome='completed', commit_state='committed', catalog_committed=True)
         except Exception as error:

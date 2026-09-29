@@ -170,6 +170,8 @@ class ImportIdentityTests(unittest.TestCase):
                     patch.object(workspace, 'assert_new_catalog_identities', side_effect=AssertionError('Must bypass')) as guard:
                 result = workspace.import_catalog(project, data, manifest, project, 'fixture-container')
             self.assertEqual(result['status'], 'already_imported')
+            self.assertEqual(result['catalog_delta'], {'sources_added': 0, 'cells_added': 0,
+                'epochs_added': 0, 'responses_added': 0, 'stimuli_added': 0})
             guard.assert_not_called()
             population.append_experiment.assert_not_called()
 
