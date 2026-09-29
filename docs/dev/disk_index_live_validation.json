@@ -1,0 +1,53 @@
+{
+  "epochs": 1776,
+  "cells": 8,
+  "sources": 2,
+  "verified_restart_without_full_projection_decode_or_H5_read": true,
+  "catalog_and_all_typed_values_exact_parity": true,
+  "fingerprints_unchanged": true,
+  "restart": {
+    "sources": 2,
+    "epochs": 1776,
+    "protocols": 5,
+    "source_cache_hits": 2,
+    "source_cache_rebuilt": 0,
+    "timing_ms": {
+      "metadata_check": 16.187208995688707,
+      "source_rebuild": 0.0,
+      "sql_queries": 2718.216625013156,
+      "total": 3302.0697080064565
+    },
+    "metadata_index": "reopened",
+    "metadata_index_seconds": 0.04707820899784565,
+    "metadata_index_generation": "c9289e0c760a8eb542dbaf776a6715b15628373f55503f3f9a8f2194ae006fd7",
+    "discovery_indexes_preserved": false,
+    "status": "complete",
+    "reused_sources": 2,
+    "rebuilt_sources": 0,
+    "elapsed_seconds": 3.3020697080064565,
+    "completed_at": "2026-09-28T05:29:05.348230+00:00"
+  },
+  "refresh": {
+    "sources": 2,
+    "epochs": 1776,
+    "protocols": 5,
+    "source_cache_hits": 2,
+    "source_cache_rebuilt": 0,
+    "timing_ms": {
+      "metadata_check": 13.223540998296812,
+      "source_rebuild": 0.0,
+      "sql_queries": 331.38175000203773,
+      "total": 415.2635000064038
+    },
+    "metadata_index": "reused",
+    "metadata_index_seconds": 2.5249988539144397e-05,
+    "metadata_index_generation": "c9289e0c760a8eb542dbaf776a6715b15628373f55503f3f9a8f2194ae006fd7",
+    "discovery_indexes_preserved": true,
+    "status": "complete",
+    "reused_sources": 2,
+    "rebuilt_sources": 0,
+    "elapsed_seconds": 0.4152635000064038,
+    "completed_at": "2026-09-28T05:29:05.769439+00:00"
+  },
+  "elapsed_seconds": 8.690440291975392
+}

@@ -1,0 +1,52 @@
+{
+  "project": "RetinaSRM",
+  "cold": {
+    "sources": 2,
+    "epochs": 1776,
+    "protocols": 5,
+    "source_cache_hits": 0,
+    "source_cache_rebuilt": 2,
+    "timing_ms": {
+      "metadata_check": 17.284375004237518,
+      "source_rebuild": 2878.1439179729205,
+      "sql_queries": 3452.3042080109008,
+      "total": 7076.386416010791
+    },
+    "status": "complete",
+    "reused_sources": 0,
+    "rebuilt_sources": 2,
+    "elapsed_seconds": 7.076386416010791,
+    "completed_at": "2026-09-28T04:44:19.332813+00:00"
+  },
+  "warm": {
+    "sources": 2,
+    "epochs": 1776,
+    "protocols": 5,
+    "source_cache_hits": 2,
+    "source_cache_rebuilt": 0,
+    "timing_ms": {
+      "metadata_check": 13.062458019703627,
+      "source_rebuild": 0.0,
+      "sql_queries": 325.99495802423917,
+      "total": 711.7905409832019
+    },
+    "status": "complete",
+    "reused_sources": 2,
+    "rebuilt_sources": 0,
+    "elapsed_seconds": 0.7117905409832019,
+    "completed_at": "2026-09-28T04:44:21.293811+00:00"
+  },
+  "speedup": 9.941669646573446,
+  "read_model_identical": true,
+  "verified_read_model_sha256": "4f787cf53ca4456ba2fcda323e762b08b05aa59a5a89ad0342241c33bab82732",
+  "warm_sql_queries_executed": 5,
+  "warm_header_reads": 0,
+  "trace_after_refresh": {
+    "epoch_uuid": "56bf7757-07f7-4322-a439-f25996b8dd96",
+    "samples": 32,
+    "units": "pA",
+    "source_sha256": "46ee6c3acb9307bde3fad8842dde0071c3fcbcf25dc1fb3df2fadf2a65b70df9"
+  },
+  "research_database_mutations": false,
+  "source_mutations": false
+}

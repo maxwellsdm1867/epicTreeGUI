@@ -1,0 +1,113 @@
+{
+  "frequencyCutoff = 100": {
+    "elapsed_ms": 69.64,
+    "result": {
+      "limit": 20,
+      "query": "frequencyCutoff = 100",
+      "results": [
+        {
+          "count": 433,
+          "detail": "eq 100 \u00b7 433 matching epochs \u00b7 parameters/frequencyCutoff",
+          "field_id": "parameters/frequencyCutoff",
+          "id": "parameters/frequencyCutoff:{\"field\":\"parameters/frequencyCutoff\",\"operator\":\"eq\",\"value\":100}",
+          "kind": "value",
+          "label": "Frequency cutoff",
+          "predicate": {
+            "field": "parameters/frequencyCutoff",
+            "operator": "eq",
+            "value": 100
+          }
+        }
+      ],
+      "scope": "active_source_queries",
+      "source_scope_revision": "c16961a85fc4339144d45122cfaa88bcd99f0969baa65e1bb49b275984752633",
+      "total": 1
+    }
+  },
+  "history1 = [0,675]": {
+    "elapsed_ms": 59.3,
+    "result": {
+      "limit": 20,
+      "query": "history1 = [0,675]",
+      "results": [
+        {
+          "count": 72,
+          "detail": "eq [0,675] \u00b7 72 matching epochs \u00b7 parameters/history1",
+          "field_id": "parameters/history1",
+          "id": "parameters/history1:{\"field\":\"parameters/history1\",\"operator\":\"eq\",\"value\":[0,675]}",
+          "kind": "value",
+          "label": "History1",
+          "predicate": {
+            "field": "parameters/history1",
+            "operator": "eq",
+            "value": [
+              0,
+              675
+            ]
+          }
+        }
+      ],
+      "scope": "active_source_queries",
+      "source_scope_revision": "c16961a85fc4339144d45122cfaa88bcd99f0969baa65e1bb49b275984752633",
+      "total": 1
+    }
+  },
+  "4012ffd8-1fc3-4e90-9119-6dbdcc696044": {
+    "elapsed_ms": 17.6,
+    "result": {
+      "identity_ambiguous": false,
+      "limit": 20,
+      "query": "4012ffd8-1fc3-4e90-9119-6dbdcc696044",
+      "results": [
+        {
+          "acquisition_protocol": "edu.washington.riekelab.turner.protocols.SplitFieldCentering",
+          "cell_uuid": "4012ffd8-1fc3-4e90-9119-6dbdcc696044",
+          "date": "2026-09-23",
+          "detail": "2026-09-23 \u00b7 RGC\\ON-parasol",
+          "id": "4012ffd8-1fc3-4e90-9119-6dbdcc696044",
+          "kind": "cell",
+          "label": "Cell3",
+          "query_excluded": false,
+          "source_filename": "2026-09-23_F.h5",
+          "source_sha256": "63d48aeab9344cce6665a9a752f836a797d8c136211202482cce4f72f501003e"
+        }
+      ],
+      "scope": "registered_project_sources",
+      "source_scope_revision": "c16961a85fc4339144d45122cfaa88bcd99f0969baa65e1bb49b275984752633",
+      "total": 1
+    }
+  },
+  "3b54ad41-be74-40e3-a573-dd105ff6fc90": {
+    "elapsed_ms": 10.43,
+    "result": {
+      "identity_ambiguous": false,
+      "limit": 20,
+      "query": "3b54ad41-be74-40e3-a573-dd105ff6fc90",
+      "results": [
+        {
+          "acquisition_protocol": "edu.washington.riekelab.chris.protocols.VariableHistoryNoiseCurInject",
+          "cell_uuid": "4012ffd8-1fc3-4e90-9119-6dbdcc696044",
+          "date": "2026-09-23",
+          "detail": "2026-09-23 \u00b7 VariableHistoryNoiseCurInject",
+          "epoch_uuid": "3b54ad41-be74-40e3-a573-dd105ff6fc90",
+          "id": "3b54ad41-be74-40e3-a573-dd105ff6fc90",
+          "kind": "epoch",
+          "label": "Epoch 1 \u00b7 Cell3",
+          "protocol_uuid": "6b6df15d-0e2b-52b0-aa57-8d00df927cfb",
+          "protocols": [
+            {
+              "name": "VariableHistoryNoiseCurInject",
+              "protocol_uuid": "6b6df15d-0e2b-52b0-aa57-8d00df927cfb"
+            }
+          ],
+          "query_excluded": false,
+          "source_filename": "2026-09-23_F.h5",
+          "source_sha256": "63d48aeab9344cce6665a9a752f836a797d8c136211202482cce4f72f501003e"
+        }
+      ],
+      "scope": "registered_project_sources",
+      "source_scope_revision": "c16961a85fc4339144d45122cfaa88bcd99f0969baa65e1bb49b275984752633",
+      "total": 1
+    }
+  }
+}

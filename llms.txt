@@ -1,0 +1,25 @@
+# Rieke OS / EpicTreeGUI
+
+> Local Symphony recording workspace and MATLAB epoch browser.
+
+Availability: the public master branch currently contains the legacy MATLAB app.
+The complete Rieke OS development source is on the codex/rieke-native-e2e review
+branch. Obtain it with:
+
+git clone --branch codex/rieke-native-e2e https://github.com/maxwellsdm1867/epicTreeGUI.git
+
+Verify rieke.py and the complete application before installing. There is no
+signed standalone desktop installer, stable app release or published Rieke OS
+pip package specified by this repository.
+
+- [Overview and download status](README.md)
+- [Setup, launch, storage and troubleshooting](docs/RIEKE_OS_QUICK_START.md)
+- [Copyable LLM setup prompt](docs/LLM_SETUP.md)
+- [Runtime and export reference](workspace-app/README.md)
+- [MATLAB user guide](docs/UserGuide.md)
+
+Use the documented clone-local setup; preserve dependency pins and project data.
+Distinguish app readiness, bundled native MySQL readiness and observed
+browser/project success. New native projects do not require Docker or an external
+MySQL installation. Legacy Docker projects require explicit migration. Do not
+claim fresh-install validation unless it was actually performed.

@@ -1,0 +1,111 @@
+{
+  "synthetic": true,
+  "epochs": 50000,
+  "cells": 200,
+  "protocols": 5,
+  "sources": 10,
+  "no_waveform_or_sql_io": true,
+  "field_count": 140,
+  "construction_seconds": 1.7146463339740876,
+  "private_cache_copy_seconds": 4.05316275000223,
+  "memory_mib": {
+    "initial": 20.078125,
+    "read_model": 623.125,
+    "with_private_source_cache": 991.921875,
+    "after_queries": 1344.65625
+  },
+  "measurements": [
+    {
+      "operation": "overview",
+      "seconds": 0.4193622499878984,
+      "json_serialization_seconds": 0.0005191249947529286,
+      "gzip_bytes": 3324,
+      "compression_seconds": 0.00022112502483651042,
+      "json_bytes": 104161,
+      "rss_before_mib": 981.140625,
+      "rss_with_result_mib": 993.765625
+    },
+    {
+      "operation": "protocol_query",
+      "seconds": 0.01183033300912939,
+      "json_serialization_seconds": 0.005746667011408135,
+      "gzip_bytes": 31127,
+      "compression_seconds": 0.0017890829767566174,
+      "json_bytes": 1320416,
+      "rss_before_mib": 976.5,
+      "rss_with_result_mib": 976.546875
+    },
+    {
+      "operation": "epoch_page_100",
+      "seconds": 0.02819795798859559,
+      "json_serialization_seconds": 0.0006473329849541187,
+      "gzip_bytes": 6254,
+      "compression_seconds": 0.00024908300838433206,
+      "json_bytes": 142064,
+      "rss_before_mib": 980.15625,
+      "rss_with_result_mib": 985.953125
+    },
+    {
+      "operation": "project_tree_cold",
+      "seconds": 10.517144125013147,
+      "json_serialization_seconds": 0.08787691700854339,
+      "gzip_bytes": 1201136,
+      "compression_seconds": 0.034882000007200986,
+      "json_bytes": 18433088,
+      "rss_before_mib": 980.984375,
+      "rss_with_result_mib": 646.5
+    },
+    {
+      "operation": "project_tree_warm",
+      "seconds": 0.4789081670169253,
+      "json_serialization_seconds": 0.09489400000893511,
+      "gzip_bytes": 1201136,
+      "compression_seconds": 0.03421454201452434,
+      "json_bytes": 18433088,
+      "rss_before_mib": 1184.875,
+      "rss_with_result_mib": 1206.0
+    },
+    {
+      "operation": "predicate_fields_cold",
+      "seconds": 5.756276332976995,
+      "json_serialization_seconds": 0.0013875829754397273,
+      "gzip_bytes": 9648,
+      "compression_seconds": 0.00032199997804127634,
+      "json_bytes": 144167,
+      "rss_before_mib": 1235.171875,
+      "rss_with_result_mib": 457.328125
+    },
+    {
+      "operation": "predicate_fields_warm",
+      "seconds": 6.804199074395001e-05,
+      "json_serialization_seconds": 0.001267541985725984,
+      "gzip_bytes": 9648,
+      "compression_seconds": 0.00027579101151786745,
+      "json_bytes": 144167,
+      "rss_before_mib": 1183.84375,
+      "rss_with_result_mib": 1183.890625
+    },
+    {
+      "operation": "filtered_preview_warm",
+      "seconds": 4.024504083005013,
+      "json_serialization_seconds": 0.03707745802239515,
+      "gzip_bytes": 426950,
+      "compression_seconds": 0.012771167006576434,
+      "json_bytes": 7425948,
+      "rss_before_mib": 1172.21875,
+      "rss_with_result_mib": 1324.03125
+    }
+  ],
+  "scope_cache_limits": {
+    "max_scopes": 8,
+    "approximate_value_entries": 2000000,
+    "single_current_oversized_scope_allowed": true
+  },
+  "remaining_limits": [
+    "Registered discovery values retain O(epoch_count \u00d7 field_count) memory; the source projection cache also keeps a separate private metadata copy.",
+    "A full tree response still contains all matching epoch labels and UUIDs; gzip reduces wire size, not decoded browser memory.",
+    "This fixture uses sequential synthetic UUIDs, which compress better than random acquisition UUIDs.",
+    "These measurements do not cover SQL latency, cold H5 validation, concurrent clients or browser rendering."
+  ],
+  "limits": "Synthetic metadata-only process timings; excludes SQL/H5 verification, network and browser rendering."
+}

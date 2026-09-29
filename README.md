@@ -1,6 +1,95 @@
-# EpicTreeGUI
+# Rieke OS · EpicTreeGUI
 
-A MATLAB GUI for browsing and analyzing neurophysiology epoch data.
+Rieke OS is a local workspace for browsing Symphony recordings, inspecting epochs,
+organizing metadata queries, tagging data, and exporting selections to MATLAB or
+SQLite. It runs in your browser with a local Python service and a separate database
+for each project. This repository also contains **EpicTreeGUI**, the MATLAB epoch
+browser used to work with exported recordings.
+
+> **Download status:** the public `master` branch currently contains the MATLAB
+> application. Use the **`codex/rieke-native-e2e` review branch** for the complete
+> Rieke OS development source and launcher. Downloading `master` alone does not
+> provide that installer. There is no signed standalone desktop installer or
+> stable Rieke OS release yet.
+
+## Start here
+
+| What you need | Where to go |
+| --- | --- |
+| Download and set up Rieke OS | [Quick start](docs/RIEKE_OS_QUICK_START.md) |
+| Ask an AI assistant to help install it | [LLM setup instructions](docs/LLM_SETUP.md) |
+| Use the existing MATLAB browser | [MATLAB installation](#matlab-installation) |
+| Understand runtime and project storage | [Installation details](workspace-app/README.md) |
+| Work with shared tags and MATLAB tag exchange | [Tagging guide](docs/TAGGING.md) |
+
+## Download the application
+
+Open the [Rieke OS review branch](https://github.com/maxwellsdm1867/epicTreeGUI/tree/codex/rieke-native-e2e)
+and choose **Code → Download ZIP**, then extract the entire archive, or clone that
+branch explicitly:
+
+```sh
+git clone --branch codex/rieke-native-e2e https://github.com/maxwellsdm1867/epicTreeGUI.git
+cd epicTreeGUI
+```
+
+This downloads the Rieke OS development source. **Check for `rieke.py` before
+attempting setup.** If it is absent, verify that you selected the review branch
+instead of the MATLAB-only `master` branch. Do not
+copy only the launcher into an older checkout.
+
+The source package does not include installed dependencies, recordings, project
+databases, or MATLAB. Rieke OS setup downloads its pinned Python runtime,
+RetinAnalysis parser, frontend dependencies and private MySQL server/client.
+New projects use this app-owned MySQL runtime; Docker and a separate MySQL
+installation are unnecessary. Allow internet access and several GB of
+free space, plus storage for your recordings.
+
+## Rieke OS: install once, launch whenever needed
+
+The bundled native database is currently supported on Apple Silicon macOS.
+Source setup requires Git, Python 3.10+, uv, Node/npm (20.19+ on Node 20, or
+22.12+), and a C++ compiler. Linux does not yet have a validated bundled database.
+MATLAB is optional unless you want to use the MATLAB browser. A signed macOS
+`.app` bundling the interpreter and all dependencies has not been built yet.
+See the [quick start](docs/RIEKE_OS_QUICK_START.md) for prerequisite links.
+
+From a **complete Rieke OS checkout**:
+
+```sh
+python3 rieke.py setup
+python3 rieke.py doctor
+python3 rieke.py init "$HOME/Documents/RiekeLabWorkspace"
+cd "$HOME/Documents/RiekeLabWorkspace"
+python3 rieke-workspace.py
+```
+
+Open [Rieke OS locally](http://127.0.0.1:8766), confirm the workspace folder,
+choose **New project**, and open it. Use **Add data store** to import your Symphony
+H5 recordings. Select a tag author before adding or importing tags.
+
+To reopen later, run the last two commands again. Keep the
+terminal open while using the app. Ctrl-C stops the chooser; project servers and
+databases may keep running. The application checkout and workspace folder must
+remain separate. Keep original H5 files available for lazy trace access, including
+when using exported MATLAB or SQLite packages.
+
+To hand over a native project, use **Project folder → Close project**, wait for
+the clean-close confirmation, then copy or move its entire folder. The recipient
+uses **Open project** in their own app with the same bundled MySQL runtime.
+Project-contained paths are checked and updated on open. Linked recordings must
+still be accessible; **Prepare to share** can create a separate logical transfer
+package with recordings included. Closing a browser tab alone is not a clean
+database shutdown. Existing Docker-backed projects are preserved and require an
+explicit migration; opening them does not silently convert their database.
+See [workspace sharing and updates](docs/WORKSPACE_SHARING_AND_UPDATES.md).
+
+---
+
+# EpicTreeGUI MATLAB browser
+
+The following documentation covers the MATLAB application independently of the
+Rieke OS installation above.
 
 ## Overview
 
@@ -20,18 +109,18 @@ EpicTreeGUI provides hierarchical organization and analysis of neurophysiology e
 - Compatible with RetinAnalysis Python export pipeline and DataJoint Flask web app
 - Pre-built tree pattern for reproducible analysis hierarchies
 
-## Requirements
+## MATLAB requirements
 
 - MATLAB R2019b or later
 - No additional toolboxes required
 - Operating system: Windows, macOS, Linux
 
-## Installation
+## MATLAB installation
 
 1. Clone this repository:
 
    ```bash
-   git clone https://github.com/Rieke-Lab/epicTreeGUI.git
+   git clone https://github.com/maxwellsdm1867/epicTreeGUI.git
    cd epicTreeGUI
    ```
 
@@ -47,7 +136,7 @@ EpicTreeGUI provides hierarchical organization and analysis of neurophysiology e
    help epicTreeTools
    ```
 
-## Quick Start
+## MATLAB quick start
 
 ```matlab
 % Get script directory for relative path resolution
@@ -153,7 +242,9 @@ ugm = epicTreeTools.findLatestUGM('/local/path/experiment.mat');
 % Finds .ugm in ugm_dir even though .mat is elsewhere
 ```
 
-### DataJoint Round-Trip
+### Legacy DataJoint Mask Round-Trip
+
+The following describes the older DataJoint application. In Rieke OS, `.ugm` imports change inclusion only; authored tags use the separate UUID-based [tag JSON workflow](docs/TAGGING.md).
 
 Selection masks can be **manually** pushed back to DataJoint as epoch tags. The DataJoint web app never auto-loads `.ugm` files — import only happens when the user explicitly clicks "Import Mask" and selects a file.
 

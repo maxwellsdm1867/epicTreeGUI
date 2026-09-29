@@ -1,0 +1,202 @@
+{
+  "matlab_version": "R2022a",
+  "python_tests": 256,
+  "python_subtests": 159,
+  "frontend_tests": 59,
+  "matlab_helper_tests": 14,
+  "matlab_integrity_tests": 8,
+  "runtime_llm_calls": false,
+  "cases": {
+    "history": {
+      "output_directory": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp305b4d99_fdc4_4d01_90ba_09e1b23271a9/moved bundle's files",
+      "epoch_count": 101,
+      "fields": [
+        "date",
+        "cell type",
+        "cell",
+        "parameters/isControl",
+        "joint/parameters%2Fhistory1+parameters%2Fhistory2+parameters%2Ftarget",
+        "parameters/segmentTime",
+        "block"
+      ],
+      "scripts": [
+        {
+          "script": "launch_epictree.m",
+          "executed_unchanged": true,
+          "epochs": 101,
+          "ordered_leaves": 27,
+          "exact_epoch_sequence": true,
+          "mixed_mask_by_uuid": true,
+          "gui_created": true,
+          "roundtrip_mask_by_uuid": true,
+          "friendly_display_labels": true,
+          "gui_save_path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp305b4d99_fdc4_4d01_90ba_09e1b23271a9/moved bundle's files/selection.ugm",
+          "reopened_saved_mask": false,
+          "trace": {
+            "epoch_uuid": "9bc21c6d-b48b-47b0-8fb1-08bf8cd83c89",
+            "samples": 200000,
+            "sample_rate": 10000,
+            "units": "mV",
+            "gui_equals_direct_h5": true,
+            "loader_equals_direct_h5": true
+          },
+          "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp305b4d99_fdc4_4d01_90ba_09e1b23271a9/moved bundle's files/generated-script-1.png"
+        },
+        {
+          "script": "tree_layout.m",
+          "executed_unchanged": true,
+          "epochs": 101,
+          "ordered_leaves": 27,
+          "exact_epoch_sequence": true,
+          "mixed_mask_by_uuid": true,
+          "gui_created": true,
+          "roundtrip_mask_by_uuid": true,
+          "friendly_display_labels": true,
+          "gui_save_path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp305b4d99_fdc4_4d01_90ba_09e1b23271a9/moved bundle's files/selection.ugm",
+          "reopened_saved_mask": true,
+          "trace": {
+            "epoch_uuid": "4140fb4c-4f5f-44dc-a0a5-1bfc27287d9c",
+            "samples": 200000,
+            "sample_rate": 10000,
+            "units": "mV",
+            "gui_equals_direct_h5": true,
+            "loader_equals_direct_h5": true
+          },
+          "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp305b4d99_fdc4_4d01_90ba_09e1b23271a9/moved bundle's files/generated-script-2.png"
+        }
+      ],
+      "all_excluded_nodes_and_gui_flags": true,
+      "invalid_mapping_rejected": true,
+      "unavailable_field_rejected": true,
+      "invalid_sequence_rejected": true,
+      "source_files_modified": false,
+      "project_database_modified": false,
+      "durable_screenshot": "/Users/maxwellsdm/.codex/visualizations/2026/09/27/01a0e3c1-f067-7783-b12b-8ad71ea4dc0f/epictree-generated-history-verified.png"
+    },
+    "vmn": {
+      "output_directory": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpe17310f0_252e_44f3_95a7_acd34b6e1f87/moved bundle's files",
+      "epoch_count": 520,
+      "fields": [
+        "date",
+        "cell type",
+        "cell",
+        "parameters/frequencyCutoff",
+        "parameters/currentMean",
+        "parameters/currentSD",
+        "parameters/useRandomSeed",
+        "block"
+      ],
+      "scripts": [
+        {
+          "script": "launch_epictree.m",
+          "executed_unchanged": true,
+          "epochs": 520,
+          "ordered_leaves": 20,
+          "exact_epoch_sequence": true,
+          "mixed_mask_by_uuid": true,
+          "gui_created": true,
+          "roundtrip_mask_by_uuid": true,
+          "friendly_display_labels": true,
+          "gui_save_path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpe17310f0_252e_44f3_95a7_acd34b6e1f87/moved bundle's files/selection.ugm",
+          "reopened_saved_mask": false,
+          "trace": {
+            "epoch_uuid": "5c98c00b-fdd3-4264-9b8f-d5d6962d784a",
+            "samples": 5000,
+            "sample_rate": 10000,
+            "units": "mV",
+            "gui_equals_direct_h5": true,
+            "loader_equals_direct_h5": true
+          },
+          "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpe17310f0_252e_44f3_95a7_acd34b6e1f87/moved bundle's files/generated-script-1.png"
+        },
+        {
+          "script": "tree_layout.m",
+          "executed_unchanged": true,
+          "epochs": 520,
+          "ordered_leaves": 20,
+          "exact_epoch_sequence": true,
+          "mixed_mask_by_uuid": true,
+          "gui_created": true,
+          "roundtrip_mask_by_uuid": true,
+          "friendly_display_labels": true,
+          "gui_save_path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpe17310f0_252e_44f3_95a7_acd34b6e1f87/moved bundle's files/selection.ugm",
+          "reopened_saved_mask": true,
+          "trace": {
+            "epoch_uuid": "492ab000-a169-464d-b95e-c27b584f89a0",
+            "samples": 5000,
+            "sample_rate": 10000,
+            "units": "mV",
+            "gui_equals_direct_h5": true,
+            "loader_equals_direct_h5": true
+          },
+          "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpe17310f0_252e_44f3_95a7_acd34b6e1f87/moved bundle's files/generated-script-2.png"
+        }
+      ],
+      "all_excluded_nodes_and_gui_flags": true,
+      "invalid_mapping_rejected": true,
+      "unavailable_field_rejected": true,
+      "invalid_sequence_rejected": true,
+      "source_files_modified": false,
+      "project_database_modified": false,
+      "durable_screenshot": "/Users/maxwellsdm/.codex/visualizations/2026/09/27/01a0e3c1-f067-7783-b12b-8ad71ea4dc0f/epictree-generated-vmn-verified.png"
+    },
+    "flat": {
+      "output_directory": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpa1934124_3b19_4249_9aed_8a2d3c7b37d3/moved bundle's files",
+      "epoch_count": 520,
+      "fields": [],
+      "scripts": [
+        {
+          "script": "launch_epictree.m",
+          "executed_unchanged": true,
+          "epochs": 520,
+          "ordered_leaves": 1,
+          "exact_epoch_sequence": true,
+          "mixed_mask_by_uuid": true,
+          "gui_created": true,
+          "roundtrip_mask_by_uuid": true,
+          "friendly_display_labels": true,
+          "gui_save_path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpa1934124_3b19_4249_9aed_8a2d3c7b37d3/moved bundle's files/selection.ugm",
+          "reopened_saved_mask": false,
+          "trace": {
+            "epoch_uuid": "5c98c00b-fdd3-4264-9b8f-d5d6962d784a",
+            "samples": 5000,
+            "sample_rate": 10000,
+            "units": "mV",
+            "gui_equals_direct_h5": true,
+            "loader_equals_direct_h5": true
+          },
+          "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpa1934124_3b19_4249_9aed_8a2d3c7b37d3/moved bundle's files/generated-script-1.png"
+        },
+        {
+          "script": "tree_layout.m",
+          "executed_unchanged": true,
+          "epochs": 520,
+          "ordered_leaves": 1,
+          "exact_epoch_sequence": true,
+          "mixed_mask_by_uuid": true,
+          "gui_created": true,
+          "roundtrip_mask_by_uuid": true,
+          "friendly_display_labels": true,
+          "gui_save_path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpa1934124_3b19_4249_9aed_8a2d3c7b37d3/moved bundle's files/selection.ugm",
+          "reopened_saved_mask": true,
+          "trace": {
+            "epoch_uuid": "492ab000-a169-464d-b95e-c27b584f89a0",
+            "samples": 5000,
+            "sample_rate": 10000,
+            "units": "mV",
+            "gui_equals_direct_h5": true,
+            "loader_equals_direct_h5": true
+          },
+          "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tpa1934124_3b19_4249_9aed_8a2d3c7b37d3/moved bundle's files/generated-script-2.png"
+        }
+      ],
+      "all_excluded_nodes_and_gui_flags": true,
+      "invalid_mapping_rejected": true,
+      "unavailable_field_rejected": true,
+      "invalid_sequence_rejected": true,
+      "source_files_modified": false,
+      "project_database_modified": false,
+      "durable_screenshot": "/Users/maxwellsdm/.codex/visualizations/2026/09/27/01a0e3c1-f067-7783-b12b-8ad71ea4dc0f/epictree-generated-flat-verified.png"
+    }
+  }
+}

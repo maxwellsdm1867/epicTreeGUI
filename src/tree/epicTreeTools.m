@@ -3937,7 +3937,7 @@ classdef epicTreeTools < handle
             % Inputs:
             %   epochList  - Cell array of epoch structs
             %   streamName - Device name (e.g., 'Amp1', 'Amp2', 'Stage')
-            %   h5_file    - (Optional) Path to H5 file for lazy loading
+            %   h5_file    - (Optional) Fallback when the response/epoch has no H5 pointer
             %
             % Outputs:
             %   dataMatrix - [nEpochs x nSamples] response data matrix
@@ -4014,7 +4014,7 @@ classdef epicTreeTools < handle
             % Inputs:
             %   epoch      - Epoch struct with responses field
             %   streamName - Device name to find (e.g., 'Amp1')
-            %   h5_file    - (Optional) Path to H5 file for lazy loading
+            %   h5_file    - (Optional) Fallback when the response/epoch has no H5 pointer
 
             data = [];
             sampleRate = [];
@@ -4059,21 +4059,30 @@ classdef epicTreeTools < handle
             end
 
             % Get data - try direct field first, then lazy load from H5
-            if isfield(resp, 'data') && ~isempty(resp.data)
+            if isfield(resp, 'data') && ~isempty(resp.data) && ~isfield(resp, 'source_sha256')
                 data = resp.data(:)';  % Ensure row vector
             else
                 % Lazy load from H5 file
                 hasH5Path = isfield(resp, 'h5_path') && ~isempty(resp.h5_path);
 
-                % Use h5_file from: 1) parameter, 2) response field, 3) epoch field
-                actualH5File = h5_file;
-                if isempty(actualH5File) && isfield(resp, 'h5_file') && ~isempty(resp.h5_file)
+                % Per-stream acquisition pointers take precedence over a project-wide
+                % fallback, which may belong to another recording in this tree.
+                % Use loadH5ResponseData(resp, path) for an intentional override.
+                actualH5File = '';
+                if isfield(resp, 'h5_file') && ~isempty(resp.h5_file)
                     actualH5File = resp.h5_file;
                 end
                 if isempty(actualH5File) && isfield(epoch, 'h5_file') && ~isempty(epoch.h5_file)
                     actualH5File = epoch.h5_file;
                 end
 
+                if isempty(actualH5File)
+                    actualH5File = h5_file;
+                end
+
+                if isfield(resp, 'source_sha256') && (~hasH5Path || isempty(actualH5File))
+                    error('workspaceSource:Unavailable', 'Workspace response lacks its H5 source or dataset pointer.');
+                end
                 if hasH5Path && ~isempty(actualH5File)
                     try
                         data = epicTreeTools.loadH5ResponseData(resp, actualH5File);
@@ -4081,6 +4090,9 @@ classdef epicTreeTools < handle
                             data = data(:)';  % Ensure row vector
                         end
                     catch ME
+                        if startsWith(ME.identifier, 'workspaceSource:')
+                            rethrow(ME);
+                        end
                         warning('epicTreeTools:getResponseFromEpoch:H5LoadFailed', ...
                             'Failed to load H5 data: %s', ME.message);
                     end
@@ -4116,8 +4128,10 @@ classdef epicTreeTools < handle
                 response = response{1};
             end
 
+            workspaceSource = isfield(response, 'source_sha256');
+
             % Check if data is already loaded
-            if isfield(response, 'data') && ~isempty(response.data)
+            if ~workspaceSource && isfield(response, 'data') && ~isempty(response.data)
                 data = response.data(:);
                 return;
             end
@@ -4127,6 +4141,9 @@ classdef epicTreeTools < handle
                 if isfield(response, 'h5_file') && ~isempty(response.h5_file)
                     h5_file = response.h5_file;
                 else
+                    if workspaceSource
+                        error('workspaceSource:Unavailable', 'Workspace response has no H5 source path.');
+                    end
                     warning('epicTreeTools:loadH5ResponseData:noH5File', ...
                         'No h5_file provided and none in response struct');
                     return;
@@ -4149,10 +4166,32 @@ classdef epicTreeTools < handle
                 end
 
                 if ~exist(h5_file, 'file')
+                    if workspaceSource
+                        error('workspaceSource:Unavailable', 'Workspace H5 source is missing: %s', h5_file);
+                    end
                     warning('epicTreeTools:loadH5ResponseData:fileNotFound', ...
                         'H5 file not found: %s', h5_file);
                     return;
                 end
+            end
+
+            % Workspace exports bind lazy pointers to immutable source bytes.
+            % Keep integrity errors outside the legacy HDF5 fallback catches.
+            if workspaceSource
+                token = verifyWorkspaceSource(h5_file, response.source_sha256);
+                legacyResponse = rmfield(response, 'source_sha256');
+                legacyResponse.data = []; % Never substitute cached waveform bytes for the verified source.
+                try
+                    data = epicTreeTools.loadH5ResponseData(legacyResponse, h5_file);
+                catch cause
+                    error('workspaceSource:ReadFailed', 'Cannot read verified workspace H5 waveform: %s', cause.message);
+                end
+                verifyWorkspaceSource(h5_file, response.source_sha256, token);
+                if isempty(data)
+                    error('workspaceSource:ReadFailed', ...
+                        'Verified workspace H5 source did not yield waveform data: %s', h5_file);
+                end
+                return;
             end
 
             % Get H5 path within file

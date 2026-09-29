@@ -1,0 +1,76 @@
+{
+  "status": "passed",
+  "validated_at": "2026-09-28T06:26:40.468172+00:00",
+  "matlab_release": "2022a",
+  "export_uuid": "3c829cb2-dadf-4c51-adfc-2222d705e259",
+  "candidate_revision_uuid": "a4910b6c-5043-4f66-b2c1-f16eb0080a05",
+  "zip_sha256": "6edbf279a8d6f17af13492be7460220459dda821729dffef735256d391dacae3",
+  "dates": [
+    "2026-09-23",
+    "2026-09-24"
+  ],
+  "cell_count": 4,
+  "epoch_count": 173,
+  "leaf_count": 45,
+  "canonical_bundle": "/Users/maxwellsdm/Documents/RecordingWorkspace/RetinaSRM/exports/3c829cb2-dadf-4c51-adfc-2222d705e259/epictree-bundle.zip",
+  "canonical_bundle_unchanged": true,
+  "source_predicate_membership_and_fingerprints_match_saved_export": true,
+  "generated_scripts": [
+    {
+      "script": "launch_epictree.m",
+      "executed_unchanged": true,
+      "gui_created": true,
+      "exact_epoch_sequence": true,
+      "mixed_mask_by_uuid": true,
+      "roundtrip_mask_by_uuid": true,
+      "gui_trace_equals_direct_h5": true,
+      "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp94efceef_8219_42ea_9ef3_4f8d98538e58/moved bundle's files/generated-script-1.png"
+    },
+    {
+      "script": "tree_layout.m",
+      "executed_unchanged": true,
+      "gui_created": true,
+      "exact_epoch_sequence": true,
+      "mixed_mask_by_uuid": true,
+      "roundtrip_mask_by_uuid": true,
+      "gui_trace_equals_direct_h5": true,
+      "screenshot": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp94efceef_8219_42ea_9ef3_4f8d98538e58/moved bundle's files/generated-script-2.png"
+    }
+  ],
+  "original_mask_uuid_membership": true,
+  "original_mask_selected_epochs": 173,
+  "all_excluded_flags_preserved": true,
+  "invalid_mapping_rejected": true,
+  "invalid_sequence_rejected": true,
+  "unavailable_field_rejected": true,
+  "source_traces": [
+    {
+      "epoch_uuid": "92409daa-8fc9-4c94-94d5-2b4477b064e6",
+      "source_path": "/Users/maxwellsdm/Downloads/2026-09-24_F.h5",
+      "source_sha256": "46ee6c3acb9307bde3fad8842dde0071c3fcbcf25dc1fb3df2fadf2a65b70df9",
+      "samples": 200000,
+      "sample_rate": 10000,
+      "units": "mV",
+      "equals_direct_h5": true
+    },
+    {
+      "epoch_uuid": "2e1e400f-f7ca-433a-8524-dd12198d9433",
+      "source_path": "/Users/maxwellsdm/Documents/RecordingWorkspace/RetinaSRM/raw-uploads/140d03d5-ad20-4a6c-8b0c-5035acd784e4/2026-09-23_F.h5",
+      "source_sha256": "63d48aeab9344cce6665a9a752f836a797d8c136211202482cce4f72f501003e",
+      "samples": 200000,
+      "sample_rate": 10000,
+      "units": "mV",
+      "equals_direct_h5": true
+    }
+  ],
+  "existing_user_figures_untouched": true,
+  "source_files_modified": false,
+  "project_database_modified": false,
+  "proof_directory": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/tp94efceef_8219_42ea_9ef3_4f8d98538e58/moved bundle's files",
+  "extra_native_proof": "/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-oneoff-matlab-lq4jmy69/oneoff-native-proof.json",
+  "logs": [
+    "/tmp/rieke-oneoff-matlab-native.log",
+    "/tmp/rieke-oneoff-matlab-extra.log"
+  ],
+  "validation_note": "Original UGM stores each UUID as a column char vector; comparison normalized orientation without changing text. Native mask loading and round trips already handle this representation."
+}

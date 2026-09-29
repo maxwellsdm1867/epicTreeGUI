@@ -1,0 +1,55 @@
+{
+  "managed_root": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-startup-validation-yu0tkk3_",
+  "launcher_port": 59996,
+  "checks": {
+    "zero_project_launcher": true,
+    "creation_has_no_database_side_effect": true,
+    "empty_project_overview": true,
+    "no_inherited_sources": true,
+    "database_loopback_only": true,
+    "healthy_process_reused": true,
+    "database_reused_after_process_restart": true,
+    "last_project_persisted": true,
+    "launcher_restart_retains_project_and_last": true
+  },
+  "started_at": "2026-09-27T23:16:00-0700",
+  "project": {
+    "available": true,
+    "current": false,
+    "name": "Disposable startup verification",
+    "path": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-startup-validation-yu0tkk3_/disposable-startup-verification-9271b96e",
+    "uuid": "9271b96e-c826-42e0-9583-30410f7368a5"
+  },
+  "container": "rieke-os-9271b96ec82642e0958330410f7368a5",
+  "project_url": "http://127.0.0.1:60019",
+  "overview_counts": {
+    "approved": 0,
+    "cells": 0,
+    "duration_seconds": 0,
+    "epochs": 0,
+    "exported": 0,
+    "included": 0,
+    "protocols": 0,
+    "reviewed": 0,
+    "sources": 0,
+    "unreviewed": 0
+  },
+  "container_id": "d6e03facacd7d383a3c601d135fcdc2be7f248f6691f1d6ad28178721590f416",
+  "port_bindings": [
+    {
+      "HostIp": "127.0.0.1",
+      "HostPort": "60005"
+    }
+  ],
+  "status": "passed",
+  "cleanup": {
+    "container_removed": true,
+    "logs_and_database_files_preserved": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-startup-validation-yu0tkk3_",
+    "container_absent_verified": true,
+    "project_server_stopped_verified": true
+  },
+  "fixed_issue": {
+    "description": "Flask project-open route required project_uuid argument; signature fixed with HTTP regression test",
+    "initial_failure_logs": "/private/var/folders/41/tclkvrfs1v9386sxps6_w5t40000gn/T/rieke-startup-validation-hjd54mci/validation-logs/launcher.log"
+  }
+}
