@@ -141,3 +141,10 @@ The final backend suite passed 617 tests with native integration enabled;
 211 frontend tests and the production build passed. The unsuccessful test attempt
 remains in demo history; it added no source records and the retry completed with
 no warnings.
+
+### Single managed H5 folder and storage totals (2026-09-29)
+
+- Full native backend suite: 628 tests passed; frontend: 211 tests passed and production build succeeded. Datastore size tests also passed (15).
+- Closed/reopened the native demo project, then copied a fresh synthetic H5 directly into `raw-uploads`. The watcher automatically imported it after settling: one recording, three cells, nine epochs, zero new protocol types. Three saved-query proposals were created without approval.
+- Verified the job's retained path equals the dropped path, exactly one matching managed H5 exists, and `original_removal_safe` is false for this in-place recording. Sidebar pinned protocols displayed pending +3-cell updates.
+- Browser confirmed Import H5s and Open H5 folder controls. Data stores showed 268.4 MB H5, 23.4 MB parsed metadata, 291.8 MB combined, with per-recording metadata sizes. These totals exclude MySQL, caches, exports, logs and unregistered files; unavailable sizes are marked partial.

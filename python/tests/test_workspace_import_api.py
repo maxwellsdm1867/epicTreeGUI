@@ -137,6 +137,38 @@ class ImportPreflightAPITests(unittest.TestCase):
         self.assertTrue(job['retained_in_project'])
         self.assertEqual(Path(job['source']).read_bytes(), b'new uploaded bytes')
 
+    def test_managed_folder_drop_uses_import_pipeline_without_second_copy(self):
+        inbox = self.case.app.extensions['h5_inbox']
+        self.assertFalse(inbox.enabled)
+        inbox.scan()
+        source = inbox.path / 'finder-drop.h5'
+        source.write_bytes(b'new folder drop')
+        current = [100]
+        inbox.clock = lambda: current[0]
+        inbox.scan()
+        def parse(command, stdout, stderr):
+            self.assertEqual(Path(command[2]), source)
+            return type('Completed', (), {'returncode': 0})()
+        current[0] += 6
+        with patch('workspace_api.subprocess.run', side_effect=parse):
+            inbox.scan()
+        job = self.latest_job()
+        self.assertIn(job['status'], {'complete', 'complete_with_warnings'}, job)
+        self.assertEqual(job['origin'], 'h5-inbox')
+        self.assertFalse(job['recording_storage']['original_removal_safe'])
+        self.assertEqual(Path(job['source']), source)
+        self.assertEqual(list(inbox.path.iterdir()), [source])
+        self.assertTrue(job['recording_storage']['verified'])
+
+    def test_h5_folder_open_requires_local_mutation_header_and_empty_body(self):
+        endpoint = '/api/import-inbox/open-folder'
+        with patch('workspace_h5_inbox.subprocess.run') as opener:
+            self.assertEqual(self.case.client.post(endpoint, json={}).status_code, 403)
+            self.assertEqual(self.case.client.post(endpoint, json={'path': '/tmp'}, headers=self.case.headers).status_code, 400)
+            opener.assert_not_called()
+            self.assertEqual(self.case.client.post(endpoint, json={}, headers=self.case.headers).status_code, 200)
+            self.assertEqual(opener.call_args.args[0][-1], str(self.case.app.extensions['h5_inbox'].path))
+
     def test_identical_source_in_other_project_fails_without_relinking(self):
         self.case.sources.rows[0]['project_uuid'] = '00000000-0000-0000-0000-000000000001'
         with patch('workspace_api.subprocess.run', side_effect=AssertionError('No cross-project parse')):

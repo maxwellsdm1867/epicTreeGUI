@@ -1207,6 +1207,8 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             job.update(status="checking_duplicates", started_at=now(), catalog_committed=False,
                        progress_path=str(progress_file))
             write_json(job_file, job)
+            if job.get('origin') == 'h5-inbox' and (source.is_symlink() or source.parent != project_dir / 'raw-uploads'):
+                raise ValueError('Folder imports must be regular files inside the managed H5 folder')
             reporter.emit('checking_duplicates', completed=0, total=source.stat().st_size, unit='bytes')
             def registered_sources():
                 with db_lock:
@@ -1308,7 +1310,7 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             except Exception as query_error:
                 job['warnings'].append({'stage': 'post_import_refresh', 'message': str(query_error)})
                 app.logger.exception('Import succeeded; post-import query suggestions could not complete')
-            job['recording_storage']['original_removal_safe'] = True
+            job['recording_storage']['original_removal_safe'] = bool(job.get('managed_upload') or job.get('original_source'))
             job.update(status='complete_with_warnings' if job['warnings'] else 'complete', finished_at=now())
             reporter.emit('complete', outcome='completed', commit_state='committed', catalog_committed=True)
         except Exception as error:
@@ -1343,6 +1345,53 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             finally:
                 active_jobs.discard(job_file.stem)
                 importing.release()
+
+    def submit_inbox(source, identity):
+        if not importing.acquire(blocking=False):
+            return False
+        try:
+            # An interrupted parser may still own a catalog transaction. Apply
+            # the same conservative block as manual import admission.
+            for previous in read_jobs(log_dir(project_dir, 'app-jobs'), owner_run_id, active_jobs):
+                if previous.get('status') == 'interrupted':
+                    progress = previous.get('progress') or {}
+                    pid = progress.get('pid')
+                    if type(pid) is int and pid > 0 and pid != os.getpid() and progress.get('stage') not in {'complete', 'failed', 'duplicate'}:
+                        try:
+                            os.kill(pid, 0)
+                        except ProcessLookupError:
+                            continue
+                        except PermissionError:
+                            pass
+                        importing.release()
+                        return False
+            job_file = log_dir(project_dir, 'app-jobs') / (identity + '.json')
+            write_json(job_file, {'status': 'queued', 'source': str(source), 'created_at': now(),
+                                 'origin': 'h5-inbox', 'managed_upload': False,
+                                 'owner_run_id': owner_run_id, 'catalog_committed': False})
+            active_jobs.add(identity)
+            threading.Thread(target=import_job, args=(source, job_file), daemon=True).start()
+            return True
+        except Exception:
+            active_jobs.discard(identity)
+            if importing.locked():
+                importing.release()
+            raise
+
+    from workspace_h5_inbox import H5Inbox
+    inbox = H5Inbox(project_dir, submit_inbox)
+    app.extensions['h5_inbox'] = inbox
+
+    @app.get('/api/import-inbox')
+    def import_inbox_status():
+        return jsonify(inbox.status())
+
+    @app.post('/api/import-inbox/open-folder')
+    def import_inbox_open_folder():
+        if request.args or request.get_json(silent=True) != {}:
+            raise ValueError('Open inbox accepts an empty object')
+        inbox.open_folder()
+        return jsonify(inbox.status())
 
     @app.post("/api/imports")
     def import_recording():
@@ -1450,6 +1499,10 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
     if service.config.get('connection', {}).get('credential_provider', {}).get('kind') == 'native-project':
         from workspace_lifecycle import register_project_lifecycle
         def stop_project_database():
+            inbox.stop()
+            if importing.locked() or active_jobs:
+                inbox.start()
+                raise ValueError('An inbox import started while closing; wait for it to finish')
             with db_lock:
                 with contextlib.suppress(Exception):
                     service.dj.conn().close()
@@ -1487,9 +1540,11 @@ def main():
     from werkzeug.serving import make_server
     server = make_server('127.0.0.1', args.port, app, threaded=True)
     app.extensions['shutdown_project_server'] = server.shutdown
+    app.extensions['h5_inbox'].start()
     try:
         server.serve_forever()
     finally:
+        app.extensions['h5_inbox'].stop()
         server.server_close()
 
 

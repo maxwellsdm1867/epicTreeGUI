@@ -66,8 +66,10 @@ checksums, and rebases current file locations. Scientific UUIDs are preserved.
 Closing a browser tab alone does not close a project database. Copying an open
 MySQL data directory is unsupported; relocated folders marked unclean are refused.
 
-New recording imports are copied into `raw-uploads` and verified by checksum
-before parsing, so lazy traces use the project copy. After a successful import
+Uploaded recordings are copied once into `raw-uploads` and verified by checksum
+before parsing, so lazy traces use the project copy. **Open H5 folder** opens
+that same directory. Drop new H5 files there to import automatically while the
+project is open, after a five-second settling period; these import in place. After a successful import
 confirms that verified copy, the original outside the project can be removed;
 keep the managed copy in place. Older projects may still reference external recordings;
 opening a moved folder reports missing dependencies rather than silently dropping

@@ -53,7 +53,7 @@ export function sourceCountsLabel(job){
 }
 export function importMonitorDelay({loading,pending,error,watching=false}){
   if(loading)return null;
-  return pending||watching?2500:error?10000:null;
+  return pending||watching?2500:10000; // Discover imports started by the watched H5 folder.
 }
 
 export function shouldRefreshImportCompletion(previous,current,watchingRequest=false,recovered=false){

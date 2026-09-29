@@ -46,7 +46,7 @@ test('monitor polling waits for its bounded request and recovers connection erro
   assert.equal(importMonitorDelay({loading:false,pending:true}),2500);
   assert.equal(importMonitorDelay({loading:false,error:'timed out',pending:false}),10000);
   assert.equal(importMonitorDelay({loading:false,pending:false,watching:true}),2500);
-  assert.equal(importMonitorDelay({loading:false,pending:false,error:null}),null);
+  assert.equal(importMonitorDelay({loading:false,pending:false,error:null}),10000);
 });
 test('confirmed commit with reconciliation remains a warning, not an unknown commit',async()=>{
   const {sourceCountsLabel}=await import('./importProgress.js');

@@ -164,8 +164,11 @@ RiekeLabWorkspace/
     backups/                 reserved location for verified backups
 ```
 
-New imports, whether selected by path or uploaded, keep a checksum-verified copy
-in `raw-uploads`; lazy traces read that project copy. After the app confirms a
+Choose **Data stores → Import H5s** to select or drop a recording. Uploads keep
+one checksum-verified copy in `raw-uploads`; lazy traces read that project copy.
+Alternatively, choose **Open H5 folder** and drop H5 files directly there. While
+the project is open, files are imported after their size and modification time
+settle for five seconds. Folder imports use that same file without another copy. After the app confirms a
 successful import and verified copy, you may remove the original from Downloads.
 Do not move or delete the managed copy inside the project. Older imports may
 still link to external recordings, so keep those external files available. The
