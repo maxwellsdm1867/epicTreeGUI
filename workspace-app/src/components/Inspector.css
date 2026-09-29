@@ -18,3 +18,10 @@
 .analysis-inclusion-toggle input{accent-color:var(--accent);width:16px;height:16px;margin:0}
 .analysis-inclusion-help{font-size:12px;color:var(--ink-secondary);line-height:1.5}
 .inspector .curation-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* One editing action above a compact list-view switch. */
+.epoch-inspector-mode .tree-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:14px}
+.epoch-inspector-mode .tree-heading h3{margin:0;font-size:13px;line-height:1.5}
+.epoch-inspector-mode .tree-heading .segmented{display:flex;flex:0 1 auto;margin:0;width:auto;max-width:100%}
+.epoch-inspector-mode .tree-heading .segmented button{font-size:11px;padding:6px 11px;flex:0 1 auto;white-space:nowrap}
+.epoch-inspector-mode .compact-inspector-toolbar{padding:8px 14px;gap:10px}

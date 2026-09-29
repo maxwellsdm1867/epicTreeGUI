@@ -5,3 +5,17 @@
 .ht-children{margin-left:14px;padding-left:9px}
 .ht-children>li:before{left:-9px;width:9px}
 .ht-value{min-width:160px;overflow-wrap:break-word}
+
+/* Nested split values wrap in their own rows instead of crowding epoch counts. */
+.ht-root{min-width:0}
+.ht-value{min-width:0;overflow-wrap:anywhere;line-height:1.5}
+.ht-branch>button{align-items:flex-start;padding:9px 7px;gap:8px}
+.ht-branch>button>svg,.ht-folder{margin-top:2px}
+.ht-count{margin-top:2px;white-space:nowrap}
+.ht-combination{display:grid;gap:9px;width:100%;min-width:0}
+.ht-combination>span{display:grid;gap:2px;min-width:0;line-height:1.5;overflow-wrap:anywhere}
+.ht-combination small{display:block;font-size:11px;font-weight:550;line-height:1.4}
+.ht-children{margin-left:12px;padding-left:8px}
+.ht-children>li:before{left:-8px;width:8px;top:23px}
+.ht-splits{gap:6px 10px;padding:10px 14px;line-height:1.6}
+.ht-splits>span{min-width:0;overflow-wrap:anywhere}

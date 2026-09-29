@@ -10,11 +10,10 @@ import {Status} from './Common.jsx';
 import './InspectionCellTree.css';
 import {useEpochBrowserPage} from '../useEpochBrowserPage.js';
 
-function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,onSelectPage,disabled,onToggleInclusion}){
+function CellEpochs({cell,source,revision,focused,onFocus,targets,onSelect,disabled,onToggleInclusion}){
   const [offset,setOffset]=useState(0);
   const page=useEpochBrowserPage(source,{cellUuid:cell.cell_uuid,offset},revision);
   return <Status {...page} retry={page.reload}>
-    <div className="cell-epoch-actions"><button disabled={disabled||page.loading} onClick={()=>onSelectPage(page.data?.epochs||[])}>Select this page</button></div>
     {(page.data?.epochs||[]).map((epoch,index)=><div key={epoch.epoch_uuid} className={`epoch-row cell-tree-epoch ${focused===epoch.epoch_uuid?'active':''} ${targets.includes(epoch.epoch_uuid)?'bulk-selected':''} ${epoch.curation?.included===false?'analysis-excluded':''}`}>
       <button disabled={disabled||page.loading} aria-current={focused===epoch.epoch_uuid?'true':undefined} aria-pressed={targets.includes(epoch.epoch_uuid)||(!targets.length&&focused===epoch.epoch_uuid)} onMouseDown={event=>{if(event.shiftKey)event.preventDefault();}} onClick={event=>onSelect(event,{cellUuid:cell.cell_uuid,index:offset+index,uuid:epoch.epoch_uuid},epoch,page.data)} aria-label={`Inspect ${datedCellLabel(cell,true)} epoch ${offset+index+1}`}>
         <strong>{offset+index+1}</strong>
@@ -48,7 +47,7 @@ export default function InspectionCellTree({cells,targets,setTargets,disabled,on
   const [selecting,setSelecting]=useState(false),[error,setError]=useState('');
   const scope=JSON.stringify(props.source);
   useEffect(()=>{anchor.current=null;request.current?.abort();setSelecting(false);return()=>request.current?.abort();},[scope]);
-  function selectPage(rows){try{if(rows[0])onFocus(rows[0].epoch_uuid,rows[0]);setTargets(mergeEpochSelection(targets,rows.map(row=>row.epoch_uuid)));setError('');}catch(error){setError(error.message);}}
+
   async function selectCell(cell){
     if(disabled||selecting)return;
     anchor.current=null;setError('');setSelecting(true);
@@ -84,5 +83,5 @@ export default function InspectionCellTree({cells,targets,setTargets,disabled,on
     }catch(error){if(error.name!=='AbortError')setError(error.message);}
     finally{setSelecting(false);}
   }
-  return <div className="inspection-cell-tree" aria-label="All matching dates, cells and epochs" title="⌘/Ctrl-click to select epochs; Shift-click for a range">{error&&<p role="alert">{error}</p>}{selecting&&<p role="status">Selecting epoch range…</p>}{dates.map(group=><DateBranch key={group.date} group={group} {...props} targets={targets} onFocus={onFocus} onSelectCell={selectCell} onSelect={select} onSelectPage={selectPage} disabled={disabled||selecting}/>)}</div>;
+  return <div className="inspection-cell-tree" aria-label="All matching dates, cells and epochs" title="⌘/Ctrl-click to select epochs; Shift-click for a range">{error&&<p role="alert">{error}</p>}{selecting&&<p role="status">Selecting epoch range…</p>}{dates.map(group=><DateBranch key={group.date} group={group} {...props} targets={targets} onFocus={onFocus} onSelectCell={selectCell} onSelect={select} disabled={disabled||selecting}/>)}</div>;
 }
