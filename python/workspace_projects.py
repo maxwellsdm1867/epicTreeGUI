@@ -141,8 +141,6 @@ def create_project(root, name, *, directory=None, code_root=None):
     from workspace_storage import initialize_layout
     root = managed_root(root)
     code_root = Path(code_root or Path(__file__).resolve().parents[1]).resolve()
-    if root.is_relative_to(code_root) or code_root.is_relative_to(root):
-        raise ValueError('Project storage must be separate from application code')
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120 or any(ord(c) < 32 for c in name):
         raise ValueError('Project name must contain 1–120 printable characters')
     name = name.strip()
@@ -164,6 +162,8 @@ def create_project(root, name, *, directory=None, code_root=None):
         if target.is_symlink() or target.name.startswith('.') or target.resolve().parent != root:
             raise ValueError('Choose a direct project folder inside the managed project directory')
         target = target.resolve()
+        if target.is_relative_to(code_root) or code_root.is_relative_to(target):
+            raise ValueError('Project storage must be separate from application code')
         if target.exists() and (not target.is_dir() or any(target.iterdir())):
             raise ValueError('Project folder already contains files; nothing was overwritten')
         target.mkdir(exist_ok=True)
@@ -189,3 +189,19 @@ def create_project(root, name, *, directory=None, code_root=None):
             'action':'project_created','project_uuid':identity,'created_at':project['created_at'],
             'sources':0,'epochs':0,'protocols':0,'database_status':'not_started'})
         return _project_record(target)
+
+
+def create_project_at(directory, name, *, code_root=None):
+    """Use the user's exact project folder, independently of preferred storage."""
+    if not isinstance(directory, str) or not directory.strip():
+        raise ValueError('Choose a project folder')
+    path = Path(directory.strip()).expanduser()
+    if not path.is_absolute() or path.is_symlink():
+        raise ValueError('Choose an absolute project folder, not a symbolic link')
+    code = Path(code_root or Path(__file__).resolve().parents[1]).resolve()
+    if path.resolve().is_relative_to(code) or code.is_relative_to(path.resolve()):
+        raise ValueError('Project storage must be separate from application code')
+    # System paths such as macOS /tmp may have a symlinked parent. Resolve
+    # the selected location after rejecting a symlink at the project itself.
+    path = path.resolve()
+    return create_project(path.parent, name, directory=str(path), code_root=code)

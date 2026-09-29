@@ -519,6 +519,103 @@ def _replace_json(path, value):
         temporary.unlink(missing_ok=True)
 
 
+def _rename_project_exclusive(source, destination):
+    """Atomic directory rename that cannot replace even an empty destination."""
+    import ctypes
+    import errno
+    library = ctypes.CDLL(None, use_errno=True)
+    if os.uname().sysname == 'Darwin':
+        rename = library.renamex_np
+        rename.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+        rename.restype = ctypes.c_int
+        result = rename(os.fsencode(source), os.fsencode(destination), 0x00000004)  # RENAME_EXCL
+    elif os.uname().sysname == 'Linux' and hasattr(library, 'renameat2'):
+        rename = library.renameat2
+        rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+        rename.restype = ctypes.c_int
+        result = rename(-100, os.fsencode(source), -100, os.fsencode(destination), 1)  # AT_FDCWD, RENAME_NOREPLACE
+    else:
+        raise ValueError('Safe project moves are unsupported on this platform; close the project and copy its folder manually')
+    if result:
+        error = ctypes.get_errno()
+        if error == errno.EXDEV:
+            raise ValueError('Moving between volumes is not supported here. Close the project, copy its folder to the other volume, and open the copy before removing the original')
+        if error in (errno.EEXIST, errno.ENOTEMPTY):
+            raise ValueError('Destination already exists; no project files were replaced')
+        raise OSError(error, os.strerror(error), str(source))
+
+
+@contextmanager
+def _move_lock(path, message):
+    if path.is_symlink():
+        raise ValueError('Project move locks cannot be symbolic links')
+    with path.open('a') as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError(message) from None
+        yield
+
+
+def relocate_project(project_dir, destination):
+    """Move a closed native project to an exact new folder without copying data.
+
+    Its scientific UUID and all contents remain unchanged. Existing next-open
+    relocation rebases current SQL/file locators after the private database starts.
+    Cross-volume movement is deliberately not a copy/delete transaction.
+    """
+    from workspace_projects import _project_record
+    import workspace_native_mysql as native
+    source = Path(project_dir).expanduser()
+    if not source.is_absolute() or source.is_symlink() or not source.is_dir():
+        raise ValueError('Choose an absolute existing project folder, not a symbolic link')
+    source = source.resolve()
+    project = _project_record(source)
+    target = _destination(destination, source)
+    code_root = Path(__file__).resolve().parents[1]
+    if target.is_relative_to(code_root) or code_root.is_relative_to(target):
+        raise ValueError('Project storage must remain separate from application code')
+    catalog = _json(source / 'catalog.json')
+    if catalog.get('connection', {}).get('credential_provider', {}).get('kind') != 'native-project':
+        raise ValueError('In-app moves require a native MySQL project; legacy project folders need explicit migration')
+    root, descriptor = native._configuration(source)
+    logs = root / 'logs'
+    if logs.is_symlink():
+        raise ValueError('Project logs cannot be a symbolic link during a move')
+    logs.mkdir(exist_ok=True)
+    # Match opener lock ordering. Never move beneath a running API, startup,
+    # shutdown, or other native database operation.
+    with _move_lock(logs / 'workspace-server.lock', 'Project startup is active; wait and close the project before moving'), \
+         _move_lock(root / '.app-state-session.lock', 'Close the project before moving its folder'), \
+         _move_lock(root / 'database/native.lock', 'A database operation is active; wait before moving the project'):
+        if (root / '.project-path-rebase.pending').exists():
+            raise ValueError('Finish the interrupted project open before moving its folder again')
+        owner_path = root / 'database/native-owner.json'
+        data = root / descriptor['storage_ref']
+        if owner_path.exists():
+            owner = native._read(owner_path)
+            if (owner.get('project_uuid') != descriptor['project_uuid']
+                    or owner.get('instance_uuid') != descriptor['instance_uuid']
+                    or owner.get('clean_shutdown') is not True):
+                raise ValueError('Close the project cleanly before moving its database folder')
+            native._credentials(root, descriptor)
+            runtime_path = root / descriptor['runtime_ref']
+            if runtime_path.exists():
+                runtime = native._read(runtime_path)
+                machine = native._machine_identity()
+                if (machine is not None and runtime.get('project_path') == str(root)
+                        and runtime.get('machine_id') == machine
+                        and native._owned_process(runtime) is not None):
+                    raise ValueError('The project database is still running; close it before moving')
+        elif ((data.exists() and any(data.iterdir()))
+              or (root / descriptor['credentials_ref']).exists()
+              or (root / descriptor['runtime_ref']).exists()):
+            raise ValueError('The database has no verified clean state; finish its recovery before moving')
+        _rename_project_exclusive(root, target)
+    return {'project_uuid': project['uuid'], 'previous_directory': str(root),
+            'directory': str(target), 'moved': True}
+
+
 def rebase_project_paths(project_dir, connection=None):
     """Reopen a cold-copied native project at its new location without packaging.
 

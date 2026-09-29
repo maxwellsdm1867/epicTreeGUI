@@ -1,5 +1,24 @@
 # Sharing projects and receiving updates
 
+## Choose the project folder itself
+
+New project asks for a name and one **Project folder**. That exact folder is the
+project root: it can be anywhere writable, outside the application code. Choose a
+new or empty folder; existing project folders should be opened instead. No extra
+parent workspace or generated subfolder is required.
+
+Open project checks the identity manifests, storage layout and database files
+before starting the project, then checks recording dependencies during opening.
+It opens the folder in place. The preferred projects location is optional.
+
+To organize a closed native project, expand **Optional: move to a preferred
+location**, select **Move this folder before opening**, and review the new exact
+destination. The app moves the whole folder without overwriting an existing
+folder, then opens it. In-app moves currently stay on one filesystem; for another
+disk, close the project, copy its whole folder with the file manager, and open the
+copy before removing the old folder.
+
+
 ## Automatic update notifications
 
 Rieke OS checks the official GitHub release channel when you open the app, every

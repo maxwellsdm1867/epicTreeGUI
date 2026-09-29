@@ -5,10 +5,10 @@ import {api} from '../api.js';
 import {localProjectUrl,runProjectTransfer} from '../projectTransfer.js';
 import './ProjectFolder.css';
 
-export default function ProjectFolder({project,onClose,onFiles,initialMode='open',onTransferComplete}){
+export default function ProjectFolder({project,onClose,onFiles,initialMode='open',onTransferComplete,preferredRoot}){
   const dialog=useRef(null),requestController=useRef(null);
   const [mode,setMode]=useState(initialMode==='restore'?'restore':'prepare');
-  const [openPath,setOpenPath]=useState(''),[copied,setCopied]=useState(false);
+  const [openPath,setOpenPath]=useState(''),[copied,setCopied]=useState(false),[relocate,setRelocate]=useState(false),[movePath,setMovePath]=useState('');
   const [directory,setDirectory]=useState(initialMode==='restore'?'':project?.path||'');
   const [destination,setDestination]=useState('');
   const [busy,setBusy]=useState(false),[opening,setOpening]=useState(false),[closing,setClosing]=useState(false),[error,setError]=useState(''),[result,setResult]=useState(null);
@@ -19,6 +19,11 @@ export default function ProjectFolder({project,onClose,onFiles,initialMode='open
   async function openDirectory(path){
     setBusy(true);setOpening(true);setError('');
     try{
+      await api('/projects/inspect-folder',{method:'POST',body:{directory:path}});
+      if(relocate){
+        const moved=await api('/projects/relocate',{method:'POST',body:{directory:path,destination:movePath.trim()}});
+        path=moved.directory;setOpenPath(path);setRelocate(false);
+      }
       const response=await api('/projects/open-folder',{method:'POST',body:{directory:path}});
       window.location.assign(localProjectUrl(response.url,window.location.href));
     }catch(error){setError(error.message);setBusy(false);setOpening(false);}
@@ -56,10 +61,15 @@ export default function ProjectFolder({project,onClose,onFiles,initialMode='open
       <div className="project-folder-actions">{onFiles&&<button disabled={busy} onClick={()=>{onClose();onFiles();}}><Files size={16}/> View files</button>}{project.database_kind==='native-mysql'&&<button className="project-folder-close" disabled={busy} onClick={closeProject}><LogOut size={16}/> Close project</button>}</div>
       <p>{project.database_kind==='native-mysql'?'To move or share this folder, close the project first, copy the folder, then open it in the receiving app. Linked recordings need to remain accessible.':'Your imports, saved work and exports live here. Recordings linked from another location stay in that location.'}</p>
     </section>}
-    <form className="project-folder-open" onSubmit={event=>{event.preventDefault();if(!busy&&openPath.trim())openDirectory(openPath.trim());}}>
-      <div><h3>{project?'Open another project':'Open a project'}</h3><p>Choose an existing project folder, including one copied from another computer.</p></div>
+    <form className="project-folder-open" onSubmit={event=>{event.preventDefault();if(!busy&&openPath.trim()&&(!relocate||movePath.trim()))openDirectory(openPath.trim());}}>
+      <div><h3>{project?'Open another project':'Open a project'}</h3><p>Choose a project folder anywhere on this computer. Its required files are checked before opening. Opening in place is the default.</p></div>
       <label htmlFor="open-project-path">Project folder location</label>
-      <div className="project-folder-input-row"><input id="open-project-path" required value={openPath} disabled={busy} onChange={event=>setOpenPath(event.target.value)} placeholder="/Users/you/Research/my-project"/><button type="submit" className="primary" disabled={busy||!openPath.trim()}><FolderOpen size={16}/> Open project</button></div>
+      <div className="project-folder-input-row"><input id="open-project-path" required value={openPath} disabled={busy} onChange={event=>{setOpenPath(event.target.value);setError('');}} placeholder="/Users/you/Research/my-project"/><button type="submit" className="primary" disabled={busy||!openPath.trim()||(relocate&&!movePath.trim())}><FolderOpen size={16}/> {relocate?'Move & open project':'Open project'}</button></div>
+      <details className="project-folder-organize"><summary>Optional: move to a preferred location</summary>
+        <p>Only closed projects can move. Keep the folder intact; moving across disks requires closing and copying it with your file manager.</p>
+        <label><input type="checkbox" checked={relocate} disabled={busy} onChange={event=>{setRelocate(event.target.checked);if(event.target.checked&&!movePath&&preferredRoot&&openPath.trim())setMovePath(`${preferredRoot.replace(/\/$/,'')}/${openPath.trim().replace(/\/$/,'').split('/').pop()}`);}}/> Move this folder before opening</label>
+        {relocate&&<label>Destination project folder<input required value={movePath} disabled={busy} onChange={event=>setMovePath(event.target.value)} placeholder={preferredRoot?`${preferredRoot}/my-project`:'/absolute/path/to/preferred-projects/my-project'}/><small>The destination must not exist. The whole folder moves without changing its contents.</small></label>}
+      </details>
     </form>
     <details className="project-folder-advanced" open={initialMode!=='open'||undefined}>
       <summary onClick={event=>{if(busy)event.preventDefault();}}><Package size={16}/><span>Advanced sharing<small>Include linked recordings or restore a prepared copy</small></span></summary>

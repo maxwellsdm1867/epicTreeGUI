@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
-from workspace_projects import create_project, list_managed_projects, list_projects, managed_root
+from workspace_projects import create_project, create_project_at, list_managed_projects, list_projects, managed_root
 from workspace_project_servers import open_project
 from workspace_startup_registry import remember_project
 
@@ -24,8 +24,14 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
     @app.post('/api/projects')
     def project_create():
         body = request.get_json(silent=True)
-        if request.args or not isinstance(body, dict) or set(body) - {'name','directory','root_directory'}:
+        if request.args or not isinstance(body, dict) or set(body) - {'name','directory','root_directory','project_directory'}:
             raise ValueError('Project creation accepts a name, optional root directory and project folder')
+        if 'project_directory' in body:
+            if set(body) - {'name', 'project_directory'}:
+                raise ValueError('Choose one exact project folder; do not combine it with a parent root')
+            project = create_project_at(body['project_directory'], body.get('name'))
+            return jsonify(project=project, database_status='not_started',
+                message='Project created in the selected folder. Opening it prepares its database.'), 201
         selected_root = body.get('root_directory')
         if selected_root is not None:
             if not isinstance(selected_root, str) or not selected_root.strip() or not Path(selected_root.strip()).expanduser().is_absolute():
@@ -34,6 +40,14 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
         project = create_project(selected_root or root_provider(), body.get('name'), directory=body.get('directory'))
         return jsonify(project=project, database_status='not_started',
             message='Empty project created. Opening it prepares its own database; no recording is required.'), 201
+
+    @app.post('/api/projects/inspect-folder')
+    def project_inspect_folder():
+        body = request.get_json(silent=True)
+        if request.args or not isinstance(body, dict) or set(body) != {'directory'}:
+            raise ValueError('Choose an existing project folder')
+        from workspace_project_validation import validate_project_folder
+        return jsonify(validate_project_folder(body['directory']))
 
     @app.post('/api/projects/open-folder')
     def project_open_folder():
@@ -48,7 +62,8 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
         directory = directory.resolve()
         if not (directory / 'project.json').is_file() or not (directory / 'catalog.json').is_file():
             raise ValueError('Choose the project folder containing project.json and catalog.json, not its parent workspace')
-        project = next(row for row in list_projects(directory)['projects'] if row['current'])
+        from workspace_project_validation import validate_project_folder
+        project = validate_project_folder(str(directory))['project']
         if not project['available']:
             raise ValueError('Project manifests are invalid: ' + project['unavailable_reason'])
         if current:

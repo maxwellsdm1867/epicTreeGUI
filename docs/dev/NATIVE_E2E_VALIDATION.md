@@ -91,3 +91,18 @@ redundant selection checkbox is removed and row labels display only the number.
 The browser verified exclusion with the waveform still visible. The updated
 backend suite passed 593 tests with native integration enabled, and 209 frontend
 tests plus production build passed.
+
+
+## Exact project folders
+
+The creation form now uses one exact project folder rather than requiring a
+parent root plus managed child. The browser created and opened a native project
+directly at the selected path. Explicit read-only preflight rejects missing or
+inconsistent manifests, storage layout and initialized database files.
+
+The browser also moved the populated 1,915-epoch fixture into the preferred
+projects location using the optional Move & open control. In-app relocation
+requires a closed native project and an unused destination on the same
+filesystem; atomic exclusive rename prevents destination overwrite. Cross-volume
+moves leave the source untouched and direct the user to copy/open via their file
+manager. Existing root/directory API parameters remain for compatibility.

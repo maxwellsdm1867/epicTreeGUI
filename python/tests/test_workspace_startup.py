@@ -106,6 +106,39 @@ class ProjectStartupTests(unittest.TestCase):
         for root in ['', 'relative', 42]:
             self.assertEqual(client.post('/api/projects',json={'name':'Bad','root_directory':root},headers=headers).status_code,400)
 
+    def test_exact_project_folder_is_independent_of_preferred_location(self):
+        client=create_launcher(self.root,self.root/'retinanalysis').test_client()
+        headers={'X-Workspace-Request':'1'}
+        chosen=self.root.parent/'anywhere'/'my study'
+        response=client.post('/api/projects',json={'name':'Exact folder','project_directory':str(chosen)},headers=headers)
+        self.assertEqual(response.status_code,201,response.get_json())
+        self.assertEqual(response.get_json()['project']['path'],str(chosen.resolve()))
+        self.assertTrue((chosen/'project.json').is_file())
+        self.assertFalse(self.root.exists())
+        before=(chosen/'project.json').read_bytes()
+        self.assertEqual(client.post('/api/projects',json={'name':'Other','project_directory':str(chosen)},headers=headers).status_code,400)
+        self.assertEqual((chosen/'project.json').read_bytes(),before)
+        for body in [{'name':'Bad','project_directory':'relative'}, {'name':'Bad','project_directory':str(chosen),'root_directory':str(self.root)}]:
+            self.assertEqual(client.post('/api/projects',json=body,headers=headers).status_code,400)
+
+    def test_exact_folder_accepts_system_alias_parent_but_not_linked_project(self):
+        from workspace_projects import create_project_at
+        actual=self.root.parent/'actual';actual.mkdir()
+        alias=self.root.parent/'alias';alias.symlink_to(actual,target_is_directory=True)
+        record=create_project_at(str(alias/'study'),'System path')
+        self.assertEqual(record['path'],str((actual/'study').resolve()))
+        link=actual/'project-link';link.symlink_to(actual/'study',target_is_directory=True)
+        with self.assertRaises(ValueError):create_project_at(str(link),'No linked roots')
+
+    def test_project_may_be_next_to_application_but_never_inside_it(self):
+        from workspace_projects import create_project_at
+        app=self.root.parent/'app';app.mkdir()
+        chosen=self.root.parent/'research'
+        record=create_project_at(str(chosen),'Research',code_root=app)
+        self.assertEqual(record['path'],str(chosen.resolve()))
+        for path in [app/'project', app, app.parent]:
+            with self.assertRaises(ValueError):create_project_at(str(path),'Bad',code_root=app)
+
     def test_open_route_passes_uuid_and_remains_separate_from_creation(self):
         project=create_project(self.root,'Route test')
         client=create_launcher(self.root,self.root/'retinanalysis').test_client()

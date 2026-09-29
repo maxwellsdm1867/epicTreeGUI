@@ -29,7 +29,7 @@ def register_app_routes(app, *, application_dir=None):
     @app.before_request
     def app_operation_boundary():
         if request.path.startswith(('/api/app/', '/api/projects/transfers/',
-                                    '/api/projects/prepare-transfer', '/api/projects/restore-transfer')):
+                                    '/api/projects/prepare-transfer', '/api/projects/restore-transfer', '/api/projects/relocate')):
             return local_request()
 
     @app.get('/api/app/updates')
@@ -113,6 +113,23 @@ def register_app_routes(app, *, application_dir=None):
     @app.post('/api/projects/restore-transfer')
     def restore_transfer():
         return transfer('restore')
+
+    @app.post('/api/projects/relocate')
+    def relocate_project_folder():
+        body = request.get_json(silent=True)
+        if (request.args or not isinstance(body, dict) or set(body) != {'directory', 'destination'}
+                or any(not isinstance(value, str) or not value.strip() or not Path(value.strip()).expanduser().is_absolute()
+                       for value in body.values())):
+            return jsonify(error='Choose absolute source and destination project folder paths.'), 400
+        with lock:
+            if any(job['state'] == 'running' for job in jobs.values()):
+                return jsonify(error='A project transfer is active; wait before moving a folder.'), 409
+            try:
+                from workspace_portability import relocate_project
+                result = relocate_project(body['directory'].strip(), body['destination'].strip())
+            except (ValueError, OSError) as error:
+                return jsonify(error=str(error)), 400
+        return jsonify(result)
 
     @app.get('/api/projects/transfers/<identity>')
     def transfer_status(identity):

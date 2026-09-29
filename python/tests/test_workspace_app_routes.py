@@ -3,7 +3,7 @@ import threading
 import time
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from flask import Flask
 from workspace_app_routes import register_app_routes
 
@@ -65,6 +65,34 @@ class AppRouteTests(unittest.TestCase):
                 time.sleep(.01)
             self.assertEqual(result['state'], 'complete')
             self.assertTrue(result['result']['verified'])
+
+    def test_relocation_requires_local_explicit_paths_and_reports_destination(self):
+        move = Mock(return_value={'project_uuid': 'fixture', 'directory': '/preferred/study',
+            'previous_directory': '/received/study', 'moved': True})
+        module = types.SimpleNamespace(relocate_project=move)
+        path = '/api/projects/relocate'
+        body = {'directory': '/received/study', 'destination': '/preferred/study'}
+        with patch.dict('sys.modules', workspace_portability=module):
+            self.assertEqual(self.client.post(path, json=body).status_code, 403)
+            self.assertEqual(self.client.post(path, json=body, headers={**self.headers, 'Origin': 'https://foreign.test'}).status_code, 403)
+            self.assertEqual(self.post(path, body, environ_overrides={'REMOTE_ADDR': '192.0.2.1'}).status_code, 403)
+            for invalid in ({}, {'directory': 'relative', 'destination': '/preferred/study'},
+                            {**body, 'overwrite': True}, {**body, 'destination': 2}):
+                self.assertEqual(self.post(path, invalid).status_code, 400)
+            move.assert_not_called()
+            result = self.post(path, body)
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(result.json['directory'], '/preferred/study')
+            self.assertTrue(result.json['moved'])
+            move.assert_called_once_with('/received/study', '/preferred/study')
+
+    def test_relocation_failure_is_actionable_and_never_reports_success(self):
+        module = types.SimpleNamespace(relocate_project=Mock(side_effect=ValueError('Close the project before moving its folder')))
+        with patch.dict('sys.modules', workspace_portability=module):
+            result = self.post('/api/projects/relocate', {'directory': '/source', 'destination': '/destination'})
+            self.assertEqual(result.status_code, 400)
+            self.assertIn('Close the project', result.json['error'])
+            self.assertNotIn('moved', result.json)
 
     def test_transfer_failure_and_invalid_paths_never_report_success(self):
         def fail(*args): raise ValueError('Stop the project service first')
