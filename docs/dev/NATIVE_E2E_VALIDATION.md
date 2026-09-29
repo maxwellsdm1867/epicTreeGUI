@@ -152,3 +152,9 @@ no warnings.
 ### Automatic completion review (2026-09-29)
 
 Successful import completion now opens the global Review imported data dialog from any workspace page. Existing history on page load does not reopen it. Verified with a fresh synthetic watched-folder import while on Data stores: dialog appeared without clicking, showing +1 recording/+3 cells/+9 epochs and two pinned protocol proposals with Approve All. Proposals remain pending for user inspection. Frontend 211 tests and production build passed.
+
+### Combined import control and multi-file selection (2026-09-29)
+
+Removed the duplicate Import progress toolbar button. Import H5s now changes to Importing H5s while work is active and opens the same import/history page. File selection and drop accept multiple H5s, queued at app scope, with only one submitted import at a time. Upload uncertainty or failed imports stop the queue; no automatic POST retries occur. Keep the tab open for browser-held pending files.
+
+Browser file chooser confirmed multiple selection. Submitted a new synthetic H5 followed by an existing H5: first completed at 18:51:28 UTC, second started at 18:51:28.919 UTC and was skipped as duplicate. Review appeared after the queue drained, preserving the successful import review despite the last file being a duplicate. Frontend 211 tests and production build passed.

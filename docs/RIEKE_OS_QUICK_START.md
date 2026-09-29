@@ -164,7 +164,8 @@ RiekeLabWorkspace/
     backups/                 reserved location for verified backups
 ```
 
-Choose **Data stores → Import H5s** to select or drop a recording. Uploads keep
+Choose **Data stores → Import H5s** to select or drop one or more recordings. A batch imports one file at a time;
+keep the app tab open until it finishes. The review opens after the batch. Uploads keep
 one checksum-verified copy in `raw-uploads`; lazy traces read that project copy.
 Alternatively, choose **Open H5 folder** and drop H5 files directly there. While
 the project is open, files are imported after their size and modification time

@@ -84,7 +84,7 @@ function StoreDetail({source,revision,onBack,onStage,onPropagate,busy,pending,fo
     </div><StoreTimeline sha={source.source_sha256} revision={revision} onLogs={onLogs}/></div>
   </div>;
 }
-export default function DataStores({revision=0,onChange,onImport,onProtocol,onFiles,onLogs,session=null,onSession}){
+export default function DataStores({importing=false,revision=0,onChange,onImport,onProtocol,onFiles,onLogs,session=null,onSession}){
   const saved=useRef(session).current;
   const [tab,setTab]=useState(saved?.tab||'active'),[search,setSearch]=useState(saved?.search||''),[offset,setOffset]=useState(saved?.offset||0),[selected,setSelected]=useState(saved?.selected||null),[version,setVersion]=useState(0);
   const [propagationSource,setPropagationSource]=useState(null),[changedSource,setChangedSource]=useState(null);
@@ -118,7 +118,7 @@ export default function DataStores({revision=0,onChange,onImport,onProtocol,onFi
   const counts=inventory.data?.counts || {};
   const openPropagation=store=>{setPending(null);setPropagationSource(store);};
   const propagated=()=>{setVersion(value=>value+1);onChange?.();};
-  return <div className="page data-stores"><div className="page-heading"><div><div className="eyebrow">PROJECT SOURCES</div><h1>Data stores</h1><p>Imported H5 recordings and their connections to project datasets.</p></div><div className="ds-heading-actions"><H5Inbox/>{onImport&&<button onClick={onImport} disabled={busy}>Import progress</button>}<button disabled={busy||inventory.loading} onClick={refresh} title="Check source paths and file sizes; no full checksum scan"><RefreshCw size={15} className={inventory.loading?'spin':''}/> Check sources</button>{onImport&&<button className="primary" onClick={onImport} disabled={busy}><FileUp size={15}/> Import H5s</button>}</div></div>
+  return <div className="page data-stores"><div className="page-heading"><div><div className="eyebrow">PROJECT SOURCES</div><h1>Data stores</h1><p>Imported H5 recordings and their connections to project datasets.</p></div><div className="ds-heading-actions"><H5Inbox/><button disabled={busy||inventory.loading} onClick={refresh} title="Check source paths and file sizes; no full checksum scan"><RefreshCw size={15} className={inventory.loading?'spin':''}/> Check sources</button>{onImport&&<button className="primary" onClick={onImport} disabled={busy}>{importing?<RefreshCw size={15} className="spin"/>:<FileUp size={15}/>} {importing?'Importing H5s…':'Import H5s'}</button>}</div></div>
     <div className="ds-availability-check" role="status"><span><strong>Availability checked:</strong> {checkedTime(inventory.data?.checked_at || inventory.data?.counts?.checked_at)}</span><span>Lightweight path and size check · file contents are verified separately when read or refreshed.</span></div>
     {message&&<div className="ds-operation-result" role="status"><Check size={15}/>{message}{changedSource&&<button className="ds-preview-propagation" onClick={()=>openPropagation(sources.find(item=>item.source_sha256===changedSource.source_sha256) || changedSource)}>Preview protocol updates <ArrowRight size={13}/></button>}<button onClick={()=>setMessage('')} aria-label="Dismiss result"><X size={14}/></button></div>}
     {!propagationSource&&selected&&(!source||detail.error||inventory.error)&&<button className="ds-detail-back" onClick={()=>{setSelected(null);setPending(null);}}><ArrowLeft size={14}/> Back to data stores</button>}
