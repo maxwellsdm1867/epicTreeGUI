@@ -14,6 +14,8 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
     """Used by both the launcher and an opened project's API."""
     from workspace_app_routes import register_app_routes
     register_app_routes(app)
+    from workspace_folder_browser import register_folder_browser_routes
+    register_folder_browser_routes(app)
     current = Path(project_dir).resolve() if project_dir else None
     root_provider = root if callable(root) else lambda: managed_root(root or current.parent)
     @app.get('/api/projects')

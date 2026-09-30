@@ -7,6 +7,15 @@ Choose either project action inside it. The workspace remains visible; **×**
 or **Escape** closes the popup and returns focus to **+**. Creating a new
 project from the welcome screen also opens a popup.
 
+Every project location field has **Browse…**. Choose folders using the local
+folder picker; paths remain editable. New projects can use an existing empty
+folder or a named new folder inside a chosen location. Move, share and restore
+destinations ask for a new folder name. Browsing only selects a path; it does not
+create or modify files. Cancel the folder picker to return to setup unchanged.
+
+New project setup ends with **Cancel** and **Create & open**. **Cancel** closes
+the popup and returns to the visible workspace.
+
 The left sidebar has two project actions:
 
 - **Add new project** opens an existing working project or a portable copy someone

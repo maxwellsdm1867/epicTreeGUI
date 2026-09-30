@@ -292,3 +292,27 @@ Tab stay inside the popup. No project files were created by this UI check.
 Screenshots: `project-popup-over-workspace.jpg` and
 `project-create-popup-over-workspace.jpg`. The feature-only frontend suite and
 production build were checked again for this UI correction.
+
+## Project folder browser and creation actions — 2026-09-29
+
+Every editable project location now has Browse: creation, preferred location,
+opening, moving, sharing and receiving. The browser fallback navigates immediate
+folders with location shortcuts, parent navigation and explicit new-folder names.
+It reads folder metadata only and never creates files. The optional desktop
+chooser contract is covered by adapter tests; a native OS dialog was not exercised
+in this browser validation.
+
+A scoped checkout passed 253 frontend tests, the production build, 11 new folder
+API tests and 10 existing open-folder tests. Folder tests include pagination,
+permission errors, same-origin local access, missing destinations and occupied
+folders containing only hidden entries or files.
+
+Live browser validation confirmed the new-project popup has Cancel and Create &
+open above the existing workspace. Escape from the nested folder browser preserved
+the project name and folder value, kept setup open and returned focus to Browse.
+[Creation popup](project-create-browse-cancel.jpg) and
+[Folder navigator](project-browse-picker.jpg).
+
+Main Cancel closed setup and restored focus to its sidebar opener at the same
+overview URL. Tab/Shift+Tab remained in the nested picker. Choosing a proposed
+new folder filled the form without creating that folder on disk.
