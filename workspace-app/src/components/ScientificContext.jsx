@@ -32,4 +32,3 @@ export default function ScientificContext({epoch}) {
     </div><p className="source-note">Group labels and solution fields are separate source records. Empty fields do not establish control or wash.</p></details>
   </section>;
 }
-
