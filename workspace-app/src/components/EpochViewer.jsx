@@ -1,4 +1,6 @@
 import ScientificContext from './ScientificContext.jsx';
+import {ArrowLeft} from 'lucide-react';
+import './EpochViewer.css';
 import {EpochBrowserToolbar,EpochNavigation} from './EpochBrowserChrome.jsx';
 import EpochBrowserLayout from './EpochBrowserLayout.jsx';
 import EpochTreePane from './EpochTreePane.jsx';
@@ -27,7 +29,7 @@ export default function EpochViewer({className='epoch-inspector-mode',ariaLabel=
     {toolbar&&<EpochBrowserToolbar {...toolbar} filterControl={onViewFilters?<ProtocolViewFilter filters={viewFilters} onChange={onViewFilters} revision={filterRevision} disabled={filterDisabled}/>:toolbar.filterControl} treeControlsInPane>{toolbarChildren}{!designMode&&onViewFilters&&tagFilterLabel(viewFilters)&&<span className="inspection-filter-summary">{tagFilterLabel(viewFilters)}<button disabled={filterDisabled} onClick={()=>onViewFilters(clearTagFilters(viewFilters))}>Clear filter</button></span>}</EpochBrowserToolbar>}
     {before}
     <EpochBrowserLayout {...layout} editing={designMode}
-      tree={designMode?<TreeBuilder {...builder}/>:<EpochTreePane {...treePane} childrenInTree={false}>{!layout.metadataOpen&&<StableContent {...resource} className="stable-tag-dock" data={epoch}>{tags}</StableContent>}</EpochTreePane>}
+      tree={designMode?<><nav className="tree-design-controls" aria-label="Tree editing"><button onClick={toolbar?.onBrowse}><ArrowLeft size={15}/> Back to epochs</button></nav><TreeBuilder {...builder}/></>:<EpochTreePane {...treePane} childrenInTree={false}>{!layout.metadataOpen&&<StableContent {...resource} className="stable-tag-dock" data={epoch}>{tags}</StableContent>}</EpochTreePane>}
       detail={designMode?<PagedTree {...columnTree} presentation="columns" design/>:detail}
       metadata={metadata&&<StableContent {...resource} className="stable-metadata" data={epoch}><MetadataPanel {...metadata} epoch={epoch} tags={tags} context={epoch&&<ScientificContext epoch={epoch}/>}/></StableContent>}/>
   </div>;

@@ -50,3 +50,15 @@ test('common recorded scientific context preserves source facts and marks config
  assert.match(text,/0 \/ 675/);
  assert.match(html,/fixture\.h5/);
 });
+
+
+test('shared designer puts its only Back to epochs control in the left tree pane',async()=>{
+ const {default:EpochViewer}=await server.ssrLoadModule('/src/components/EpochViewer.jsx');
+ const html=render(EpochViewer,{designMode:true,toolbar:{designMode:true,onBrowse:()=>{}},
+  layout:{sizes:{columns:'320px 7px minmax(0,1fr)',tree:320,treeMax:560},treeOpen:true,metadataOpen:false,onResize:()=>{}},
+  builder:{catalogData:{fields:[]},value:[],onChange:()=>{},preview:{count:0,levels:[]}},columnTree:{predicate:{all:[]},splits:''}});
+ assert.equal((html.match(/Back to epochs/g)||[]).length,1);
+ const leftPane=html.match(/<aside class="inspection-tree">([\s\S]*?)<\/aside>/)?.[1];
+ assert.ok(leftPane);assert.match(leftPane,/Back to epochs/);
+ assert.ok(leftPane.indexOf('Back to epochs')<leftPane.indexOf('Tree builder'));
+});
