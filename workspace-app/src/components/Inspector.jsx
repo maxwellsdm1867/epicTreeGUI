@@ -1,113 +1,26 @@
-import EpochDetailHeading from './EpochDetailHeading.jsx';
-import {clearTagFilters,tagFilterLabel} from '../protocolViewFilter.js';
-import ProtocolViewFilter from './ProtocolViewFilter.jsx';
+import EpochViewer from './EpochViewer.jsx';
 import SelectionMaskDialog from './SelectionMaskDialog.jsx';
 import {NavigationLoadingProvider} from './NavigationLoading.jsx';
-import StableContent from './StableContent.jsx';
-import {advanceEpochIntent,epochIntentAt,epochAtIntent} from '../epochNavigationIntent.js';
+import {advanceEpochIntent, epochIntentAt, epochAtIntent} from '../epochNavigationIntent.js';
 import {SourceEligibilityNotice} from './Common.jsx';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, GitBranch, Check, X, MessageCircle, ArrowLeft, ArrowRight, Activity, Eye, Info, PanelRightClose, PanelRightOpen, Upload, Download, FileJson } from 'lucide-react';
-import { api, useResource, useEpochResource, useEpochPrefetch, number, humanize, resolveCurationTargets } from '../api.js';
-import { Status, Metadata, Badge, Empty } from './Common.jsx';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {GitBranch, Check, X, Eye, Upload, Download, FileJson} from 'lucide-react';
+import {api, useResource, useEpochResource, useEpochPrefetch, number, humanize, resolveCurationTargets} from '../api.js';
+import {Badge} from './Common.jsx';
 import EpochConnections from './EpochConnections.jsx';
-import TreeBuilder from './TreeBuilder.jsx';
-import TreePreview from './TreePreview.jsx';
 import './InspectorPolish.css';
 import './MatlabMaskImport.css';
-import MetadataPanel from './MetadataPanel.jsx';
-import EpochTreePane from './EpochTreePane.jsx';
-import {EpochBrowserToolbar,EpochSelectionBar,EpochNavigation} from './EpochBrowserChrome.jsx';
 import EpochTags from './EpochTags.jsx';
-import SelectionOverview from './SelectionOverview.jsx';
 import AnnotationTags from './AnnotationTags.jsx';
 import TagExchangeControls from './TagExchangeControls.jsx';
 import './Inspector.css';
 
-import {inspectionSearches,indexInspectionTree,focusAfterTreeSelection,curationMatchesCellFocus} from '../inspectionScope.js';
-import {branchLabel,branchTooltip,componentLabel,componentValue,epochLeafLabel,readableField} from '../treeBranchPresentation.js';
+import {inspectionSearches, curationMatchesCellFocus} from '../inspectionScope.js';
 import {datedCellLabel} from '../recordingIdentity.js';
 import {restoredEpochFocus} from '../workspaceNavigation.js';
-import {boundedTreePage,inspectionTreeFocus} from '../boundedTree.js';
 import Trace from './TraceViewer.jsx';
-import EpochBrowserLayout from './EpochBrowserLayout.jsx';
-import PagedTree from './PagedTree.jsx';
-import {inspectorPaneSizes,epochShortcutDirection,resourceForPath} from '../inspectorInteraction.js';
+import {inspectorPaneSizes, epochShortcutDirection, resourceForPath} from '../inspectorInteraction.js';
 export {Trace};
-
-function TreePageControls({page,onPage,kind}){
-  if(page.total<=60&&!page.pinnedOutside)return null;
-  return <div className="tree-page-controls"><div><button disabled={!page.hasPrevious} onClick={()=>onPage(page.offset-60)} aria-label={`Previous ${kind}`}><ArrowLeft size={12}/></button><span>{page.total?page.offset+1:0}–{page.end} of {number(page.total)} {kind}</span><button disabled={!page.hasNext} onClick={()=>onPage(page.offset+60)} aria-label={`Next ${kind}`}><ArrowRight size={12}/></button></div>{page.pinnedOutside&&<small>Focused item also shown below this page.</small>}</div>;
-}
-export function Branch({node,onFocus,selected,depth=0,cellBranches=null,parentField=null,treeFocus}) {
-  const selectedBranch=treeFocus?.branches.has(node) || false;
-  const [open,setOpen] = useState(selectedBranch);
-  const [offset,setOffset] = useState(0);
-  const inFocusedCell=cellBranches?.has(node) || false;
-  useEffect(()=>{if(selectedBranch)setOpen(true);},[selectedBranch]);
-  const children = node.children || [];
-  // Legacy UUID-only leaves are converted only for the visible page.
-  const leafValues=node.epochs || node.epoch_uuids || [];
-  const pin=children.length?treeFocus?.childOf.get(node):selectedBranch?(node.epochs?treeFocus?.epoch:selected):null;
-  const page=boundedTreePage(children.length?children:leafValues,offset,60,pin);
-  return <div className={`tree-branch ${inFocusedCell?'cell-focus-branch':''}`}>
-    <button className="branch-label" onClick={()=>setOpen(!open)} aria-expanded={open} title={branchTooltip(node,parentField)}>
-      {open?<ChevronDown size={13}/>:<ChevronRight size={13}/>}
-      <span className={node.components?.length?'branch-combination':''}>{node.components?.length?node.components.map(part=><span className="branch-component" key={part.field}><small title={part.field}>{componentLabel(part)}</small><span>{componentValue(part)}</span></span>):branchLabel(node,parentField)}</span>
-      <small>{node.count ?? node.epoch_count ?? leafValues.length}</small>
-    </button>
-    {open && <div className="branch-children">
-      {children.length>0&&node.field_label&&<div className="branch-field-label" title={node.field}>{readableField(node.field_label,node.field)}</div>}
-      <TreePageControls page={page} onPage={setOffset} kind={children.length?'groups':'epochs'}/>
-      {children.length?page.items.map(n=><Branch key={n.key ?? JSON.stringify([n.missing===true,n.value])} node={n} onFocus={onFocus} selected={selected} depth={depth+1} cellBranches={cellBranches} parentField={node.field} treeFocus={treeFocus}/>):page.items.map(item=>{
-        const e=typeof item==='string'?{epoch_uuid:item}:item;
-        return <button className={`epoch-leaf ${selected===e.epoch_uuid?'selected':''}`} key={e.epoch_uuid} onClick={()=>onFocus(e.epoch_uuid)} title={`${e.start_time || ''} · ${e.epoch_uuid}`}>
-          <Activity size={12}/><span>{e.cell_label&&<small>{datedCellLabel(e)} · </small>}{epochLeafLabel(e)}</span>
-        </button>;
-      })}
-    </div>}
-  </div>;
-}
-function InspectionTree({tree,onFocus,selected,cellBranches,treeFocus}){
-  const [offset,setOffset]=useState(0);
-  const nodes=tree.children?.length?tree.children:tree.tree?.children?.length?tree.tree.children:tree.groups?.length?tree.groups:(tree.epochs||tree.epoch_uuids?[tree]:[]);
-  const pin=nodes.length===1&&nodes[0]===tree?tree:treeFocus?.childOf.get(tree);
-  const page=boundedTreePage(nodes,offset,60,pin);
-  return <><TreePageControls page={page} onPage={setOffset} kind="top-level groups"/>{page.items.map(node=><Branch key={node.key ?? JSON.stringify([node.missing===true,node.value])} node={node} onFocus={onFocus} selected={selected} cellBranches={cellBranches} parentField={tree.field} treeFocus={treeFocus}/>)}</>;
-}
-
-function recordedValue(value) {
-  if (value === undefined || value === null) return 'Not recorded';
-  if (value === '[]' || (Array.isArray(value) && value.length === 0)) return '[] (empty recorded field)';
-  return typeof value === 'object' ? JSON.stringify(value) : String(value);
-}
-function ScientificContext({epoch}) {
-  const additions = epoch.metadata?.group?.properties?.externalSolutionAdditions;
-  const historyProtocol=/VariableHistoryNoiseCurInject/.test(epoch.protocol_name || '');
-  const controlFlag=Object.hasOwn(epoch.parameters || {},'isControl')?epoch.parameters.isControl:epoch.parameters?.controlMode;
-  const historyControl=historyProtocol&&[1,true].includes(controlFlag);
-  const historyPairs=historyProtocol?['history1','history2','target'].filter(key=>Array.isArray(epoch.parameters?.[key])&&epoch.parameters[key].length===2):[];
-  const conditions = [
-    ['currentMean','Current mean',''],
-    ['currentSD','Current SD',''],
-    ['frequencyCutoff','Frequency cutoff',''],
-    ['stimTime','Stimulus duration',''],
-  ].filter(([key])=>epoch.parameters?.[key] !== undefined && epoch.parameters[key] !== null);
-  return <section className="scientific-context" aria-label="Recording and condition context">
-    <div className="context-inline"><strong>{humanize(epoch.cell_type) || 'Type not recorded'}</strong><span>{epoch.source_filename || 'Source not recorded'}</span></div>
-    <div className="context-inline"><span>Group label: <strong>{recordedValue(epoch.group_label)}</strong></span><span>External additions: <strong>{recordedValue(additions)}</strong></span></div>
-    {historyControl&&<p className="history-control-note">Control epoch · target only; history settings were recorded but not delivered.</p>}
-    {historyPairs.length>0&&<div className="history-pair-facts">{historyPairs.map(key=><div key={key}><span>{key==='target'?'Target':key==='history1'?'History 1':'History 2'}{historyControl&&key!=='target'?' · configured only':''}</span><strong>{recordedValue(epoch.parameters[key][0])} / {recordedValue(epoch.parameters[key][1])}</strong><small>Recorded mean / SD</small></div>)}</div>}
-    {conditions.length>0&&<div className="condition-facts">{conditions.map(([key,label,units])=><div key={key}>
-      <span>{label}</span><strong>{recordedValue(epoch.parameters[key])}{units && ` ${units}`}</strong>
-    </div>)}</div>}
-    <details className="context-timing"><summary>Block {epoch.block_start_time?.split(' ')[1] || 'time not recorded'} · acquisition details</summary><div className="context-facts">
-      <div><span>Epoch block started</span><strong>{recordedValue(epoch.block_start_time)}</strong></div>
-      <div><span>Epoch block ended</span><strong>{recordedValue(epoch.block_end_time)}</strong></div>
-      <div className="context-protocol"><span>Acquisition protocol · source value</span><strong>{recordedValue(epoch.protocol_name)}</strong></div>
-    </div><p className="source-note">Group labels and solution fields are separate source records. Empty fields do not establish control or wash.</p></details>
-  </section>;
-}
 
 function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revision,onChange,onBack,onImport,onStores,onExport,splitRecipe=['date','cell','block'],onSplitChange,initialNavigation=null,onSessionChange,onQC,onTagFilter,onFilterChange,toolbarTarget=null}) {
   const id=protocol.definition.protocol_uuid;
@@ -280,15 +193,14 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
   const actionScope=targets.length?`${targets.length} selected`:'focused epoch';
   const annotationChanged=()=>{epoch.reload();loadedRows.reload();onChange?.();};
   const tagEntry=focusedEpoch&&<AnnotationTags epoch={focusedEpoch} revision={revision} disabled={busy||epoch.loading||!!pendingNavigation} onChange={annotationChanged} onFilter={onTagFilter} focusRequest={tagFocus} targetScope={cellTagRequest?'cell':targets.length?'selected':'epoch'} epochFocusRequest={epochTagFocus} onNavigateEpoch={navigateAndTag} selectedEpochs={targets} tools={!cellTagRequest&&!targets.length&&<TagExchangeControls epoch={focusedEpoch} disabled={busy} onChanged={annotationChanged}/>}><EpochTags value={tag} onValue={setTag} onAdd={value=>curate({tags_add:[value]})} onRemove={value=>curate({tags_remove:[value]},'focused')} selectedTags={focusedEpoch.curation?.tags||[]} busy={busy} scope={`dataset · ${actionScope}`} revision={revision}/></AnnotationTags>;
-  return <div className={`inspector ${designMode?'tree-design':'epoch-inspector-mode'}`} tabIndex={0} onKeyDown={epochKeys} aria-label={designMode?'Tree overview workspace':'Epoch inspection workspace. Tab next epoch, Shift+Tab previous epoch; W/S also navigate.'}>
-    <EpochBrowserToolbar portalTarget={toolbarTarget} treeControlsInPane filterControl={onFilterChange&&<ProtocolViewFilter filters={filters} onChange={onFilterChange} revision={revision} disabled={busy}/>} designMode={designMode} onBrowse={()=>{setDesignMode(false);setTreeMode(false);setTreeOpen(true);}} onDesign={()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);}} onTags={openTagsForSelection} metadataOpen={metadataOpen} onToggleMetadata={()=>toggleMetadata(!metadataOpen)} actions={[
+  return <EpochViewer viewFilters={filters} onViewFilters={onFilterChange} filterRevision={revision} filterDisabled={busy} className={designMode?'tree-design':'epoch-inspector-mode'} ariaLabel={designMode?'Tree overview workspace':'Epoch inspection workspace. Tab next epoch, Shift+Tab previous epoch; W/S also navigate.'} onKeyDown={epochKeys}
+    toolbar={{portalTarget:toolbarTarget,treeControlsInPane:true,designMode:designMode,onBrowse:()=>{setDesignMode(false);setTreeMode(false);setTreeOpen(true);},onDesign:()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);},onTags:openTagsForSelection,metadataOpen:metadataOpen,onToggleMetadata:()=>toggleMetadata(!metadataOpen),actions:[
         {label:treeOpen?(designMode?'Hide tree editor':'Hide epoch list'):(designMode?'Show tree editor':'Show epoch list'),icon:GitBranch,run:()=>setTreeOpen(value=>!value)},
         !designMode&&{label:'Import mask file…',icon:FileJson,run:()=>setMasksOpen(true),disabled:busy},
         !designMode&&onImport&&{label:'Add data store',icon:Upload,run:onImport,disabled:busy},
-      ]}>
+      ]}} toolbarChildren={<>
       {focusCell&&<button className="inspection-focus-chip" disabled={busy} onClick={clearCellFocus} title="Clear cell focus and navigate all matching cells">{datedCellLabel(protocol.cells?.find(cell=>cell.cell_uuid===focusCell)||focusedEpoch||{},true)} <X size={12}/></button>}
-      {!designMode&&tagFilterLabel(filters)&&<span className="inspection-filter-summary">{tagFilterLabel(filters)}<button disabled={busy} onClick={()=>onFilterChange?.(clearTagFilters(filters))}>Clear filter</button></span>}
-    </EpochBrowserToolbar>
+    </>} before={<>
     <SourceEligibilityNotice eligibility={protocol.source_eligibility} onStores={onStores}/>
     {!designMode&&<>
 
@@ -309,30 +221,13 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
     </SelectionMaskDialog>}
     </>}{!designMode&&maskMessage&&<div className="mask-result" role="status"><Check size={15}/><span>{maskMessage}</span><button className="icon-button" onClick={()=>setMaskMessage('')} aria-label="Dismiss mask result"><X size={14}/></button></div>}
     {error&&<div className="inspector-operation-error" role="alert">{error}<button className="icon-button" onClick={()=>setError('')} aria-label="Dismiss operation error"><X size={14}/></button></div>}
-    <EpochBrowserLayout layoutRef={layoutRef} sizes={paneSizes} treeOpen={treeOpen} metadataOpen={metadataOpen} editing={designMode}
-      onResize={changePane} onResizeCommit={savePane}
-      tree={designMode?<TreeBuilder protocolId={id} queryString={protocolSearch} revision={revision}
-            value={splits.split(',').filter(Boolean)} onChange={changeSplits}
-            preview={tree.data} loading={tree.loading} error={tree.error}/>:<EpochTreePane
-          treeMode={treeMode} onTreeMode={value=>{setTreeMode(value);if(value)changePane('tree',Math.max(420,paneSizes.tree));}}
-          onDesign={()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);}} designDisabled={busy}
-          collapseRequest={collapseRequest} onCollapse={()=>setCollapseRequest(value=>value+1)}
-          treeProps={{actionsDisabled:busy,onToggleInclusion:(item,included)=>curate({included},'focused',item.epoch_uuid),cells:protocol.cells,selectedEpochs:targets,setSelectedEpochs:selectOverviewTargets,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});},protocolId:id,filters,splits,revision,selected:focused,initialNavigation:designNavigation,onNavigationChange:setDesignNavigation,onSelectEpoch:focusTreeEpoch,onMetadata:receiveTree,onStatus:setTreeStatus}}
-          listRef={epochListRef} listKey={`${id}:${protocolSearch}`}
-          listProps={{cells:protocol.cells||[],source:{kind:'protocol',protocolId:id,query:protocolSearch},revision,focused:cellTagRequest?null:focused,onFocus:focusTreeEpoch,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cell,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);},targets,setTargets:selectOverviewTargets,disabled:busy,onToggleInclusion:(epoch,included)=>curate({included},'focused',epoch.epoch_uuid)}}>
-          {!metadataOpen&&<StableContent className="stable-tag-dock" scope={id} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} error={epoch.error} retry={epoch.reload}>{tagEntry}</StableContent>}
-        </EpochTreePane>}
-      detail={designMode?<PagedTree collapseRequest={collapseRequest} externalCollapseControl actionsDisabled={busy} onToggleInclusion={(item,included)=>curate({included},'focused',item.epoch_uuid)} cells={protocol.cells} selectedEpochs={targets} setSelectedEpochs={selectOverviewTargets} selectedCell={cellTagRequest?.cell_uuid} onSelectCell={(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});}} presentation="columns" protocolId={id} filters={filters} splits={splits} revision={revision} design selected={focused} initialNavigation={designNavigation} onNavigationChange={setDesignNavigation} onMetadata={receiveTree} onStatus={setTreeStatus} onSelectEpoch={(uuid,info)=>{focusTreeEpoch(uuid,info);setTreeMode(false);setDesignMode(false);}}/>:<StableContent scope={id} {...epoch} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} retry={epoch.reload}>{targets.length>0?<SelectionOverview count={targets.length}/>:focusedEpoch?<>
-        <EpochDetailHeading epoch={focusedEpoch} onExported={()=>{epoch.reload();onChange();}} onQC={onQC} disabled={busy} protocolId={id} queryRevision={protocol.query_revision} filters={filters} splits={splits}/>
-        <EpochNavigation position={focusedPageIndex<0?-1:offset+focusedPageIndex} total={rows.data?.total||0} loading={!!pendingNavigation||rows.loading} disabled={busy} onMove={moveEpoch}/>
-
-        <Trace epoch={focusedEpoch} revision={revision}/>
-        <div className="curation-bar">
-          <label className="analysis-inclusion-toggle"><input type="checkbox" checked={focusedEpoch.curation?.included!==false} disabled={busy} onChange={event=>curate({included:event.target.checked},'focused')}/> Include in analysis</label>
-          <span className="analysis-inclusion-help">{focusedEpoch.curation?.included===false?'Excluded from this pinned dataset’s analysis exports. Still available to inspect.':'Included in this pinned dataset’s analysis exports.'}</span>
-          {!metadataOpen&&(!treeOpen||treeMode)&&tagEntry}
-        </div>
-        {busy&&<p className="curation-progress" role="status">{operationMessage}</p>}
+</>}
+    layout={{layoutRef,sizes:paneSizes,treeOpen,metadataOpen,onResize:changePane,onResizeCommit:savePane}} designMode={designMode}
+    builder={{protocolId:id,queryString:protocolSearch,revision:revision,value:splits.split(',').filter(Boolean),onChange:changeSplits,preview:tree.data,loading:tree.loading,error:tree.error}} columnTree={{collapseRequest:collapseRequest,externalCollapseControl:true,actionsDisabled:busy,onToggleInclusion:(item,included)=>curate({included},'focused',item.epoch_uuid),cells:protocol.cells,selectedEpochs:targets,setSelectedEpochs:selectOverviewTargets,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});},presentation:"columns",protocolId:id,filters:filters,splits:splits,revision:revision,design:true,selected:focused,initialNavigation:designNavigation,onNavigationChange:setDesignNavigation,onMetadata:receiveTree,onStatus:setTreeStatus,onSelectEpoch:focusTreeEpoch}} treePane={{treeMode:treeMode,onTreeMode:value=>{setTreeMode(value);if(value)changePane('tree',Math.max(420,paneSizes.tree));},onDesign:()=>{setDesignMode(true);setTreeOpen(true);setTreeMode(true);},designDisabled:busy,collapseRequest:collapseRequest,onCollapse:()=>setCollapseRequest(value=>value+1),treeProps:{actionsDisabled:busy,onToggleInclusion:(item,included)=>curate({included},'focused',item.epoch_uuid),cells:protocol.cells,selectedEpochs:targets,setSelectedEpochs:selectOverviewTargets,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cellUuid,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setDesignMode(false);setCellTagRequest((protocol.cells||[]).find(cell=>cell.cell_uuid===cellUuid)||{cell_uuid:cellUuid,label:epoch.cell_label,date:epoch.date,cell_type:epoch.cell_type});},protocolId:id,filters,splits,revision,selected:focused,initialNavigation:designNavigation,onNavigationChange:setDesignNavigation,onSelectEpoch:focusTreeEpoch,onMetadata:receiveTree,onStatus:setTreeStatus},listRef:epochListRef,listKey:`${id}:${protocolSearch}`,listProps:{cells:protocol.cells||[],source:{kind:'protocol',protocolId:id,query:protocolSearch},revision,focused:cellTagRequest?null:focused,onFocus:focusTreeEpoch,selectedCell:cellTagRequest?.cell_uuid,onSelectCell:(cell,epoch)=>{focusTreeEpoch(epoch.epoch_uuid,epoch);setTargets([]);toggleMetadata(true);setCellTagRequest(cell);},targets,setTargets:selectOverviewTargets,disabled:busy,onToggleInclusion:(epoch,included)=>curate({included},'focused',epoch.epoch_uuid)}}}
+    resource={{scope:id,...epoch,loading:!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch))),retry:epoch.reload}}
+    epoch={focusedEpoch} targets={targets} navigation={{position:focusedPageIndex<0?-1:offset+focusedPageIndex,total:rows.data?.total||0,loading:!!pendingNavigation||rows.loading,disabled:busy,onMove:moveEpoch}}
+    traceRevision={revision} inclusion={{disabled:busy,scope:'pinned dataset',onToggle:(epoch,included)=>curate({included},'focused',epoch.epoch_uuid)}} detailDisabled={busy} onQC={onQC} tags={tagEntry}
+    detailExtras={focusedEpoch&&<>        {busy&&<p className="curation-progress" role="status">{operationMessage}</p>}
         <div className="tags"><span>Dataset-only tags:</span>
           {(focusedEpoch.curation?.tags||[]).map(t=><button key={t} disabled={busy} aria-label={`Remove tag ${t} from focused epoch only`} title="Remove from focused epoch only" onClick={()=>curate({tags_remove:[t]},'focused')}>{t}<X size={13}/></button>)}
           {!focusedEpoch.curation?.tags?.length&&<span>No tags</span>}
@@ -343,11 +238,7 @@ function InspectorContent({protocol,initialEpochUuid=null,cellScope,filters,revi
           <button disabled={busy} onClick={()=>curate({review_state:!targets.length&&focusedEpoch.curation?.review_state==='approved'?'unreviewed':'approved'})}><Eye size={14}/>
             {targets.length?`Mark ${actionScope} reviewed`:focusedEpoch.curation?.review_state==='approved'?'Clear focused epoch review marker':'Mark focused epoch reviewed'}
           </button>
-        </details>
-      </>:<Empty title="Choose an epoch">Select an epoch from the tree to inspect its response and metadata.</Empty>}</StableContent>}
-      metadata={<StableContent className="stable-metadata" scope={id} data={focusedEpoch} loading={!epoch.error&&(!!pendingNavigation||(!!focused&&(epoch.loading||!focusedEpoch)))} error={epoch.error} retry={epoch.reload}><MetadataPanel selectionCell={cellTagRequest} selectedEpochs={targets} onClearSelection={()=>setTargets([])} tags={tagEntry} epoch={focusedEpoch} catalog={metadataCatalog} onClose={()=>toggleMetadata(false)} context={focusedEpoch&&<ScientificContext epoch={focusedEpoch}/>} connections={focusedEpoch&&<EpochConnections epoch={focusedEpoch} protocolName={humanize(protocol.definition?.name)}/>}/></StableContent>}/>
-
-  </div>;
+        </details></>} metadata={{selectionCell:cellTagRequest,selectedEpochs:targets,onClearSelection:()=>setTargets([]),catalog:metadataCatalog,onClose:()=>toggleMetadata(false),connections:focusedEpoch&&<EpochConnections epoch={focusedEpoch} protocolName={humanize(protocol.definition?.name)}/>}}/>;
 }
 
 export default function Inspector(props){return <NavigationLoadingProvider><InspectorContent {...props}/></NavigationLoadingProvider>;}

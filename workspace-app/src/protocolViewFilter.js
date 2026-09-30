@@ -20,3 +20,13 @@ export function tagFilterLabel(filters={}){
   if(filters.tag_predicate){try{const {mode,rules}=readTagRules(filters);return `${mode==='any'?'Any':'All'} of ${rules.length} tag ${rules.length===1?'rule':'rules'}`;}catch{return 'Tag filter';}}
   return filters.tag?`Tag: ${filters.tag}`:filters.tagged?'Tagged epochs':'';
 }
+
+// The same view filter narrows either saved membership or a search's base query.
+// Clearing it returns the exact base query without rewriting saved searches.
+export function predicateWithTagFilters(predicate,filters={}){
+  const conditions=[];
+  if(filters.tag_predicate)conditions.push(JSON.parse(filters.tag_predicate));
+  if(filters.tag)conditions.push({field:'annotations/effective/tags',operator:'contains',value:filters.tag});
+  if(filters.tagged)conditions.push({field:'annotations/effective/tags',operator:'ne',value:[]});
+  return conditions.length?{all:[predicate,...conditions]}:predicate;
+}

@@ -56,6 +56,32 @@ class CandidateExportTests(unittest.TestCase):
         return self.client.post('/api/explore/revisions/'+candidate['revision_uuid']+'/exports',json={
             'format':format,'expected_recipe_sha256':candidate['recipe']['full_recipe_sha256'],**options},headers=self.headers)
 
+    def test_local_search_exclusion_preserves_visible_query_and_exports_included_uuid(self):
+        base = {'field':'protocol','operator':'eq','value':'example'}
+        before = copy.deepcopy((self.case.curation.rows,self.case.protocol_bindings.rows))
+        visible = self.save(base)
+        self.assertEqual(visible['recipe']['epoch_count'],2)
+        excluded, included = self.service.ids
+        candidate = self.save({'all':[base,{'field':'epoch','operator':'not_in','value':[excluded]}]})
+        self.assertEqual(candidate['recipe']['epoch_count'],1)
+        response = self.export(candidate,'wheeler-sqlite')
+        self.assertEqual(response.status_code,201,response.get_json())
+        saved = self.store.get_dataset_revision(response.get_json()['dataset_uuid'])
+        self.assertEqual([row['uuid'] for row in saved['recipe']['epochs']],[included])
+        self.assertEqual(self.case.explorer_history.get(visible['revision_uuid'])['recipe']['predicate'],base)
+        self.assertEqual((self.case.curation.rows,self.case.protocol_bindings.rows),before)
+
+    def test_many_local_exclusions_in_bounded_literals_preserve_exact_membership(self):
+        excluded = [self.service.ids[0]] + [str(uuid.uuid4()) for _ in range(250)]
+        clauses = [{'field':'epoch','operator':'not_in','value':excluded[offset:offset+64]}
+                   for offset in range(0,len(excluded),64)]
+        candidate = self.save({'all':[{'field':'protocol','operator':'eq','value':'example'},*clauses]})
+        self.assertEqual(candidate['recipe']['epoch_count'],1)
+        response = self.export(candidate,'wheeler-sqlite')
+        self.assertEqual(response.status_code,201,response.get_json())
+        saved = self.store.get_dataset_revision(response.get_json()['dataset_uuid'])
+        self.assertEqual([row['uuid'] for row in saved['recipe']['epochs']],self.service.ids[1:])
+
     def test_focused_search_epoch_uuid_intersects_query_and_exports_one_row(self):
         key = self.service.ids[1]  # Both rows have the same block epoch number.
         candidate = self.save({'all': [
