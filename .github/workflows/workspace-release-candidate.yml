@@ -1,12 +1,19 @@
-name: Build signed Rieke OS release candidate
+name: Legacy source-release candidate (manual)
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: Reviewed stable version tag, for example v0.1.0
         required: true
+      publish:
+        description: Publish the validated candidate as the latest stable GitHub Release
+        type: boolean
+        default: false
 permissions:
   contents: read
+concurrency:
+  group: rieke-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 jobs:
   candidate:
     # First advertised platform only. Linux needs its own native validation.
@@ -15,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -58,5 +65,26 @@ jobs:
           name: signed-rieke-release-candidate
           path: ${{ runner.temp }}/rieke-candidate/
           if-no-files-found: error
-      # Deliberately no public release publication. Promotion requires the real
-      # database, transfer, old-to-new upgrade and licensed MATLAB gates in docs.
+  publish:
+    needs: candidate
+    if: github.repository == 'maxwellsdm1867/Rieke-OS' && (github.event_name == 'push' || inputs.publish)
+    runs-on: ubuntu-latest
+    # Configure required reviewers here to attest the real upgrade/recovery and
+    # worker-shutdown evidence in docs/dev/releasing-rieke-os.md before promotion.
+    environment: release-publishing
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-rieke-release-candidate
+          path: ${{ runner.temp }}/rieke-candidate
+      - name: Publish the exact signed candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          CANDIDATE_DIRECTORY: ${{ runner.temp }}/rieke-candidate
+        run: |
+          gh release create "$RELEASE_TAG" "$CANDIDATE_DIRECTORY"/* \
+            --verify-tag --latest=false --generate-notes --title "Rieke OS source $RELEASE_TAG"

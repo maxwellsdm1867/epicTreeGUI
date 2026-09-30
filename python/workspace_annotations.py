@@ -9,6 +9,8 @@ import copy
 import datetime as dt
 import getpass
 import hashlib
+import json
+import re
 import time
 import uuid
 from collections import Counter
@@ -96,7 +98,7 @@ class SharedAnnotations:
             with contextlib.suppress(Exception):connection.query(f"SELECT RELEASE_LOCK('{name}')")
 
     def _event(self,action,actor,payload):
-        if action in {'shared_annotations_updated', 'annotation_profile_created'}:
+        if action == 'annotation_profile_created':
             return None  # Current annotations/profiles are saved state, not an action log.
         event=str(uuid.uuid4())
         self.Event.insert1({'event_uuid':event,'project_uuid':self.project_uuid,
@@ -163,33 +165,128 @@ class SharedAnnotations:
         ids=[identity(value) for value in ids]
         if len(set(ids))!=len(ids):raise ValueError('Duplicate annotation target')
         known=self.service.cells if kind=='cell' else self.service.rows
-        if set(ids)-known.keys():raise ValueError('Annotation target is outside this registered project')
+        # Validate only requested identities: disk-backed keys() materializes
+        # the entire project and made small edits scale with all epochs.
+        if any(target not in known for target in ids):raise ValueError('Annotation target is outside this registered project')
         return ids
 
-    def _rows(self,kind=None,ids=None):
+    def _rows(self,kind=None,ids=None,*,selected_only=False):
         relation=self.Annotation&{'project_uuid':self.project_uuid}
         if kind is not None:relation=relation&{'target_kind':kind}
         if ids is not None:
             if not ids:return []
-            if len(ids)<=250:relation=relation&[{'target_uuid':key} for key in ids]
+            if len(ids)<=250 or selected_only:
+                result=[]
+                for offset in range(0,len(ids),250):
+                    result.extend((relation&[{'target_uuid':key} for key in ids[offset:offset+250]]).to_dicts())
+                return result
         result=relation.to_dicts()
         if ids is not None:
             allowed=set(ids);result=[row for row in result if row['target_uuid'] in allowed]
         return result
 
     @staticmethod
-    def _chips(row):
+    def _validated_tags(row):
         values=tags(row['tags'])
         identity(row['profile_uuid']);identity(row['target_uuid']);text(row['author_name'],120)
         if type(row['revision']) is not int or row['revision']<1:raise ValueError('Invalid shared annotation revision')
+        return values
+
+    @staticmethod
+    def _chips(row):
+        values=SharedAnnotations._validated_tags(row)
         return [{'tag':tag,'profile_uuid':row['profile_uuid'],'author_name':row['author_name'],
                  'target_kind':row['target_kind'],'target_uuid':row['target_uuid'],'revision':row['revision']}
                 for tag in sorted(values)]
 
+    def _index_record_tags(self,row):
+        if row['target_kind'] not in ('cell','epoch'):
+            raise ValueError('Invalid shared annotation target kind')
+        known=self.service.cells if row['target_kind']=='cell' else self.service.rows
+        if row['target_uuid'] not in known:
+            raise ValueError('Shared annotation target is no longer registered')
+        return self._validated_tags(row)
+
+    def _index_records(self,keys):
+        """Bounded canonical reads for a disposable tag membership index."""
+        if keys is not None:
+            relation=self.Annotation&{'project_uuid':self.project_uuid}
+            for offset in range(0,len(keys),250):
+                selected=[{name:key[name] for name in ('target_kind','target_uuid','profile_uuid')}
+                          for key in keys[offset:offset+250]]
+                yield from (relation&selected).to_dicts()
+            return
+        full=self.Annotation.full_table_name
+        if not re.fullmatch(r'`[A-Za-z0-9_]+`\.`[A-Za-z0-9_]+`',full):
+            raise ValueError('Unsupported annotation table identity')
+        columns='project_uuid,target_kind,target_uuid,profile_uuid,tags,author_name,revision'
+        connection=self.dj.conn()
+        for kind in ('cell','epoch'):
+            last=None
+            while True:
+                condition='';params=[self.project_uuid,kind]
+                if last is not None:
+                    condition=' AND (target_uuid>%s OR (target_uuid=%s AND profile_uuid>%s))'
+                    params.extend((last[0],last[0],last[1]))
+                batch=connection.query(f'SELECT {columns} FROM {full} WHERE project_uuid=%s AND target_kind=%s'
+                    +condition+' ORDER BY target_uuid,profile_uuid LIMIT 500',tuple(params),as_dict=True,reconnect=False).fetchall()
+                if not batch:break
+                for row in batch:
+                    # Direct SQL projects bounded columns; DataJoint normally
+                    # performs this JSON decoding in its to_dicts adapter.
+                    if isinstance(row['tags'],str):row={**row,'tags':json.loads(row['tags'])}
+                    yield row
+                last=(batch[-1]['target_uuid'],batch[-1]['profile_uuid'])
+
+    def _membership_index(self,rows,*,refresh=True):
+        tracker=getattr(self,'state_generation',None)
+        if type(self) is not SharedAnnotations or tracker is None:return None
+        from workspace_shared_tag_index import SharedTagIndex
+        if any(row['epoch_uuid'] not in self.service.rows
+               or row['cell_uuid']!=self.service.rows[row['epoch_uuid']]['cell_uuid'] for row in rows):
+            raise ValueError('Epoch/cell identity linkage does not match this project')
+        previous=getattr(self,'_shared_tag_index',None)
+        if previous is None or getattr(self,'_shared_tag_index_tracker',None) is not tracker:
+            if previous is not None:previous.close()
+            previous=self._shared_tag_index=SharedTagIndex(generation=tracker.token,
+                changes=tracker.shared_changes,records=self._index_records,validate=self._index_record_tags)
+            self._shared_tag_index_tracker=tracker
+        if refresh and not previous.refresh():return None
+        return previous
+
+    def generation_token(self):
+        tracker=getattr(self,'state_generation',None)
+        return tracker.token() if type(self) is SharedAnnotations and tracker is not None else None
+
+    def filter_epoch_ids(self,rows,filters):
+        """Indexed membership only; provenance is hydrated for visible rows."""
+        from workspace_service import validate_tag_filter_predicate
+        predicate=validate_tag_filter_predicate(filters['tag_predicate']) if 'tag_predicate' in filters else None
+        lookup=getattr(self,'native_tag_lookup',None)
+        if lookup is not None and lookup.ready:
+            before=self.generation_token()
+            if before is not None and before.authority==getattr(lookup,'authority',None):
+                for row in rows:
+                    saved=self.service.rows.get(row['epoch_uuid'])
+                    if saved is None or (saved is not row and saved['cell_uuid']!=row['cell_uuid']):
+                        raise ValueError('Epoch/cell identity linkage does not match this project')
+                from workspace_native_tag_filter import matching
+                result=matching(rows,filters,predicate,lookup)
+                if self.generation_token()!=before:
+                    from workspace_shared_tag_index import SharedTagsChanged
+                    raise SharedTagsChanged('Shared tags changed while filtering; refresh and retry')
+                return result,before
+        previous=self._membership_index(rows)
+        return previous.matching(rows,filters,predicate) if previous is not None else None
+
+    def catalog_fields(self,rows,fields):
+        previous=self._membership_index(rows)
+        return previous.catalog(rows,fields) if previous is not None else None
+
     def read_targets(self,kind,ids):
         ids=self._scope(kind,ids)
         output={key:{'target_kind':kind,'target_uuid':key,'tags':[],'revisions':{}} for key in ids}
-        for row in self._rows(kind,ids):
+        for row in self._rows(kind,ids,selected_only=True):
             output[row['target_uuid']]['tags'].extend(self._chips(row))
             output[row['target_uuid']]['revisions'][row['profile_uuid']]=row['revision']
         for item in output.values():item['tags'].sort(key=lambda r:(r['tag'],r['author_name'],r['profile_uuid']))
@@ -217,7 +314,10 @@ class SharedAnnotations:
         return result
 
     def summary(self,rows):
-        rows=list(rows);ids={row['epoch_uuid'] for row in rows};cells={row['cell_uuid'] for row in rows}
+        rows=list(rows)
+        previous=self._membership_index(rows)
+        if previous is not None:return previous.summary(rows)
+        ids={row['epoch_uuid'] for row in rows};cells={row['cell_uuid'] for row in rows}
         cell_epochs={key:set() for key in cells};epoch_cell={row['epoch_uuid']:row['cell_uuid'] for row in rows}
         for row in rows:cell_epochs[row['cell_uuid']].add(row['epoch_uuid'])
         tagged_cells=set();tagged_epochs=set();by_tag={}
@@ -239,7 +339,7 @@ class SharedAnnotations:
         for row in self._rows():
             known=self.service.cells if row['target_kind']=='cell' else self.service.rows
             if row['target_uuid'] not in known:raise ValueError('Shared annotation target is no longer registered')
-            self._chips(row)
+            self._validated_tags(row)
             records.append({key:copy.deepcopy(row[key]) for key in ('target_kind','target_uuid','profile_uuid','author_name','revision','tags')})
         records.sort(key=lambda r:(r['target_kind'],r['target_uuid'],r['profile_uuid']))
         return {'version':1,'project_uuid':self.project_uuid,'revision':checksum({'project_uuid':self.project_uuid,'records':records}),'records':records,
@@ -288,7 +388,14 @@ class SharedAnnotations:
                     incoming.append(profile)
             pending_profiles=[]
             authors=self._ensure_profiles(incoming,actor,pending_profiles)
-            saved={(row['target_kind'],row['target_uuid'],row['profile_uuid']):row for row in self._rows()}
+            # The transaction only needs the explicitly targeted author sets.
+            # Other targets/profiles cannot affect these optimistic revisions.
+            relation=self.Annotation&{'project_uuid':self.project_uuid}
+            requested=[{'target_kind':key[0],'target_uuid':key[1],'profile_uuid':key[2]} for key,_,_,_ in parsed]
+            saved={}
+            for offset in range(0,len(requested),250):
+                for row in (relation&requested[offset:offset+250]).to_dicts():
+                    saved[(row['target_kind'],row['target_uuid'],row['profile_uuid'])]=row
             for key,expected,add,remove in parsed:
                 if key[2] not in authors:raise ValueError('Select an existing local annotation profile')
                 old=saved.get(key);revision=old['revision'] if old else 0
@@ -315,11 +422,30 @@ class SharedAnnotations:
             if external_receipt is not None:
                 # Receipt and additions commit together, even for an all-unchanged message.
                 event=self._event('external_annotation_received',actor,{'receipt':external_receipt})
-        if changed:self._vocabulary=None
+        if changed:
+            self._vocabulary=None
+            on_commit=getattr(self,'on_commit',None)
+            if on_commit is not None:on_commit()
         return {'changed':changed,'event_uuid':event,'annotations':after}
 
     def suggestions(self,query='',limit=30):
         if not isinstance(query,str) or len(query)>255 or type(limit) is not int or not 1<=limit<=100:raise ValueError('Use a tag prefix up to 255 characters and limit 1–100')
+        lookup=getattr(self,'native_tag_lookup',None)
+        if lookup is not None and lookup.ready and getattr(self._rows,'__func__',None) is _NATIVE_ANNOTATION_ROWS:
+            before=self.generation_token()
+            if before is not None and before.authority==getattr(lookup,'authority',None):
+                from workspace_native_tag_filter import suggestions
+                result=suggestions(lookup,query,limit)
+                if self.generation_token()!=before:
+                    from workspace_shared_tag_index import SharedTagsChanged
+                    raise SharedTagsChanged('Shared tags changed while reading suggestions; retry')
+                return result
+        # suggestions() owns its opening and closing authority checks itself.
+        index=(self._membership_index((),refresh=False)
+            if getattr(self._rows,'__func__',None) is _NATIVE_ANNOTATION_ROWS else None)
+        if index is not None:
+            result=index.suggestions(query,limit)
+            if result is not None:return result
         if self._vocabulary is None or time.monotonic()>=self._vocabulary[0]:
             values={}
             for row in self._rows():
@@ -333,6 +459,9 @@ class SharedAnnotations:
         return {'tags':[{'tag':tag,'count':len(value['targets']),'authors':[{'profile_uuid':key,'display_name':name} for key,name in sorted(value['authors'].items())]} for tag,value in selected[:limit]],
                 'scope':'project_shared_annotations','query':query,'total':len(selected),'limit':limit,
                 'count_unit':'distinct_annotation_targets','match':'case_insensitive_prefix','has_more':len(selected)>limit}
+
+
+_NATIVE_ANNOTATION_ROWS=SharedAnnotations._rows
 
 
 def register_annotation_routes(app,service,store,db_lock):

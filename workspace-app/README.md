@@ -715,7 +715,9 @@ comparison with the existing Compact and VMN databases.
 
 ### Current-state recovery
 
-Current settings and query definitions are saved to `app-state.json`, with daily
-SQLite state snapshots under `backups/app-state/`. Ordinary edits no longer append
-a full action trail. See [storage and recovery](../docs/STORAGE_RECOVERY.md) for
-what is saved, how query-based pins are reconstructed, and the offline restore command.
+`app-state.json` points to a compact SQLite recovery database under
+`backups/app-state/`, with limited daily checkpoint history. Verified tag edits
+update changed records; frozen pins retain their exact membership. Ordinary
+edits do not append a full action trail. See
+[storage and recovery](../docs/STORAGE_RECOVERY.md) for backup contents, retention,
+older-format compatibility, and the offline restore command.

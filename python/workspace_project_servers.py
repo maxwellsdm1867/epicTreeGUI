@@ -12,7 +12,7 @@ from urllib.request import urlopen
 
 from recording_workspace import write_json
 from workspace_projects import list_projects, list_managed_projects
-from workspace_startup_registry import remember_project
+from workspace_startup_registry import remember_project_result
 
 
 def server_record(project_dir):
@@ -98,8 +98,13 @@ def project_server_port(project_dir, identity):
 
 
 def open_project(project_dir, identity, retinanalysis_dir, *, timeout=300, managed=False):
+    if os.environ.get('RIEKE_DESKTOP_MODE') == '1':
+        from workspace_desktop import desktop_open_project
+        return desktop_open_project(project_dir, identity, retinanalysis_dir, timeout=timeout, managed=managed)
     registry = list_managed_projects(project_dir) if managed else list_projects(project_dir)
-    project = next((row for row in registry['projects'] if row['uuid'] == identity and row['available']), None)
+    selected_path = str(Path(project_dir).expanduser().resolve())
+    project = next((row for row in registry['projects'] if row['uuid'] == identity and row['available']
+                    and (managed or row['path'] == selected_path)), None)
     if project is None:
         raise ValueError('Select an available registered project')
     directory = Path(project['path'])
@@ -109,8 +114,7 @@ def open_project(project_dir, identity, retinanalysis_dir, *, timeout=300, manag
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         existing = ready_url(directory, identity)
         if existing:
-            remember_project(directory.parent, identity)
-            return {'url': existing, 'project_uuid': identity}
+            return remember_project_result(directory, {'url': existing, 'project_uuid': identity}, set_last=True)
         from workspace_project_database import ensure_project_database
         ensure_project_database(directory)
         config = json.loads((directory / 'catalog.json').read_text())
@@ -140,8 +144,7 @@ def open_project(project_dir, identity, retinanalysis_dir, *, timeout=300, manag
                 raise ValueError('Project could not start. See logs/workspace-launch.log in that project.')
             url = ready_url(directory, identity)
             if url:
-                remember_project(directory.parent, identity)
-                return {'url': url, 'project_uuid': identity}
+                return remember_project_result(directory, {'url': url, 'project_uuid': identity}, set_last=True)
             time.sleep(0.2)
         process.terminate()
         try:

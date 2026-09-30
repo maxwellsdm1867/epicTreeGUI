@@ -20,6 +20,8 @@ import subprocess
 import traceback
 import uuid
 
+from workspace_catalog_identity import CatalogIdentityConflict, validate_catalog_identity
+
 
 def now():
     return dt.datetime.now(dt.timezone.utc).isoformat()
@@ -39,11 +41,14 @@ def digest(path, progress=None, stage="source_hashing"):
 
 
 def write_json(path, value):
+    from workspace_state_snapshot import atomic_write
+
     path = Path(path)
+    # Finish strict serialization before touching the destination. Atomic
+    # replacement alone does not persist the file or its directory entry.
+    data = (json.dumps(value, indent=2, allow_nan=False, default=json_scalar) + "\n").encode('utf-8')
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + "." + str(uuid.uuid4()) + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, allow_nan=False, default=json_scalar) + "\n")
-    os.replace(temporary, path)
+    atomic_write(path, data, preserve_permissions=True)
 
 
 def json_scalar(value):
@@ -73,18 +78,17 @@ def epochs(metadata):
                             yield cell, group, block, epoch
 
 
-def assert_new_catalog_identities(experiment, catalog, batch_size=200):
+def assert_new_catalog_identities(experiment, catalog, batch_size=200, *, lookup=None):
     """Reject reused source hierarchy identities before a new file is populated.
 
     Call only in the new-SHA branch while holding the import advisory lock and
     transaction. RetinAnalysis's h5_uuid columns are not unique keys; a later
     read-model rejection would be too late to prevent ambiguous catalog rows.
-    Animal/preparation and response/stimulus identities are outside this guard.
     Matching scientific values or repeated trials are not duplicate identities.
     """
     if type(batch_size) is not int or not 1 <= batch_size <= 500:
         raise ValueError('Identity lookup batches must contain 1–500 identities')
-    identities = {name: set() for name in ('Cell', 'EpochGroup', 'EpochBlock', 'Epoch')}
+    identities = {name: set() for name in ('Animal', 'Preparation', 'Cell', 'EpochGroup', 'EpochBlock', 'Epoch', 'Response', 'Stimulus')}
 
     def record(table, item):
         identity = item.get('uuid')
@@ -95,7 +99,9 @@ def assert_new_catalog_identities(experiment, catalog, batch_size=200):
         identities[table].add(identity)
 
     for animal in experiment['animals']:
+        record('Animal', animal)
         for preparation in animal['preparations']:
+            record('Preparation', preparation)
             for cell in preparation['cells']:
                 record('Cell', cell)
                 for group in cell['epoch_groups']:
@@ -104,15 +110,301 @@ def assert_new_catalog_identities(experiment, catalog, batch_size=200):
                         record('EpochBlock', block)
                         for epoch in block['epochs']:
                             record('Epoch', epoch)
+                            for kind, key in (('Response', 'responses'), ('Stimulus', 'stimuli')):
+                                for stream in epoch.get(key, {}).values():
+                                    record(kind, stream)
     for name, values in identities.items():
         ordered = sorted(values)
         table = getattr(catalog, name)
-        for start in range(0, len(ordered), batch_size):
-            batch = [{'h5_uuid': identity} for identity in ordered[start:start + batch_size]]
-            collision = (table & batch).fetch('h5_uuid', limit=1)
-            if len(collision):
-                raise ValueError(f'Existing {name} source UUID {collision[0]} belongs to the catalog; '
-                                 'explicit source/version reconciliation is required before importing this different file')
+        collision = None
+        if lookup is not None:
+            collision = lookup.first_collision(name, ordered, batch_size)
+        else:
+            for start in range(0, len(ordered), batch_size):
+                batch = [{'h5_uuid': identity} for identity in ordered[start:start + batch_size]]
+                found = (table & batch).fetch('h5_uuid', limit=1)
+                if len(found):
+                    collision = found[0]
+                    break
+        if collision is not None:
+            raise CatalogIdentityConflict('source_uuid_collision',
+                f'Existing {name} source UUID {collision} belongs to the catalog; '
+                'explicit source/version reconciliation is required before importing this different file',
+                identity=collision)
+
+
+def validate_self_contained_h5(h5):
+    """Inspect links/layouts without reading samples or following external files.
+
+    Walk physical hard-linked objects once: Symphony includes experiment/source
+    backlinks. Inspect every hard-link alias's containing group, and resolve soft
+    links only after external links everywhere in this file have been ruled out.
+    """
+    import h5py
+    pending, seen, soft_links = ['/'], set(), []
+    while pending:
+        obj = h5[pending.pop()]
+        address = h5py.h5o.get_info(obj.id).addr
+        if address in seen:
+            continue
+        seen.add(address)
+        if isinstance(obj, h5py.Dataset):
+            if obj.is_virtual:
+                raise ValueError(f'Virtual dataset dependencies are unsupported: {obj.name}')
+            if obj.external:
+                raise ValueError(f'External dataset storage is unsupported: {obj.name}')
+        elif isinstance(obj, h5py.Group):
+            for name in obj:
+                link = obj.get(name, getlink=True)
+                if isinstance(link, h5py.ExternalLink):
+                    raise ValueError(f'External H5 links are unsupported: {obj.name}/{name}')
+                if isinstance(link, h5py.SoftLink):
+                    soft_links.append(obj.name.rstrip('/') + '/' + name)
+                elif isinstance(link, h5py.HardLink):
+                    pending.append(obj.name.rstrip('/') + '/' + name)
+                else:
+                    raise ValueError(f'Unsupported H5 link: {obj.name}/{name}')
+    for path in soft_links:
+        target = resolve_sealed_h5_path(h5, path)
+        if h5py.h5o.get_info(target.id).addr not in seen:
+            raise ValueError(f'H5 link target is outside the sealed source: {path}')
+
+
+def resolve_sealed_h5_path(h5, path):
+    """Resolve one locator without following unsealed links (bounded trace path).
+
+    Inspect each soft-link expansion, including its intermediate components;
+    inspecting only the final object's filename misses external links that lead
+    back into this file, virtual mappings and external raw-storage datasets.
+    """
+    import h5py
+    if not isinstance(path, str) or not path.startswith('/'):
+        raise ValueError('H5 locator must be an absolute path within its source')
+    parts, current, expansions = path.split('/')[1:], h5['/'], 0
+    while parts:
+        name, parts = parts[0], parts[1:]
+        if not name or name == '.':
+            continue
+        if name == '..' or not isinstance(current, h5py.Group):
+            raise ValueError(f'Invalid H5 source locator: {path}')
+        link = current.get(name, getlink=True)
+        if isinstance(link, h5py.ExternalLink):
+            raise ValueError(f'External H5 links are unsupported: {path}')
+        if isinstance(link, h5py.SoftLink):
+            expansions += 1
+            if expansions > 64:
+                raise ValueError(f'Unresolvable or cyclic H5 soft link: {path}')
+            target = link.path
+            if not target.startswith('/'):
+                target = current.name.rstrip('/') + '/' + target
+            parts, current = target.split('/')[1:] + parts, h5['/']
+            continue
+        if not isinstance(link, h5py.HardLink):
+            raise ValueError(f'Missing or unsupported H5 source link: {path}')
+        current = current[name]
+        if current.file.id != h5.id:
+            raise ValueError(f'H5 link target is outside the sealed source: {path}')
+    if isinstance(current, h5py.Dataset):
+        if current.is_virtual:
+            raise ValueError(f'Virtual dataset dependencies are unsupported: {path}')
+        if current.external:
+            raise ValueError(f'External dataset storage is unsupported: {path}')
+    return current
+
+
+def _source_text(value):
+    return value.decode('utf-8') if isinstance(value, bytes) else str(value)
+
+
+def validate_source_identity(h5, document):
+    """Compare parser hierarchy to physical Symphony objects, including empties.
+
+    UUID dictionaries are built only after checking physical multiplicity. The
+    source hierarchy is experiment/sources/animal/sources/preparation/sources/cell;
+    epoch groups reference cells by an in-file source link, not by display label.
+    The pinned parser deliberately drops blocks without epochs, so those may be
+    absent from metadata, but still participate in duplicate-identity checks.
+    """
+    import h5py
+    validate_self_contained_h5(h5)
+    roots = [h5[name] for name in h5 if name.startswith('experiment-')]
+    if len(roots) != 1 or not isinstance(roots[0], h5py.Group):
+        raise ValueError('Expected exactly one Symphony experiment root')
+    root = roots[0]
+
+    def identity(obj):
+        if not isinstance(obj, h5py.Group) or 'uuid' not in obj.attrs:
+            raise ValueError(f'Missing source object UUID: {obj.name}')
+        value = _source_text(obj.attrs['uuid'])
+        if not value or len(value) > 255:
+            raise ValueError(f'Invalid source object UUID: {obj.name}')
+        return value
+
+    if identity(root) != document['uuid']:
+        raise ValueError('Experiment identity differs from H5 source')
+    inventory = {kind: {} for kind in ('animal', 'preparation', 'cell', 'group', 'block', 'epoch', 'stream')}
+    parsed = {kind: set() for kind in inventory}
+
+    def children(obj, collection):
+        if collection not in obj:
+            return []
+        container = obj[collection]
+        if not isinstance(container, h5py.Group):
+            raise ValueError(f'Invalid source {collection} collection: {container.name}')
+        return container.items()
+
+    def record(category, obj, parent, **fields):
+        kind = category
+        value = identity(obj)
+        if value in inventory[kind]:
+            raise ValueError(f'Duplicate source {kind} UUID: {value}')
+        inventory[kind][value] = dict(path=obj.name, address=h5py.h5o.get_info(obj.id).addr, parent=parent, **fields)
+        return value
+
+    for _, animal in children(root, 'sources'):
+        animal_id = record('animal', animal, document['uuid'])
+        for _, prep in children(animal, 'sources'):
+            prep_id = record('preparation', prep, animal_id)
+            for _, cell in children(prep, 'sources'):
+                record('cell', cell, prep_id)
+    for _, group in children(root, 'epochGroups'):
+        if 'source' not in group:
+            raise ValueError('Epoch group has no source cell identity')
+        cell_obj = group['source']
+        cell_id = identity(cell_obj)
+        if cell_id not in inventory['cell'] or inventory['cell'][cell_id]['address'] != h5py.h5o.get_info(cell_obj.id).addr:
+            raise ValueError('Epoch group source cell identity differs from the experiment sources')
+        group_id = record('group', group, cell_id)
+        for _, block in children(group, 'epochBlocks'):
+            raw_epochs = children(block, 'epochs')
+            block_id = record('block', block, group_id, empty=not raw_epochs)
+            for _, epoch in raw_epochs:
+                epoch_id = record('epoch', epoch, block_id)
+                for kind in ('responses', 'stimuli'):
+                    for key, stream in children(epoch, kind):
+                        # This is Symphony's device-UUID naming convention and the
+                        # pinned parser's strip_uuid operation, independently checked.
+                        device = '-'.join(key.split('-')[:-5])
+                        if not device:
+                            raise ValueError('Source stream device identity is missing')
+                        record('stream', stream, epoch_id, kind=kind, device=device)
+
+    def check(kind, item, parent):
+        value = item.get('uuid')
+        source = inventory[kind].get(value)
+        if source is None or value in parsed[kind]:
+            if kind == 'block':
+                raise ValueError('Epoch points to a different source block')
+            raise ValueError(f'Parsed {kind} identity or membership differs from H5 source')
+        parsed[kind].add(value)
+        if source['parent'] != parent:
+            if kind == 'group':
+                raise ValueError('Parsed group ownership differs from its source cell')
+            raise ValueError(f'Parsed {kind} parent ownership differs from H5 source')
+        return source
+
+    for animal in document['animals']:
+        check('animal', animal, document['uuid'])
+        for prep in animal['preparations']:
+            check('preparation', prep, animal['uuid'])
+            for cell in prep['cells']:
+                check('cell', cell, prep['uuid'])
+                for group in cell['epoch_groups']:
+                    check('group', group, cell['uuid'])
+                    for block in group['epoch_blocks']:
+                        source_block = h5[check('block', block, group['uuid'])['path']]
+                        if _source_text(source_block.attrs.get('protocolID', '')) != block['protocolID']:
+                            raise ValueError('Parsed protocol differs from the H5 block')
+                        for epoch in block['epochs']:
+                            check('epoch', epoch, block['uuid'])
+                            for kind in ('responses', 'stimuli'):
+                                for device, stream in epoch.get(kind, {}).items():
+                                    source = check('stream', stream, epoch['uuid'])
+                                    try:
+                                        target = h5[stream['h5path']]
+                                    except (KeyError, TypeError) as error:
+                                        raise ValueError('Parsed stream locator differs from H5 source') from error
+                                    if source['address'] != h5py.h5o.get_info(target.id).addr or source['kind'] != kind or source['device'] != device:
+                                        raise ValueError('Parsed stream identity, kind or device differs from H5 source')
+                                    # Readers use ancestry of the locator, so aliases must
+                                    # retain its authoritative epoch/collection context.
+                                    if (target.parent.name.rsplit('/', 1)[-1] != kind or
+                                            identity(target.parent.parent) != epoch['uuid']):
+                                        raise ValueError('Parsed stream locator ownership differs from H5 source')
+    for kind, objects in inventory.items():
+        required = {key for key, value in objects.items() if kind != 'block' or not value['empty']}
+        if not required <= parsed[kind]:
+            raise ValueError(f'Parsed {kind} membership differs from the H5 source')
+    return inventory
+
+
+def restore_empty_blocks(h5, experiment, parser):
+    """Preserve canonical acquisition blocks the pinned parser omits as empty.
+
+    Production callers first validate physical hierarchy and identity. Walk only
+    canonical experiment/epochGroups paths so hard-linked backlinks cannot hide
+    blocks. Never reconstruct a missing populated block or guess its parent.
+    """
+    import h5py
+    validate_self_contained_h5(h5)
+    groups = {}
+    for animal in experiment['animals']:
+        for preparation in animal['preparations']:
+            for cell in preparation['cells']:
+                for group in cell['epoch_groups']:
+                    if group['uuid'] in groups:
+                        raise ValueError('Duplicate parsed epoch group identity')
+                    groups[group['uuid']] = group
+    roots = [h5[name] for name in h5 if name.startswith('experiment-')]
+    if len(roots) != 1 or not isinstance(roots[0], h5py.Group):
+        raise ValueError('Expected exactly one Symphony experiment root')
+    additions, seen = [], set()
+    for source_group in roots[0].get('epochGroups', {}).values():
+        group_uuid = _source_text(source_group.attrs['uuid'])
+        if group_uuid not in groups:
+            raise ValueError('Source epoch group is missing from parsed metadata')
+        group = groups[group_uuid]
+        existing = {block['uuid'] for block in group['epoch_blocks']}
+        for source_block in source_group.get('epochBlocks', {}).values():
+            identity = _source_text(source_block.attrs['uuid'])
+            if identity in seen:
+                raise ValueError('Duplicate source block UUID')
+            seen.add(identity)
+            if identity in existing:
+                continue
+            if len(source_block.get('epochs', {})):
+                raise ValueError('Missing populated block cannot be reconstructed')
+            block = dict(parser.EpochBlockObj(source_block).__dict__)
+            if block.get('uuid') != identity or block.get('epochs') != []:
+                raise ValueError('Empty block parser identity or membership differs from source')
+            # Use the same pinned conversions as ordinary blocks, retaining
+            # protocol parameters, source attributes and acquisition timestamps.
+            block = json.loads(json.dumps(block, cls=getattr(parser, 'NpEncoder', None),
+                                          default=None if hasattr(parser, 'NpEncoder') else json_scalar,
+                                          allow_nan=False))
+            additions.append((group, block, group_uuid))
+    for group, block, _ in additions:
+        group['epoch_blocks'].append(block)
+    return [{'code': 'empty_epoch_block_restored', 'uuid': block['uuid'], 'group_uuid': group_uuid}
+            for _, block, group_uuid in additions]
+
+
+def validate_manifest_cell_count(manifest, all_cell_ids, epoch_cell_ids):
+    """Check the recorded count under its explicit or historical convention.
+
+    Before all-source-cells-v1, prepare counted only cells reached by epochs.
+    This affects the count check only: callers must still validate and retain
+    every source cell, including cells with no epochs.
+    """
+    semantics = manifest.get('cell_count_semantics')
+    if 'cell_count_semantics' not in manifest:
+        expected = len(epoch_cell_ids)
+    elif semantics == 'all-source-cells-v1':
+        expected = len(all_cell_ids)
+    else:
+        raise ValueError(f'Unsupported source cell count semantics: {semantics!r}')
+    if manifest['counts']['cells'] != expected:
+        raise ValueError('Source cell count differs from validated manifest')
 
 
 def prepare(source, project, repository, progress=None, expected_sha256=None):
@@ -140,6 +432,9 @@ def prepare(source, project, repository, progress=None, expected_sha256=None):
         if cached.get("parser_sha256") != digest(parser_path):
             raise ValueError("Parser version changed; an explicit new parse revision is required")
     else:
+        # Reject unsealed dependencies before the parser can read their samples.
+        with h5py.File(source, "r") as h5:
+            validate_self_contained_h5(h5)
         with (folder / "parser.log").open("w") as log:
             with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
                 with parser.Symphony2Reader(str(source), str(raw_path)) as reader:
@@ -153,15 +448,16 @@ def prepare(source, project, repository, progress=None, expected_sha256=None):
     rows, protocol_counts, cell_ids = [], {}, set()
     warnings = []
     with h5py.File(source, "r") as h5:
-        roots = [v for k, v in h5.items() if k.startswith("experiment-")]
+        roots = [k for k in h5 if k.startswith("experiment-")]
         if len(roots) != 1:
             raise ValueError("Expected exactly one Symphony experiment root")
-        root = roots[0]
+        root = resolve_sealed_h5_path(h5, "/" + roots[0])
+        properties = resolve_sealed_h5_path(h5, root.name + "/properties")
         # RetinAnalysis currently builds ExperimentObj from the first animal.
         # Reuse its conversion while restoring the real experiment-level facts.
         experiment = parser.ExperimentObj(
             d={"attributes": parser.parse_attributes(root),
-               "properties": parser.parse_attributes(root["properties"])},
+               "properties": parser.parse_attributes(properties)},
             rig_type=raw["rig_type"],
         ).__dict__
         experiment["label"] = experiment.get("label") or source.stem
@@ -172,10 +468,20 @@ def prepare(source, project, repository, progress=None, expected_sha256=None):
                              "source_uuid": experiment["uuid"]})
         if experiment["rig_type"] != "PATCH":
             raise ValueError("This importer currently supports PATCH recordings only")
+        inventory = validate_source_identity(h5, experiment)
+        warnings.extend(restore_empty_blocks(h5, experiment, parser))
+        cell_ids.update(inventory["cell"])
         for cell, group, block, epoch in epochs(experiment):
             cell_ids.add(cell["uuid"])
             streams = []
-            parameters_checked = False
+            source_epoch = h5[inventory['epoch'][epoch['uuid']]['path']]
+            source_block = h5[inventory['block'][block['uuid']]['path']]
+            source_parameters = dict(source_block['protocolParameters'].attrs)
+            source_parameters.update(dict(source_epoch['protocolParameters'].attrs))
+            source_parameters = json.loads(json.dumps(source_parameters, cls=parser.NpEncoder, allow_nan=False))
+            for parameter, value in source_parameters.items():
+                if parameter not in epoch['parameters'] or epoch['parameters'][parameter] != value:
+                    raise ValueError(f"Source parameter mismatch for epoch {epoch['uuid']}: {parameter}")
             for kind in ("responses", "stimuli"):
                 for device, stream in epoch[kind].items():
                     obj = h5[stream["h5path"]]
@@ -190,14 +496,6 @@ def prepare(source, project, repository, progress=None, expected_sha256=None):
                         raise ValueError("Epoch points to a different source block")
                     if parser.parse_value(source_block.attrs["protocolID"]) != block["protocolID"]:
                         raise ValueError("Parsed protocol differs from the H5 block")
-                    if not parameters_checked:
-                        source_parameters = dict(source_block["protocolParameters"].attrs)
-                        source_parameters.update(dict(source_epoch["protocolParameters"].attrs))
-                        source_parameters = json.loads(json.dumps(source_parameters, cls=parser.NpEncoder, allow_nan=False))
-                        for parameter, value in source_parameters.items():
-                            if parameter not in epoch["parameters"] or epoch["parameters"][parameter] != value:
-                                raise ValueError(f"Source parameter mismatch for epoch {epoch['uuid']}: {parameter}")
-                        parameters_checked = True
                     data = obj.get("data")
                     units = None
                     if kind == "responses":
@@ -244,14 +542,6 @@ def prepare(source, project, repository, progress=None, expected_sha256=None):
                          "start_time": epoch.get("start_time"),
                          "parameters": epoch.get("parameters", {}), "streams": streams})
             emit("validating_metadata", completed=len(rows), total=total_epochs, unit="epochs")
-        raw_epoch_ids = set()
-        def visit(name, obj):
-            if isinstance(obj, h5py.Group) and name.split("/")[-2:-1] == ["epochs"]:
-                raw_epoch_ids.add(parser.parse_value(obj.attrs["uuid"]))
-        h5.visititems(visit)
-        parsed_ids = [r["epoch_uuid"] for r in rows]
-        if len(set(parsed_ids)) != len(parsed_ids) or set(parsed_ids) != raw_epoch_ids:
-            raise ValueError("Parsed epoch membership differs from the H5 source")
     after = source.stat()
     if (stat.st_size, stat.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
         raise ValueError("Source changed during parsing/validation")
@@ -270,6 +560,7 @@ def prepare(source, project, repository, progress=None, expected_sha256=None):
                 "adapter_version": 1, "adapter_sha256": digest(__file__),
                 "validated_at": now(), "metadata_path": str(normalized_path),
                 "metadata_sha256": digest(normalized_path),
+                "cell_count_semantics": "all-source-cells-v1",
                 "counts": {"cells": len(cell_ids), "epochs": len(rows),
                            "responses": sum(len(e["responses"]) for *_, e in epochs(experiment)),
                            "stimuli": sum(len(e["stimuli"]) for *_, e in epochs(experiment))},
@@ -489,7 +780,12 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
                            context={"project_uuid": project_id})})
     stage = "database_transaction"
     emit("writing_catalog", commit_state="unknown", catalog_committed=None)
+    from workspace_catalog_collision import CatalogCollisionLookup
+    identity_lookup = CatalogCollisionLookup(catalog)
     try:
+        # Temporary candidate indexes belong to this locked connection and are
+        # created before the transaction: no DDL may commit acquisition writes.
+        identity_lookup.prepare()
         with connection.transaction:
             Project.insert1({"project_uuid": project_id, "name": project["name"],
                              "directory": str(project_dir)}, skip_duplicates=True)
@@ -498,14 +794,23 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
                 old = existing.fetch1()
                 if old["project_uuid"] != project_id:
                     raise ValueError("Source belongs to another project; explicit linking is required")
+                if old['experiment_uuid'] != experiment['uuid']:
+                    raise CatalogIdentityConflict('source_registration',
+                        'Registered source experiment UUID differs from these same source bytes',identity=experiment['uuid'])
                 experiment_id = old["experiment_id"]
                 outcome = "already_imported"
                 protocol_types_added = 0
             else:
-                if catalog.Experiment & [{"h5_uuid": experiment["uuid"]},
-                                         {"exp_name": Path(manifest["source_path"]).stem}]:
-                    raise ValueError("Existing experiment needs source/version reconciliation")
-                assert_new_catalog_identities(experiment, catalog)
+                if catalog.Experiment & {"h5_uuid": experiment["uuid"]}:
+                    raise CatalogIdentityConflict('source_revision_conflict',
+                        'This experiment acquisition UUID is already associated with different source bytes',identity=experiment['uuid'])
+                if catalog.Experiment & {"exp_name": Path(manifest["source_path"]).stem}:
+                    # RetinAnalysis consumers still select experiments by name.
+                    # Do not silently rename scientific identifiers or permit
+                    # ambiguous downstream selection while that contract exists.
+                    raise CatalogIdentityConflict('experiment_name_collision',
+                        'A different acquisition uses this experiment filename. Matching names do not establish duplicate data; choose an explicitly qualified import filename before retrying',identity=experiment['uuid'])
+                assert_new_catalog_identities(experiment, catalog, lookup=identity_lookup)
                 protocol_types_added = len(new_project_protocol_types(
                     catalog, Source, project_id, manifest['protocol_epoch_counts']))
                 population.configure_tables(catalog)
@@ -517,36 +822,26 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
                 Source.insert1({"source_sha256": manifest["source_sha256"],
                                 "project_uuid": project_id, "experiment_uuid": experiment["uuid"],
                                 "experiment_id": experiment_id, "manifest": manifest})
-            actual_ids = {str(r["h5_uuid"]) for r in (catalog.Epoch & {"experiment_id": experiment_id}).to_dicts()}
-            expected_ids = {e["uuid"] for *_, e in epochs(experiment)}
-            if actual_ids != expected_ids:
-                raise ValueError("Catalog epoch membership differs from parsed source")
-            if len(catalog.Cell & {"experiment_id": experiment_id}) != manifest["counts"]["cells"]:
+            all_cell_ids = {cell['uuid'] for animal in experiment['animals']
+                            for preparation in animal['preparations'] for cell in preparation['cells']}
+            epoch_cell_ids = {cell['uuid'] for cell, *_ in epochs(experiment)}
+            validate_manifest_cell_count(manifest, all_cell_ids, epoch_cell_ids)
+            # Catalog population retains all cells under either manifest convention.
+            # Same-SHA rechecks must not compare this total to a legacy active count.
+            counts = validate_catalog_identity(experiment, catalog, experiment_id, emit)
+            if counts['Cell'] != len(all_cell_ids):
                 raise ValueError("Catalog cell count differs from source")
-            db_epochs = (catalog.Epoch & {"experiment_id": experiment_id}).to_dicts()
-            expected = {e["uuid"]: e for *_, e in epochs(experiment)}
-            response_count = stimulus_count = 0
-            emit("verifying_catalog", completed=0, total=len(db_epochs), unit="epochs")
-            for epoch_index, row in enumerate(db_epochs, 1):
-                epoch = expected[row["h5_uuid"]]
-                if row["parameters"] != epoch["parameters"] or row["attributes"] != epoch["attributes"]:
-                    raise ValueError("Catalog epoch parameters/attributes changed during insertion")
-                for table, key in [(catalog.Response, "responses"), (catalog.Stimulus, "stimuli")]:
-                    actual_streams = (table & {"parent_id": row["id"]}).to_dicts()
-                    actual = {(r["h5_uuid"], r["device_name"], r["h5path"]) for r in actual_streams}
-                    wanted = {(s["uuid"], device, s["h5path"]) for device, s in epoch[key].items()}
-                    if actual != wanted:
-                        raise ValueError("Catalog stream identity/device/path differs from source")
-                    if key == "responses":
-                        response_count += len(actual)
-                    else:
-                        stimulus_count += len(actual)
-                emit("verifying_catalog", completed=epoch_index, total=len(db_epochs), unit="epochs")
-            if (response_count, stimulus_count) != (manifest["counts"]["responses"], manifest["counts"]["stimuli"]):
+            if counts['Epoch'] != manifest['counts']['epochs']:
+                raise ValueError('Catalog epoch count differs from source')
+            if (counts['Response'], counts['Stimulus']) != (manifest["counts"]["responses"], manifest["counts"]["stimuli"]):
                 raise ValueError("Catalog stream counts differ from source")
             event(outcome, {"source_sha256": manifest["source_sha256"],
                             "experiment_uuid": experiment["uuid"],
                             "counts": manifest["counts"], "warnings": manifest["warnings"]})
+        # A cleanup failure after commit must report persisted catalog state,
+        # never suggest that the completed acquisition transaction rolled back.
+        stage = "workspace_files"
+        identity_lookup.close()
         # Every new Cell/Epoch UUID was checked absent under the import lock,
         # then inserted membership and stream counts were verified in the
         # transaction above. These are actual additions, not source totals.
@@ -606,6 +901,8 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
         failure = {"source_sha256": manifest["source_sha256"],
                    "stage": stage, "catalog_committed": error.catalog_committed,
                    "error_type": type(error).__name__, "error": str(error)}
+        if isinstance(error, CatalogIdentityConflict):
+            failure['identity_conflict'] = error.conflict
         try:
             event("workspace_finalize_failed" if error.catalog_committed else "import_failed", failure)
         except Exception as audit_error:
@@ -613,6 +910,10 @@ def import_catalog(project_dir, experiment, manifest, folder, container, progres
             write_json(folder / ("failure-" + str(uuid.uuid4()) + ".json"), failure)
         raise
     finally:
+        # Rollback has already ended before scratch cleanup. Its own fallback
+        # closes the owning connection if temporary-table removal fails.
+        with contextlib.suppress(Exception):
+            identity_lookup.close()
         # A lost connection releases its advisory lock server-side. Do not mask
         # the original import error with a secondary unlock error.
         with contextlib.suppress(Exception):
@@ -696,6 +997,8 @@ def main():
                    finished_at=now(), error_type=type(error).__name__, error=error_message,
                    stage=getattr(error, "workflow_stage", reporter.current.get('stage', 'validation')),
                    catalog_committed=committed)
+        if isinstance(error, CatalogIdentityConflict):
+            job['identity_conflict'] = error.conflict
         write_json(job_file, job)
         job_file.with_suffix(".traceback.txt").write_text(traceback.format_exc())
         reporter.emit('failed', outcome='failed', error_type=type(error).__name__, error=error_message,

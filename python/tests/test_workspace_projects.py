@@ -1,8 +1,10 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
 import uuid
+from unittest.mock import patch
 
 from workspace_projects import list_projects, MANIFEST_LIMIT
 
@@ -12,6 +14,9 @@ class ProjectDiscoveryTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        isolated_index = patch.dict(os.environ, {'RIEKE_PROJECT_INDEX': str(self.root / '.user-state/project-index.json')})
+        isolated_index.start()
+        self.addCleanup(isolated_index.stop)
         self.current = self.make_project('current', 'Current project')
 
     def make_project(self, folder, name, identity=None, display_name=None):
@@ -90,10 +95,11 @@ class ProjectDiscoveryTests(unittest.TestCase):
         result = client.post('/api/projects/order', json={'paths': paths})
         self.assertEqual(result.status_code, 200, result.get_json())
         self.assertEqual([row['path'] for row in result.get_json()['projects']], paths)
-        before = (self.root / '.rieke-os.json').read_text()
+        from workspace_startup_registry import project_index_path
+        before = project_index_path().read_text()
         for invalid in [paths[:1], [paths[0], paths[0]], paths + ['/outside'], 'bad', [1], None]:
             self.assertEqual(client.post('/api/projects/order', json={'paths': invalid}).status_code, 400)
-            self.assertEqual((self.root / '.rieke-os.json').read_text(), before)
+            self.assertEqual(project_index_path().read_text(), before)
 
     def test_only_valid_immediate_siblings_are_discovered(self):
         self.make_project('container/nested', 'Nested project')
@@ -162,6 +168,93 @@ class ProjectDiscoveryTests(unittest.TestCase):
         oversized = self.make_project('oversized', 'Oversized')
         (oversized / 'catalog.json').write_text(' ' * (MANIFEST_LIMIT + 1))
         self.assertEqual(len(list_projects(self.current)['projects']), 1)
+
+    def test_remembered_external_root_survives_preferred_root_changes_without_scanning_neighbors(self):
+        from workspace_projects import list_managed_projects
+        from workspace_startup_registry import remember_project_path
+        outside = self.make_project('outside/selected', 'External study')
+        self.make_project('outside/not-selected', 'Unremembered neighbor')
+        saved = remember_project_path(outside.resolve(), set_last=True)
+        self.assertEqual(saved['last_project_path'], str(outside.resolve()))
+        before = (outside / 'project.json').read_bytes()
+        for preferred in [self.root / 'empty-preferred', self.root / 'another-preferred']:
+            result = list_managed_projects(preferred)
+            self.assertFalse(preferred.exists())
+            self.assertEqual([project['path'] for project in result['projects']], [str(outside.resolve())])
+            self.assertEqual(result['last_project_path'], str(outside.resolve()))
+            self.assertEqual(result['last_project_uuid'], saved['projects'][0]['project_uuid'])
+        result = list_projects(self.current)
+        self.assertEqual({project['name'] for project in result['projects']}, {'Current project', 'External study'})
+        self.assertEqual((outside / 'project.json').read_bytes(), before)
+        self.assertNotIn('password', json.dumps(saved))
+        self.assertFalse((outside.parent / '.rieke-os.json').exists())
+
+    def test_missing_corrupt_or_repurposed_remembered_folder_remains_visible_unavailable(self):
+        from workspace_projects import list_managed_projects
+        from workspace_startup_registry import remember_project_path
+        outside = self.make_project('outside/selected', 'External study')
+        saved = remember_project_path(outside.resolve())['projects'][0]
+        manifest = (outside / 'project.json').read_text()
+        for content in ['not json', json.dumps({**json.loads(manifest), 'project_uuid': str(uuid.uuid4())})]:
+            (outside / 'project.json').write_text(content)
+            project = list_managed_projects(self.root / 'preferred')['projects'][0]
+            self.assertFalse(project['available'])
+            self.assertEqual(project['uuid'], saved['project_uuid'])
+            self.assertEqual(project['name'], 'External study')
+        (outside / 'project.json').unlink()
+        (outside / 'catalog.json').unlink()
+        outside.rmdir()
+        project = list_managed_projects(self.root / 'preferred')['projects'][0]
+        self.assertFalse(project['available'])
+        self.assertIn('reconnect', project['unavailable_reason'])
+
+    def test_native_external_copies_keep_path_identity_recent_and_global_order(self):
+        from workspace_projects import create_project_at, list_managed_projects
+        from workspace_startup_registry import remember_project_path, remember_project_paths_order
+        first = create_project_at(str(self.root / 'elsewhere/first'), 'Same study')
+        second = self.root / 'other/copy'
+        import shutil
+        second.parent.mkdir()
+        shutil.copytree(first['path'], second)
+        remember_project_path(first['path'], set_last=True)
+        remember_project_path(second.resolve(), set_last=True)
+        paths = [str(second.resolve()), first['path']]
+        remember_project_paths_order(paths)
+        inventory = list_managed_projects(self.root / 'unrelated')
+        self.assertEqual([project['path'] for project in inventory['projects']], paths)
+        self.assertEqual({project['uuid'] for project in inventory['projects']}, {first['uuid']})
+        self.assertEqual(inventory['last_project_path'], str(second.resolve()))
+        self.assertEqual(inventory['last_project_uuid'], first['uuid'])
+        self.assertEqual([project['path'] for project in list_projects(Path(first['path']))['projects']], paths)
+        self.assertFalse((self.root / 'elsewhere/.project-create.lock').exists())
+        self.assertFalse((self.root / 'elsewhere/.rieke-os.json').exists())
+
+    def test_relocation_updates_only_local_reference_and_current_recent_path(self):
+        from workspace_projects import list_managed_projects
+        from workspace_startup_registry import remember_project_path, remember_project_paths_order, read_project_index
+        outside = self.make_project('outside/selected', 'External study')
+        remember_project_path(outside.resolve(), set_last=True)
+        remember_project_paths_order([str(outside.resolve())])
+        moved = self.root / 'moved'
+        previous = outside.resolve()
+        outside.rename(moved)
+        remember_project_path(moved.resolve(), previous_directory=previous)
+        index = read_project_index()
+        self.assertEqual([project['path'] for project in index['projects']], [str(moved.resolve())])
+        self.assertEqual(index['last_project_path'], str(moved.resolve()))
+        self.assertEqual(index['project_order'], [str(moved.resolve())])
+        self.assertEqual(len(list_managed_projects(self.root)['projects']), 2)
+
+    def test_prepared_packages_are_not_live_selectable_or_remembered_projects(self):
+        from workspace_projects import list_managed_projects
+        from workspace_startup_registry import remember_project_path, project_index_path
+        package = self.make_project('received', 'Prepared study')
+        (package / 'transfer.json').write_text('{}')
+        self.assertEqual(len(list_managed_projects(self.root)['projects']), 1)
+        self.assertEqual(len(list_projects(self.current)['projects']), 1)
+        with self.assertRaisesRegex(ValueError, 'restored'):
+            remember_project_path(package.resolve())
+        self.assertFalse(project_index_path().exists())
 
 
 if __name__ == '__main__':

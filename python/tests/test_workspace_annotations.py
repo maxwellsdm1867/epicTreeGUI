@@ -38,6 +38,17 @@ class SharedAnnotationTests(unittest.TestCase):
     def epoch(self,key):
         return self.store.for_epochs([self.service.rows[key]])[key]
 
+    def test_small_target_validation_uses_only_requested_identity_lookups(self):
+        class BoundedLookup:
+            def __init__(self,known):self.known=known;self.lookups=[]
+            def __contains__(self,key):self.lookups.append(key);return key in self.known
+            def keys(self):raise AssertionError('Small tag edits must not enumerate project epochs')
+        rows=BoundedLookup({self.first,self.second})
+        with patch.object(self.service,'rows',rows):
+            self.assertEqual(self.store._scope('epoch',[self.first,self.second]),[self.first,self.second])
+            self.assertEqual(rows.lookups,[self.first,self.second])
+            with self.assertRaisesRegex(ValueError,'outside'):self.store._scope('epoch',[str(uuid.uuid4())])
+
     def test_predicate_cell_rows_include_cell_tags_outside_epoch_page(self):
         self.edit('cell',self.other_cell,['cell badge'])
         body={'predicate':{'all':[]},'splits':'cell','summary_only':True}
@@ -119,6 +130,12 @@ class SharedAnnotationTests(unittest.TestCase):
         self.edit('epoch',self.first,['New'],revision=1)
         self.assertEqual(self.store.suggestions('new')['tags'][0]['tag'],'New')
 
+    def test_custom_annotation_reader_keeps_its_autocomplete_policy(self):
+        self.edit('epoch',self.first,['Visible'])
+        with patch.object(self.store,'_rows',return_value=[]), \
+             patch.object(self.store,'_membership_index',side_effect=AssertionError('Do not bypass a custom reader')):
+            self.assertEqual(self.store.suggestions()['tags'],[])
+
     def test_cell_direct_effective_and_author_predicates_are_distinct_and_exact(self):
         self.edit('cell',self.cell,['cellA']);self.edit('epoch',self.second,['directB'])
         def matches(field,value):
@@ -190,8 +207,8 @@ class SharedAnnotationTests(unittest.TestCase):
         read=self.client.get(f'/api/epochs/{self.first}/annotations').get_json()
         self.assertIn('Check response',str(read))
         events=self.client.get('/api/events?action=shared_annotations_updated&limit=50').get_json()['events']
-        self.assertIsNone(receipt['event_uuid'])
-        self.assertEqual(events,[])
+        self.assertTrue(receipt['event_uuid'])
+        self.assertEqual([row['event_uuid'] for row in events],[receipt['event_uuid']])
         self.assertEqual(self.records.rows[0]['tags'],['Check response'])
 
     def test_bulk_tag_save_targets_selected_epochs_across_cells_only(self):
@@ -206,7 +223,48 @@ class SharedAnnotationTests(unittest.TestCase):
             self.assertEqual([tag['tag'] for tag in self.epoch(key)['epoch_tags']],['Batch review'])
             self.assertEqual(self.epoch(key)['cell_tags'],[])
         self.assertEqual({row['target_uuid'] for row in self.records.rows},set(ids))
-        self.assertEqual(self.case.events.rows,[])
+        self.assertEqual(len(self.case.events.rows),1)
+
+    def test_event_failure_rolls_back_rows_profiles_and_does_not_queue_backup(self):
+        from unittest.mock import Mock
+        self.store.on_commit=Mock()
+        with patch.object(self.case.events,'insert1',side_effect=OSError('Event storage failed')):
+            with self.assertRaisesRegex(OSError,'Event storage failed'):self.edit('epoch',self.first,['durable'])
+        self.assertEqual(self.records.rows,[])
+        self.assertEqual(self.profiles.rows,[])
+        self.store.on_commit.assert_not_called()
+        result=self.edit('epoch',self.first,['durable'])
+        self.store.on_commit.assert_called_once_with()
+        self.assertEqual(result['event_uuid'],self.case.events.rows[0]['event_uuid'])
+
+    def test_http_annotation_ack_queues_backup_and_reports_failure_independently(self):
+        from unittest.mock import Mock
+        save=Mock();self.service.dj.Schema=object()
+        with patch('workspace_state_snapshot.save',save), \
+             patch('workspace_annotation_preparation.prepare_project_annotations',return_value={'status':'unavailable'}):
+            app=create_app(self.case.temp.name,self.case.temp.name,service=self.service,store=self.case.store,
+                explorer_history=self.case.explorer_history,data_stores=self.case.data_stores,
+                protocol_suggestions=self.case.protocol_suggestions,shared_annotations=self.store)
+        scheduler=app.extensions['backup_scheduler'];scheduler.delay=60;scheduler.max_delay=60
+        self.addCleanup(lambda:scheduler.close(flush=False))
+        self.addCleanup(app.extensions['app_state_session_lock'].close)
+        save.reset_mock();client=app.test_client()
+        body={'target_kind':'epoch','target_uuids':[self.first],'profile_uuid':self.author,
+            'tags_add':['committed'],'expected_revisions':{self.first:0}}
+        response=client.post('/api/annotations',json=body,headers=self.headers)
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(response.get_json()['persistence']['database'],'committed')
+        self.assertEqual(response.get_json()['persistence']['backup']['status'],'pending')
+        save.assert_not_called()
+        self.assertEqual(self.records.rows[0]['tags'],['committed'])
+        self.assertEqual(self.case.events.rows[0]['event_uuid'],response.get_json()['event_uuid'])
+        save.side_effect=OSError('Disk full')
+        with self.assertRaises(OSError):scheduler.flush()
+        self.assertEqual(client.get('/api/backup/status').get_json()['status'],'degraded')
+        self.assertEqual(client.post('/api/annotations',json=body,headers=self.headers).status_code,409)
+        self.assertEqual(scheduler.status()['requested_sequence'],1)
+        save.side_effect=None;scheduler.flush()
+        self.assertEqual(client.get('/api/backup/status').get_json()['status'],'current')
 
     def test_unchanged_blank_operation_writes_no_profile_or_event(self):
         result=self.edit('epoch',self.first)

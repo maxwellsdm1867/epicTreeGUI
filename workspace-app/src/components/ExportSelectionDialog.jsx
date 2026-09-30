@@ -4,21 +4,23 @@ import CandidateExportPanel from './CandidateExportPanel.jsx';
 import ProtocolApplyPanel from './ProtocolApplyPanel.jsx';
 import NewPinnedProtocol from './NewPinnedProtocol.jsx';
 import {exportProtocolGroups,pinProtocolPreference} from '../exportProtocolTargets.js';
+import {useProjectPreference} from '../useProjectPreference.js';
 import './ExportSelectionDialog.css';
 
 export default function ExportSelectionDialog({candidate,protocols,projectId,initialProtocolId,defaultName,defaultFormat,disabled,onClose,onApplied,onChanged}){
   const dialog=useRef(null),[mode,setMode]=useState(null),[busy,setBusy]=useState(false),[pinError,setPinError]=useState(''),[appliedId,setAppliedId]=useState(null);
-  const key=`rieke-os.sidebar.protocols.v1.${projectId}`;
-  function preferences(){try{const value=JSON.parse(localStorage.getItem(key)||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}}
-  const groups=exportProtocolGroups(protocols,preferences(),initialProtocolId);
+  const shortcuts=useProjectPreference(projectId,'protocol_shortcuts');
+  const groups=exportProtocolGroups(protocols,shortcuts.value,initialProtocolId);
   useEffect(()=>{const el=dialog.current;el.showModal();return()=>el.close();},[]);
-  function finishPin(id){
+  async function finishPin(id){
+    setAppliedId(id);setBusy(true);
     try{
       if(!projectId)throw new Error('Project identity unavailable');
-      localStorage.setItem(key,JSON.stringify(pinProtocolPreference(preferences(),id)));
-      window.dispatchEvent(new Event('rieke-protocol-shortcuts-changed'));
+      await shortcuts.update(previous=>pinProtocolPreference(previous,id));
+      setPinError('');
       onApplied?.(id);
-    }catch(error){setAppliedId(id);setPinError('Dataset updated, but the sidebar shortcut could not be saved. Retry pinning without applying the dataset again.');onChanged?.();}
+    }catch(error){setPinError('Dataset updated, but the sidebar shortcut could not be saved. Retry pinning without applying the dataset again.');onChanged?.();}
+    finally{setBusy(false);}
   }
   return <dialog ref={dialog} className="export-selection-dialog" aria-labelledby="export-selection-title" onCancel={event=>{event.preventDefault();if(!busy)onClose();}}>
     <header><h2 id="export-selection-title"><Download size={17}/> Export selection</h2><button className="icon-button" disabled={busy} aria-label="Close export options" onClick={onClose}><X size={17}/></button></header>

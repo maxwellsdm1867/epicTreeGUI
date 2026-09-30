@@ -6,6 +6,7 @@ import SearchPresets from './SearchPresets.jsx';
 import QueryPresetDialog from './QueryPresetDialog.jsx';
 import {searchPresetPayload,validatePresetReceipt} from '../projectSearchPresets.js';
 import {rememberSearch,predicateSummary} from '../searchPresets.js';
+import {useProjectPreference} from '../useProjectPreference.js';
 import ExportSelectionDialog from './ExportSelectionDialog.jsx';
 import PredicateDialog from './PredicateDialog.jsx';
 import {predicateIdentity} from '../predicateIdentity.js';
@@ -35,12 +36,12 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
   const [step,setStep]=useState(saved?.step || 'filter');
   const [epochToolbarTarget,setEpochToolbarTarget]=useState(null);
   const [editorOpen,setEditorOpen]=useState(()=>!initialRevisionId&&(!!initialPredicate||initialEditorOpen));
-  const presetsKey=`rieke-os.search-presets.v1.${projectId}`;
-  const [presets,setPresets]=useState(()=>{try{const value=JSON.parse(localStorage.getItem(presetsKey)||'[]');return Array.isArray(value)?value.filter(item=>item?.predicate&&typeof item.id==='string').slice(0,100):[];}catch{return [];}});
+  const shortcutPreferences=useProjectPreference(projectId,'recent_searches');
+  const presets=shortcutPreferences.value;
   const [presetError,setPresetError]=useState('');
   const [presetOffset,setPresetOffset]=useState(0),[activePreset,setActivePreset]=useState(saved?.activePreset||null),[presetDialog,setPresetDialog]=useState(null),[importedPreset,setImportedPreset]=useState(null);
   const projectPresets=useResource(`/search-presets?limit=50&offset=${presetOffset}`,revision);
-  function storePreset(entry){try{const next=rememberSearch(presets,entry);localStorage.setItem(presetsKey,JSON.stringify(next));setPresets(next);setPresetError('');}catch{setPresetError('The search ran, but its shortcut could not be saved on this device. Use Save query preset to record a named query in the project database.');}}
+  async function storePreset(entry){setPresetError('');await shortcutPreferences.update(previous=>rememberSearch(previous,entry)).catch(error=>setPresetError(`The search ran, but its shortcut could not be saved to the project: ${error.message}`));}
   const [resultsFromDraft,setResultsFromDraft]=useState(saved?.resultsFromDraft??true),[matchingNavigation,setMatchingNavigation]=useState(saved?.matchingNavigation||null),[destination,setDestination]=useState(initialExportIntent?'export':null);
   const [departedInitial,setDepartedInitial]=useState(false);
   const [initialCandidateLoading,setInitialCandidateLoading]=useState(!!initialRevisionId&&!saved?.applied);
@@ -101,21 +102,21 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
   useEffect(()=>()=>{draftController.current?.abort();treeController.current?.abort();},[]);
   useEffect(()=>{
     if(!applied)return;
-    if(!focused&&applied.preview&&splits===applied.recipe.splits&&generation===applied.previewGeneration&&viewRevision===applied.previewRevision){setTree({data:applied.preview,loading:false,error:null});return;}
+    if(!focused&&applied.preview&&(step!=='tree'||applied.preview.catalog_summary!==false)&&splits===applied.recipe.splits&&generation===applied.previewGeneration&&viewRevision===applied.previewRevision){setTree({data:applied.preview,loading:false,error:null});return;}
     const controller=new AbortController();treeController.current?.abort();treeController.current=controller;
     setTree(previous=>({...previous,loading:true,error:null}));
-    api('/explore/preview',{method:'POST',body:{predicate:applied.recipe.predicate,splits,summary_only:true,baseline_revision_uuid:applied.revision_uuid,...(focused?{focused_uuid:focused}:{})},signal:controller.signal})
+    api('/explore/preview',{method:'POST',body:{predicate:applied.recipe.predicate,splits,summary_only:true,catalog_summary:step==='tree',baseline_revision_uuid:applied.revision_uuid,...(focused?{focused_uuid:focused}:{})},signal:controller.signal})
       .then(data=>{if(!controller.signal.aborted)setTree({data:{...data,_focusedUuid:focused},loading:false,error:null});})
       .catch(error=>{if(!controller.signal.aborted)setTree(previous=>({...previous,loading:false,error:error.message}));});
     return()=>controller.abort();
-  },[applied,splits,viewRevision,generation,focused]);
+  },[applied,splits,viewRevision,generation,focused,step]);
   useEffect(()=>{if(focusVerified&&tree.data.focused_in_scope===false)setFocused(null);},[focusVerified,tree.data]);
   const changeSplits=useCallback(fields=>{const text=fields.join(',');setSplits(text);setFilterSplits(text);setPath([]);setTreeNavigation(null);setFocused(null);},[]);
   async function previewDraft(predicate=compiled.predicate,grouping=filterSplits,baseline=restored?.revision_uuid,openResults=false){
     if(!predicate)return;
     const controller=new AbortController();draftController.current?.abort();draftController.current=controller;
     const key=predicateIdentity({predicate,splits:grouping});setDraftPreview({data:null,loading:true,error:null,key});
-    try{const data=await api('/explore/preview',{method:'POST',body:{predicate,splits:grouping,summary_only:true,...(baseline?{baseline_revision_uuid:baseline}:{})},signal:controller.signal});if(!controller.signal.aborted){setDraftPreview({data,loading:false,error:null,key});setAnnotationHold(null);if(openResults){setResultsFromDraft(true);setStep('results');setDestination(null);setFocused(null);}}}
+    try{const data=await api('/explore/preview',{method:'POST',body:{predicate,splits:grouping,summary_only:true,catalog_summary:false,...(baseline?{baseline_revision_uuid:baseline}:{})},signal:controller.signal});if(!controller.signal.aborted){setDraftPreview({data,loading:false,error:null,key});setAnnotationHold(null);if(openResults){setResultsFromDraft(true);setStep('results');setDestination(null);setFocused(null);}}}
     catch(error){if(!controller.signal.aborted)setDraftPreview({data:null,loading:false,error:error.message,key});}
   }
   async function saveRevision(kind,nextStep='results',notifyParent=true){
@@ -124,14 +125,14 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
     if(!predicate||busy)return;
     setBusy(true);setBusyAction('save');setError('');setNotice('');
     try{
-      const body={predicate,splits:kind==='filter'?filterSplits:splits,name:name.trim() || 'Metadata selection',summary_only:true};
+      const body={predicate,splits:kind==='filter'?filterSplits:splits,name:name.trim() || 'Metadata selection',summary_only:true,catalog_summary:nextStep==='tree'};
       const parent=kind==='filter'?(restored?.revision_uuid || applied?.revision_uuid):applied?.revision_uuid;
       if(parent)body.parent_revision_uuid=parent;
       const result=await api('/explore/revisions',{method:'POST',body});
       if(!result.recipe||!result.revision_uuid)throw new Error('The server did not return a recorded revision. Reload history before retrying.');
       setApplied({...result,previewGeneration:generation,previewRevision:viewRevision});if(result.preview)setTree({data:result.preview,loading:false,error:null});if(notifyParent)onChange?.();setSplits(result.recipe.splits);setFilterSplits(result.recipe.splits);setPath([]);setTreeNavigation(null);setFocused(null);setStep(nextStep);setResultsFromDraft(false);
       if(kind==='filter'){setDraft(draftOf(result.recipe.predicate));setRestored(null);}
-      storePreset({name:body.name,predicate,splits:result.recipe.splits,matched_count:result.summary?.matched_count??result.preview?.matched_count});
+      await storePreset({name:body.name,predicate,splits:result.recipe.splits,matched_count:result.summary?.matched_count??result.preview?.matched_count});
       setHistoryVersion(value=>value+1);setHistoryOffset(0);setNotice(nextStep==='tree'?'':`Recorded revision ${result.revision_uuid.slice(0,8)}. Its query and exact epoch membership are preserved.`);return result;
     }catch(error){setError(error.message);}finally{setBusy(false);setBusyAction(null);}
   }
@@ -149,13 +150,13 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
       const preset=await presetRecipe(item);if(controller.signal.aborted)return;
       const nextDraft=draftOf(preset.predicate),predicate=compilePredicate(nextDraft,catalog.data?.fields||null),grouping=preset.splits??'date,cell';
       const nextName=preset.name&&preset.name!=='Metadata selection'?preset.name:predicateSummary(predicate);
-      if(action==='pin'){storePreset({...preset,name:nextName,pinned:!item.pinned});return;}
+      if(action==='pin'){await storePreset({...preset,name:nextName,pinned:!item.pinned});return;}
       if(action==='edit'){setActivePreset(item.preset_uuid?item:null);setImportedPreset(null);setDraft(nextDraft);setName(nextName);setFilterSplits(grouping);setRestored(null);setEditorOpen(true);return;}
-      const result=await api('/explore/run',{method:'POST',body:{predicate,splits:grouping},signal:controller.signal});
+      const result=await api('/explore/run',{method:'POST',body:{predicate,splits:grouping,catalog_summary:false},signal:controller.signal});
       if(controller.signal.aborted)return;
       setViewFilters({});setExcludedEpochs([]);setExportCandidate(null);setAnnotationHold(null);setActivePreset(item.preset_uuid?item:null);setImportedPreset(null);setDepartedInitial(true);setDraft(nextDraft);setName(nextName);setFilterSplits(grouping);setSplits(grouping);setRestored(null);setApplied(null);setTreeNavigation(null);setMatchingNavigation(null);setFocused(null);setDestination(null);
       setDraftPreview({data:result,loading:false,error:null,key:predicateIdentity({predicate,splits:grouping})});setResultsFromDraft(true);setStep('results');setEditorOpen(false);
-      storePreset({name:nextName,predicate,splits:grouping,matched_count:result.matched_count,cell_count:result.last_run.cell_count,lastRunAt:result.last_run.ran_at});projectPresets.reload();
+      await storePreset({name:nextName,predicate,splits:grouping,matched_count:result.matched_count,cell_count:result.last_run.cell_count,lastRunAt:result.last_run.ran_at});projectPresets.reload();
     }catch(error){if(!controller.signal.aborted)setError(error.message);}finally{if(!controller.signal.aborted)setBusy(false);}
   }
   async function pinProjectPreset(item){
@@ -183,14 +184,18 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
   const resultPreview=hasViewFilter?currentFilteredPreview:baseResultPreview;
   const resultLoading=hasViewFilter?filteredPreview.loading||!currentFilteredPreview&&!filteredPreview.error:(resultsFromDraft?draftPreview.loading:tree.loading);
   const resultError=hasViewFilter&&filteredPreview.key===filteredKey?filteredPreview.error:(resultsFromDraft?draftPreview.error:tree.error);
-  const displayTree=hasViewFilter?{data:currentFilteredPreview,loading:resultLoading,error:resultError}:tree;
+  const availableTree=hasViewFilter?{data:currentFilteredPreview,loading:resultLoading,error:resultError}:tree;
+  // Search previews intentionally omit scoped field statistics. Wait for the
+  // design preview before mounting a builder that displays those statistics.
+  const displayTree=step==='tree'&&availableTree.data?.catalog_summary===false
+    ?{...availableTree,data:null,loading:!availableTree.error}:availableTree;
 
   useEffect(()=>{const node=layoutRef.current;if(!node)return;const observer=new ResizeObserver(entries=>setLayoutWidth(entries[0].contentRect.width));observer.observe(node);return()=>observer.disconnect();},[step,focused,initialCandidateLoading,!!displayTree.data,displayTree.loading,!!displayTree.error]);
   useEffect(()=>{
     if(!hasViewFilter||!resultPredicate||step==='filter'||!baseResultPreview)return;
     const controller=new AbortController();
     setFilteredPreview({data:null,loading:true,error:null,key:filteredKey});
-    api('/explore/preview',{method:'POST',body:{predicate:resultPredicate,splits:resultSplits,summary_only:true},signal:controller.signal})
+    api('/explore/preview',{method:'POST',body:{predicate:resultPredicate,splits:resultSplits,summary_only:true,catalog_summary:step==='tree'},signal:controller.signal})
       .then(data=>{if(!controller.signal.aborted)setFilteredPreview({data,loading:false,error:null,key:filteredKey});})
       .catch(error=>{if(!controller.signal.aborted)setFilteredPreview({data:null,loading:false,error:error.message,key:filteredKey});});
     return()=>controller.abort();
@@ -210,7 +215,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
       if(busy||!resultPredicate)return;
       setBusy(true);setError('');
       try{
-        const result=await api('/explore/revisions',{method:'POST',body:{predicate:searchInclusionPredicate(resultPredicate,excludedEpochs),splits:resultSplits,name:name.trim()||'Metadata selection',summary_only:true,...(applied?.revision_uuid?{parent_revision_uuid:applied.revision_uuid}:{})}});
+        const result=await api('/explore/revisions',{method:'POST',body:{predicate:searchInclusionPredicate(resultPredicate,excludedEpochs),splits:resultSplits,name:name.trim()||'Metadata selection',summary_only:true,catalog_summary:false,...(applied?.revision_uuid?{parent_revision_uuid:applied.revision_uuid}:{})}});
         if(!result.recipe||!result.revision_uuid)throw new Error('The server did not return an export selection.');
         if(!(result.summary?.matched_count??result.recipe.epoch_count??result.recipe.epochs?.length)){setError('No included epochs remain. Include an epoch before exporting.');return;}
         setExportCandidate(result);setHistoryVersion(value=>value+1);setDestination('export');
@@ -227,11 +232,11 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
     setEditorOpen(true);
   }
   async function applyPopupSearch(nextDraft,predicate,signal){
-    const result=await api('/explore/run',{method:'POST',body:{predicate,splits:filterSplits},signal});
+    const result=await api('/explore/run',{method:'POST',body:{predicate,splits:filterSplits,catalog_summary:false},signal});
     if(signal.aborted)return;
     setViewFilters({});setExcludedEpochs([]);setExportCandidate(null);setAnnotationHold(null);setNotice('');setDraft(nextDraft);setDraftPreview({data:result,loading:false,error:null,key:predicateIdentity({predicate,splits:filterSplits})});
     setMatchingNavigation(null);setResultsFromDraft(true);setFocused(null);setDestination(null);setStep('results');setEditorOpen(false);
-    storePreset({name:name==='Metadata selection'?predicateSummary(predicate):name,predicate,splits:filterSplits,matched_count:result.matched_count,cell_count:result.last_run.cell_count,lastRunAt:result.last_run.ran_at});projectPresets.reload();
+    await storePreset({name:name==='Metadata selection'?predicateSummary(predicate):name,predicate,splits:filterSplits,matched_count:result.matched_count,cell_count:result.last_run.cell_count,lastRunAt:result.last_run.ran_at});projectPresets.reload();
   }
   function showEpochResults(){
     setFocused(null);setDestination(null);
@@ -269,9 +274,10 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
     </div><div className="epoch-browser-header-controls" ref={setEpochToolbarTarget}/></header>}
     {hasViewFilter&&resultError&&<div className="mx-operation-error" role="alert"><span>{resultError}</span><button disabled={busy} onClick={()=>changeViewFilters({})}>Clear filter</button><button disabled={busy} onClick={refreshResults}>Refresh results</button></div>}
     {error&&<div className="mx-operation-error" role="alert">{error}<button onClick={()=>setError('')} aria-label="Dismiss error"><X size={14}/></button></div>}
+    {step!=='filter'&&shortcutPreferences.error&&<div className="mx-operation-error" role="alert">{shortcutPreferences.error}<button onClick={()=>shortcutPreferences.update(previous=>previous).catch(()=>{})}>Retry shortcut save</button></div>}
     {annotationHold&&<div className="mx-operation-error" role="status"><span>Annotations changed. The current epoch page and selection are retained; refresh results before exporting or applying this query.</span><button disabled={busy||resultLoading} onClick={refreshResults}><RefreshCw size={14}/> Refresh results</button></div>}
     {notice&&<div className="mx-recorded-notice" role="status"><Check size={14}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss revision notice"><X size={14}/></button></div>}
-    {initialCandidateLoading?<div className="mx-candidate-loading" role="status"><LoaderCircle size={18}/> Loading saved candidate…</div>:initialRevisionId&&!applied&&!departedInitial?<div className="mx-candidate-loading"><span>The saved candidate could not be loaded.</span><button onClick={()=>setInitialCandidateRetry(value=>value+1)}>Retry</button></div>:step==='filter'&&!focused?<SearchPresets entries={presets} fields={catalog.data?.fields||[]} history={history} projectPresets={projectPresets} onProjectPin={pinProjectPreset} onImportRecipe={importQueryRecipe} onProjectPage={setPresetOffset} busy={busy||catalog.loading} error={presetError||catalog.error} onRun={usePreset} onEdit={item=>usePreset(item,'edit')} onPin={item=>usePreset(item,'pin')}/>:step==='results'?<div className="mx-results-workflow">
+    {initialCandidateLoading?<div className="mx-candidate-loading" role="status"><LoaderCircle size={18}/> Loading saved candidate…</div>:initialRevisionId&&!applied&&!departedInitial?<div className="mx-candidate-loading"><span>The saved candidate could not be loaded.</span><button onClick={()=>setInitialCandidateRetry(value=>value+1)}>Retry</button></div>:step==='filter'&&!focused?<SearchPresets entries={presets} fields={catalog.data?.fields||[]} history={history} projectPresets={projectPresets} onProjectPin={pinProjectPreset} onImportRecipe={importQueryRecipe} onProjectPage={setPresetOffset} busy={busy||catalog.loading||shortcutPreferences.loading} error={presetError||shortcutPreferences.error||catalog.error} onRun={usePreset} onEdit={item=>usePreset(item,'edit')} onPin={item=>usePreset(item,'pin')}/>:step==='results'?<div className="mx-results-workflow">
       {destination&&exportCandidate&&<ExportSelectionDialog candidate={exportCandidate} projectId={projectId} protocols={protocols} initialProtocolId={initialProtocolId} defaultName={name} defaultFormat={initialExportIntent?.format} disabled={!!annotationHold||busy||resultLoading||!!resultError} onClose={()=>{setDestination(null);onChange?.();}} onApplied={onProtocolApplied} onChanged={()=>onChange?.()}/>}
       {!hasViewFilter&&resultError&&<div className="mx-operation-error" role="alert">{resultError}<button onClick={()=>resultsFromDraft?previewDraft():setGeneration(value=>value+1)}>Refresh results</button></div>}
       {!resultLoading&&!resultError&&resultPreview&&resultPredicate?<MatchingEpochs onQC={onQC} inclusionForEpoch={epoch=>searchEpochInclusion(epoch,excludedEpochs)} onToggleInclusion={toggleInclusion} toolbarTarget={epochToolbarTarget} viewFilters={viewFilters} onViewFilters={changeViewFilters} filterRevision={revision} filterDisabled={busy||!!annotationHold} onExport={openResultsExport} exportDisabled={exportDisabled} designDisabled={!!annotationHold||busy||resultLoading||!!resultError} actions={resultActions} onDesign={()=>{if(!annotationHold&&!busy&&!resultLoading&&!resultError)prepareDestination('tree');}} key={resultPreview.tree_revision} predicate={resultPredicate} splits={resultSplits} preview={resultPreview} session={matchingNavigation} onSession={setMatchingNavigation} onAnnotationsChanged={annotationsChanged} onTagFilter={predicate=>{setDraft(draftOf(predicate));setActivePreset(null);setEditorOpen(true);}} onRefresh={refreshResults}/>:<Status loading={resultLoading} error={resultError}/>}

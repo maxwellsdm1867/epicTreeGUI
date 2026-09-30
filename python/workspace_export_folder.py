@@ -27,6 +27,8 @@ be replaced with filenames, cell labels, or row numbers.
 
 def prepare_export_root(project_dir):
     root = Path(project_dir) / 'exports'
+    from workspace_desktop_paths import require_external_data_path
+    require_external_data_path(root)
     root.mkdir(parents=True, exist_ok=True)
     guide = root / 'README.md'
     try:

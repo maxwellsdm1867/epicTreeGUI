@@ -7,6 +7,7 @@ import {approveProtocolSuggestion} from '../protocolSuggestions.js';
 import './ProtocolSuggestion.css';
 import {datedCellLabel} from '../recordingIdentity.js';
 import {importReadiness,suggestionDates} from '../importReadiness.js';
+import {useProjectPreference} from '../useProjectPreference.js';
 
 export default function ProtocolSuggestion({suggestion,onChange,onReview,onProtocol,importView=false,disabled=false,approvalSignal=0,onBusyChange,onApproved}){
   const [comparison,setComparison]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[applied,setApplied]=useState(false);
@@ -47,15 +48,13 @@ function ReadinessVisual({suggestion,applied=false}){
   </div>;
 }
 
-function readPins(projectId){try{return JSON.parse(localStorage.getItem(`rieke-os.sidebar.protocols.v1.${projectId}`))||{};}catch{return {};}}
 export function ImportSuggestions({suggestions=[],approvedHistory=[],protocols=[],projectId,sources=[],jobs=[],onReview,onProtocol,onChange,autoOpenJobUuid=null,dialogOnly=false,reviewLoading=false}){
-  const [preferences,setPreferences]=useState(()=>readPins(projectId));
+  const preferences=useProjectPreference(projectId,'protocol_shortcuts').value;
   const [approvalBatch,setApprovalBatch]=useState({sequence:0,revisions:[]}),[busyCount,setBusyCount]=useState(0),[open,setOpen]=useState(false);
   const dialogRef=useRef(null),reviewHadPending=useRef(false);
   const [approvedHere,setApprovedHere]=useState([]);
   const busy=busyCount>0;
   function busyChanged(value){setBusyCount(count=>Math.max(0,count+(value?1:-1)));}
-  useEffect(()=>{const update=()=>setPreferences(readPins(projectId));update();window.addEventListener('storage',update);window.addEventListener('rieke-protocol-shortcuts-changed',update);return()=>{window.removeEventListener('storage',update);window.removeEventListener('rieke-protocol-shortcuts-changed',update);};},[projectId]);
   const current=suggestions.map(item=>approvedHere.includes(item.candidate_revision_uuid)?{...item,status:'applied'}:item);
   const model=importReadiness({suggestions:current.filter(item=>item.status!=='applied'),protocols,preferences});
   const past=[...new Map([...current.filter(item=>item.status==='applied'),...approvedHistory].map(item=>[item.candidate_revision_uuid,item])).values()];

@@ -14,8 +14,37 @@ def register_app_routes(app, *, application_dir=None):
     update_token = secrets.token_urlsafe(32)
     update_job = {'state': 'idle'}
 
+    def active_writers():
+        with lock:
+            return any(job['state'] == 'running' for job in jobs.values()) or update_job['state'] == 'running'
+    app.extensions['app_active_writers'] = active_writers
+
+    def start_update(version=None, *, automatic=False):
+        if os.environ.get('RIEKE_DESKTOP_MODE') == '1':
+            raise ValueError('Desktop updates are owned by the application coordinator.')
+        from workspace_updates import stage_release
+        with lock:
+            if update_job['state'] == 'running':
+                return False
+            if automatic and update_job.get('version') == version:
+                return False  # One automatic attempt per version; manual retry remains available.
+            update_job.clear()
+            update_job.update(state='running', version=version)
+        def run():
+            try:
+                result = stage_release(os.environ['RIEKE_INSTALLATION_ROOT'], root=root)
+                with lock:
+                    update_job.update(state='complete', version=result.get('version'), result=result)
+            except Exception as error:
+                app.logger.exception('Update staging failed')
+                with lock:
+                    update_job.update(state='failed', error=str(error) if isinstance(error, ValueError) else 'Update download failed. Check the launcher log; the active release was not changed.')
+        threading.Thread(target=run, name='rieke-update-download', daemon=False).start()
+        return True
+
     def update_payload(value):
-        return {**value, 'update_token': update_token, 'download': dict(update_job)}
+        with lock:
+            return {**value, 'update_token': update_token, 'download': dict(update_job)}
 
     def local_request():
         if (request.remote_addr not in {'127.0.0.1', '::1'}
@@ -28,8 +57,10 @@ def register_app_routes(app, *, application_dir=None):
 
     @app.before_request
     def app_operation_boundary():
+        if os.environ.get('RIEKE_DESKTOP_MODE') == '1' and request.path.startswith('/api/app/updates'):
+            return jsonify(error='Desktop updates are owned by the application coordinator.', desktop=True), 409
         if request.path.startswith(('/api/app/', '/api/projects/transfers/',
-                                    '/api/projects/prepare-transfer', '/api/projects/restore-transfer', '/api/projects/relocate')):
+                                    '/api/projects/prepare-transfer', '/api/projects/restore-transfer', '/api/projects/migrate-source', '/api/projects/relocate')):
             return local_request()
 
     @app.get('/api/app/updates')
@@ -43,31 +74,23 @@ def register_app_routes(app, *, application_dir=None):
         if request.args or body not in ({}, {'force': True}):
             return jsonify(error='Update check accepts an empty object or force: true.'), 400
         from workspace_updates import check_for_updates
-        return jsonify(update_payload(check_for_updates(root=root, force=bool(body.get('force')))))
+        result = check_for_updates(root=root, force=bool(body.get('force')))
+        if (result.get('state') == 'update_available' and result.get('can_stage')
+                and not result.get('check_error') and os.environ.get('RIEKE_INSTALLATION_ROOT')
+                and result.get('staged_version') != result.get('available')):
+            start_update(result.get('available'), automatic=True)
+        return jsonify(update_payload(result))
 
     @app.post('/api/app/updates/stage')
     def stage_update():
         if (request.args or request.get_json(silent=True) != {}
                 or not secrets.compare_digest(request.headers.get('X-Rieke-Update-Token', ''), update_token)):
             return jsonify(error='Reopen the updates panel before downloading an update.'), 403
-        from workspace_updates import installation_status, stage_release
+        from workspace_updates import installation_status
         if not installation_status(root=root).get('can_stage') or not os.environ.get('RIEKE_INSTALLATION_ROOT'):
             return jsonify(error='Verified downloads require a managed installation with a trusted release key.'), 409
-        with lock:
-            if update_job['state'] == 'running':
-                return jsonify(error='An update download is already running.'), 409
-            update_job.clear()
-            update_job['state'] = 'running'
-        def run():
-            try:
-                result = stage_release(os.environ['RIEKE_INSTALLATION_ROOT'], root=root)
-                with lock:
-                    update_job.update(state='complete', result=result)
-            except Exception as error:
-                app.logger.exception('Update staging failed')
-                with lock:
-                    update_job.update(state='failed', error=str(error) if isinstance(error, ValueError) else 'Update download failed. Check the launcher log; the active release was not changed.')
-        threading.Thread(target=run, name='rieke-update-download', daemon=False).start()
+        if not start_update():
+            return jsonify(error='An update download is already running.'), 409
         return jsonify(state='running'), 202
 
     @app.get('/api/app/updates/download')
@@ -93,8 +116,15 @@ def register_app_routes(app, *, application_dir=None):
         def run():
             try:
                 from workspace_portability import prepare_project, restore_project
-                function = prepare_project if operation == 'prepare' else restore_project
+                if operation == 'migrate-source':
+                    from workspace_migration import migrate_source_project
+                    function = migrate_source_project
+                else:
+                    function = prepare_project if operation == 'prepare' else restore_project
                 result = function(body['directory'].strip(), body['destination'].strip())
+                if operation == 'restore':
+                    from workspace_startup_registry import remember_project_result
+                    result = remember_project_result(result['directory'], result)
                 with lock:
                     jobs[identity] = {'job_id': identity, 'state': 'complete', 'result': result}
             except Exception as error:
@@ -114,6 +144,12 @@ def register_app_routes(app, *, application_dir=None):
     def restore_transfer():
         return transfer('restore')
 
+    @app.post('/api/projects/migrate-source')
+    def migrate_source():
+        if os.environ.get('RIEKE_DESKTOP_MODE') != '1':
+            return jsonify(error='Create source copies through the desktop application.'), 409
+        return transfer('migrate-source')
+
     @app.post('/api/projects/relocate')
     def relocate_project_folder():
         body = request.get_json(silent=True)
@@ -127,6 +163,8 @@ def register_app_routes(app, *, application_dir=None):
             try:
                 from workspace_portability import relocate_project
                 result = relocate_project(body['directory'].strip(), body['destination'].strip())
+                from workspace_startup_registry import remember_project_result
+                result = remember_project_result(result['directory'], result, previous_directory=body['directory'].strip())
             except (ValueError, OSError) as error:
                 return jsonify(error=str(error)), 400
         return jsonify(result)

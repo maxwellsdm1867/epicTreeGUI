@@ -4,9 +4,13 @@ RIEKE_TEST_NATIVE_TRANSFER=1 python -m unittest tests.test_workspace_portability
 The integration test creates/removes only its own disposable project databases.
 """
 import fcntl
+import datetime as dt
+from decimal import Decimal
 import json
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import types
@@ -79,6 +83,115 @@ class PackageValidationTests(unittest.TestCase):
         self.seal()
         with self.assertRaisesRegex(ValueError, 'runtime files'):
             transfer.inspect_package(self.package)
+
+    def test_non_object_project_and_malformed_database_inventory_are_rejected(self):
+        transfer._write(self.package / 'project.json', [])
+        self.seal()
+        with self.assertRaisesRegex(ValueError, 'identity|format'):
+            transfer.inspect_package(self.package)
+        transfer._write(self.package / 'project.json', {'format': 'recording-project', 'version': 1,
+            'project_uuid': self.identity, 'name': 'Portable study'})
+        for inventory in ([], {'mysql.user': {'rows': 1, 'sha256': 'a' * 64}},
+                          {'schema.epoch': {'rows': True, 'sha256': 'a' * 64}},
+                          {'recording_workspace.event': {'rows': 1, 'sha256': None}}):
+            with self.subTest(inventory=inventory):
+                self.seal(database_inventory=inventory)
+                with self.assertRaisesRegex(ValueError, 'database inventory'):
+                    transfer.inspect_package(self.package)
+
+    def test_durable_job_history_is_allowed_but_runtime_logs_are_rejected(self):
+        for directory in ('logs/imports', 'logs/app-jobs', 'logs/errors', 'logs/storage'):
+            transfer._write(self.package / directory / 'history.json', {'preserved': directory})
+        self.seal()
+        self.assertEqual(len(transfer.inspect_package(self.package)['files']), 6)
+        (self.package / 'logs/workspace-server.json').write_text('{"port":12345}')
+        self.seal()
+        with self.assertRaisesRegex(ValueError, 'runtime files'):
+            transfer.inspect_package(self.package)
+
+    def test_restore_rejects_missing_saved_state_before_rewriting_locators(self):
+        self.seal(database_inventory={'recording_workspace.search_preset':
+                                    {'rows': 2, 'sha256': 'a' * 64}})
+        destination = self.root / 'missing-history'
+        with patch('workspace_project_database.ensure_project_database'), \
+             patch.object(transfer, '_import'), \
+             patch.object(transfer, '_connection', return_value=MagicMock()), \
+             patch.object(transfer, '_database_inventory', return_value={}), \
+             patch.object(transfer, '_sources') as sources, \
+             patch.object(transfer, '_remove_runtime') as cleanup:
+            with self.assertRaisesRegex(ValueError, 'database content'):
+                transfer.restore_project(self.package, destination)
+        sources.assert_not_called()
+        cleanup.assert_called_once_with(destination)
+        self.assertFalse(destination.exists())
+
+    def test_empty_registration_never_reconstructs_populated_or_foreign_projects(self):
+        project = create_project(self.root / 'workspace', 'New project')
+        root = Path(project['path'])
+        for tables, identities, row in (
+                ([('recording_workspace', 'project')], [(str(uuid.uuid4()),)], None),
+                ([('recording_workspace', 'project'), ('schema', 'epoch')], [], (1,)),
+                ([('recording_workspace', 'project'), ('recording_workspace', 'source')], [], (1,))):
+            connection = MagicMock()
+            cursor = connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.side_effect = [tables, identities]
+            cursor.fetchone.return_value = row
+            with self.subTest(tables=tables, identities=identities), self.assertRaisesRegex(ValueError, 'identity'):
+                transfer.register_empty_project(root, connection)
+            self.assertFalse(any(call.args[0].startswith(('CREATE', 'INSERT')) for call in cursor.execute.call_args_list))
+        transfer._write(root / 'imports/registered.json', {'scientific': 'cannot reconstruct'})
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+        with self.assertRaisesRegex(ValueError, 'populated project'):
+            transfer.register_empty_project(root, connection)
+
+    def test_external_h5_dependencies_cannot_claim_complete_transfer(self):
+        import h5py
+        recording = self.package / 'raw-uploads/linked.h5'
+        recording.parent.mkdir()
+        with h5py.File(recording, 'w') as handle:
+            handle['donor'] = h5py.ExternalLink('missing-donor.h5', '/waveform')
+        metadata = self.package / 'imports/source/metadata.catalog.json'
+        transfer._write(metadata, {'fixture': 'metadata'})
+        sha = transfer._hash(recording)
+        self.seal(sources=[{'source_sha256': sha,
+                           'recording_ref': recording.relative_to(self.package).as_posix(),
+                           'metadata_ref': metadata.relative_to(self.package).as_posix(),
+                           'metadata_sha256': transfer._hash(metadata)}])
+        with patch('workspace_project_database.ensure_project_database') as runtime:
+            with self.assertRaisesRegex(ValueError, 'External H5 links'):
+                transfer.restore_project(self.package, self.root / 'external-dependent')
+        runtime.assert_not_called()
+        self.assertFalse((self.root / 'external-dependent').exists())
+
+    def test_received_preferences_are_validated_before_database_start(self):
+        from workspace_project_preferences import ProjectPreferences, REFERENCE
+        preferences = ProjectPreferences(self.package, self.identity).read()
+        preferences['project_uuid'] = str(uuid.uuid4())
+        transfer._write(self.package / REFERENCE, preferences)
+        self.seal()
+        with patch('workspace_project_database.ensure_project_database') as runtime:
+            with self.assertRaisesRegex(ValueError, 'preference file|identity'):
+                transfer.restore_project(self.package, self.root / 'foreign-preferences')
+        runtime.assert_not_called()
+        self.assertFalse((self.root / 'foreign-preferences').exists())
+
+    def test_complete_source_requires_valid_checksum_and_included_metadata(self):
+        import h5py
+        recording = self.package / 'raw-uploads/source.h5'
+        recording.parent.mkdir()
+        with h5py.File(recording, 'w') as handle:
+            handle.create_dataset('samples', data=[0.25, -2.0])
+        source = {'source_sha256': transfer._hash(recording),
+                  'recording_ref': 'raw-uploads/source.h5', 'metadata_ref': 'imports/absent.json'}
+        for checksum in (None, '', 'a' * 64):
+            with self.subTest(checksum=checksum):
+                self.seal(sources=[{**source, 'metadata_sha256': checksum}])
+                with patch('workspace_project_database.ensure_project_database') as runtime:
+                    with self.assertRaisesRegex(ValueError, 'metadata checksum|missing a registered source dependency'):
+                        transfer.restore_project(self.package, self.root / 'missing-metadata')
+                runtime.assert_not_called()
+                self.assertFalse((self.root / 'missing-metadata').exists())
 
     def test_existing_destination_is_never_overwritten(self):
         destination = self.root / 'existing'
@@ -248,6 +361,35 @@ class ExportRelocationTests(unittest.TestCase):
 
 
 class NativeTransferCommandTests(unittest.TestCase):
+    def test_database_inventory_compares_every_row_independent_of_order_and_json_spacing(self):
+        from pymysql.cursors import SSCursor
+
+        def inventory(rows):
+            connection, metadata, data = MagicMock(), MagicMock(), MagicMock()
+            metadata.__enter__.return_value = metadata
+            data.__enter__.return_value = data
+            metadata.fetchall.side_effect = [[('recording_workspace', 'search_preset_version')],
+                [('version', 'int'), ('recipe', 'json'), ('fingerprint', 'blob'),
+                 ('created_at', 'datetime'), ('value', 'decimal(8,2)')]]
+            data.fetchmany.side_effect = [rows, []]
+            connection.cursor.side_effect = lambda kind=None: data if kind is SSCursor else metadata
+            result = transfer._database_inventory(connection)
+            data.execute.assert_called_once_with('SELECT * FROM `recording_workspace`.`search_preset_version`')
+            self.assertEqual(data.fetchmany.call_args.args, (1000,))
+            return result
+
+        date = dt.datetime(2026, 9, 29, 12, 30)
+        first = (1, '{"predicate": {"all":[]}, "tag":"kept"}', b'\x00\xff', date, Decimal('1.25'))
+        second = (2, '{"tag":"kept","predicate":{"all":[]}}', b'\x00\xff', date, Decimal('1.25'))
+        baseline = inventory([first, second])
+        respaced = (1, '{"tag":"kept","predicate":{"all":[]}}', b'\x00\xff', date, Decimal('1.25'))
+        self.assertEqual(baseline, inventory([second, respaced]))
+        self.assertEqual(baseline['recording_workspace.search_preset_version']['rows'], 2)
+        changed = (1, '{"tag":"lost"}', b'\x00\xff', date, Decimal('1.25'))
+        self.assertNotEqual(baseline, inventory([changed, second]))
+        self.assertNotEqual(baseline, inventory([first]))
+        self.assertNotEqual(baseline, inventory([first, first]))
+
     def test_native_catalog_never_carries_donor_runtime_or_credentials(self):
         identity, instance = str(uuid.uuid4()), str(uuid.uuid4())
         catalog = transfer._catalog(identity, instance)
@@ -297,11 +439,77 @@ class NativeTransferCommandTests(unittest.TestCase):
             sql = [call.args[0] for call in connection.cursor.return_value.__enter__.return_value.execute.call_args_list]
             self.assertTrue(any('DROP USER' in query for query in sql))
             self.assertFalse(any('GRANT ALL PRIVILEGES ON *.*' in query for query in sql))
-            connection.close.assert_called_once()
+            self.assertEqual(connection.close.call_count, 2)
 
 
 @unittest.skipUnless(os.environ.get('RIEKE_TEST_NATIVE_TRANSFER') == '1', 'opt-in disposable native MySQL integration')
 class NativeRoundTripTests(unittest.TestCase):
+    def install_derived_authorities(self, root, identity):
+        import datajoint as dj
+        from workspace_native_mysql import connection_parameters
+        from workspace_state_generation import bootstrap, verify_export_triggers
+        from workspace_recovery_generation import RecoveryTracker
+        parameters = connection_parameters(root)
+        connection = dj.Connection(**{key: parameters[key] for key in ('host', 'port', 'user', 'password')})
+        try:
+            for statement in (
+                'CREATE TABLE IF NOT EXISTS recording_workspace.curation (project_uuid varchar(36),protocol_uuid varchar(36),epoch_uuid varchar(36),tags JSON,revision int, PRIMARY KEY(project_uuid,protocol_uuid,epoch_uuid)) ENGINE=InnoDB',
+                'CREATE TABLE IF NOT EXISTS recording_workspace.shared_annotation (project_uuid varchar(36),target_kind varchar(16),target_uuid varchar(36),profile_uuid varchar(36),tags JSON,revision int,PRIMARY KEY(project_uuid,target_kind,target_uuid,profile_uuid)) ENGINE=InnoDB',
+                'CREATE TABLE IF NOT EXISTS recording_workspace.annotation_profile (project_uuid varchar(36),profile_uuid varchar(36),display_name varchar(120),PRIMARY KEY(project_uuid,profile_uuid)) ENGINE=InnoDB'):
+                connection.query(statement)
+            reader = bootstrap(connection, identity)
+            self.assertTrue(reader.ready, reader.reason)
+            with RecoveryTracker(connection, identity).capture(None) as plan:
+                self.assertIsNotNone(plan)
+                plan.verify()
+            report = verify_export_triggers(connection, transfer.DATABASES)
+            self.assertTrue(report['safe_to_omit'], report)
+            self.assertGreater(report['known_trigger_count'], 9)
+        finally:
+            connection.close()
+
+    def test_new_empty_projects_open_close_prepare_and_restore(self):
+        from workspace_project_database import ensure_project_database
+        open_app = """
+import sys
+from workspace_api import create_app
+app = create_app(sys.argv[1], sys.argv[2])
+response = app.test_client().get('/api/overview')
+assert response.status_code == 200, response.get_json()
+assert not app.extensions['workspace_service'].rows
+"""
+        with tempfile.TemporaryDirectory(prefix='rieke-empty-transfer-test-') as temporary:
+            base = Path(temporary).resolve()
+            code = Path(__file__).resolve().parents[2]
+            def open_empty(path):
+                result = subprocess.run([sys.executable, '-c', open_app, str(path), str(code / '.rieke-runtime/retinanalysis')],
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + '\n' + result.stderr)
+            for opened in (False, True):
+                project = create_project(base / ('workspace-' + str(opened)), 'New empty project')
+                root, identity = Path(project['path']), project['uuid']
+                runtimes = [root]
+                try:
+                    if opened:
+                        ensure_project_database(root)
+                        open_empty(root)
+                        transfer._remove_runtime(root)
+                    prepared = transfer.prepare_project(root, base / ('package-' + str(opened)))
+                    self.assertEqual(prepared['source_count'], 0)
+                    self.assertTrue(prepared['verified'])
+                    transfer._remove_runtime(root)
+                    shutil.rmtree(root)
+                    destination = base / ('recipient-' + str(opened))
+                    received = transfer.restore_project(prepared['directory'], destination)
+                    runtimes = [destination]
+                    self.assertEqual(received['project_uuid'], identity)
+                    self.assertEqual(received['source_count'], 0)
+                    open_empty(destination)
+                finally:
+                    for runtime in runtimes:
+                        if runtime.exists():
+                            transfer._remove_runtime(runtime)
+
     def save_export(self, connection, root, identity):
         # Match the production DatasetRevision fields; the locator is mutable,
         # while recipe and exported bytes are frozen scientific evidence.
@@ -433,9 +641,11 @@ class NativeRoundTripTests(unittest.TestCase):
                     saved_export = self.save_export(connection, root, identity)
                 finally:
                     connection.close()
+                self.install_derived_authorities(root, identity)
                 result = transfer.prepare_project(root, base / 'shared-folder')
                 self.assertTrue(result['verified'])
                 package = Path(result['directory'])
+                self.assertNotIn('CREATE DEFINER=', (package / 'database.sql').read_text())
                 self.assertFalse((package / 'catalog.json').exists())
                 self.assertFalse((package / 'database').exists())
                 # Hashes establish integrity, not trust: even correctly resealed
@@ -483,6 +693,9 @@ class NativeRoundTripTests(unittest.TestCase):
                             self.assertEqual(cursor.fetchone()[0], str(target))
                     finally:
                         connection.close()
+                    # Restore uses its restricted SQL user; derived root-owned
+                    # triggers are recreated only by the local app bootstrap.
+                    self.install_derived_authorities(target, identity)
                 self.assertNotEqual(results[0]['instance_uuid'], results[1]['instance_uuid'])
                 self.assertNotEqual((runtimes[0] / 'database/native-credentials.json').read_bytes(),
                                     (runtimes[1] / 'database/native-credentials.json').read_bytes())

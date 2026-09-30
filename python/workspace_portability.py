@@ -7,7 +7,9 @@ Run with the managed Python environment. Close project sessions before preparing
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
+import datetime as dt
+from decimal import Decimal
 import fcntl
 import hashlib
 import json
@@ -23,8 +25,151 @@ import uuid
 FORMAT = 'rieke-project-transfer'
 MANIFEST = 'transfer.json'
 PENDING = '.portable-restore.pending'
-DIRECTORIES = ('imports', 'protocols', 'query-snapshots', 'exports', 'raw-uploads')
+DIRECTORIES = ('imports', 'protocols', 'query-snapshots', 'exports', 'raw-uploads',
+               'logs/imports', 'logs/app-jobs', 'logs/errors', 'logs/storage')
 DATABASES = ('schema', 'recording_workspace')
+
+
+def _database_inventory(connection):
+    """Fingerprint every logical table, including historical user-state versions.
+
+    Inspect before rebasing current locators. JSON is canonicalized because MySQL
+    may normalize its whitespace. Hashes are sorted per table so row ordering and
+    tables without primary keys cannot change the result of a logical restore.
+    Only row digests are retained, never complete recording metadata in memory.
+    """
+    from pymysql.cursors import SSCursor
+
+    def encode(value):
+        if isinstance(value, (dt.datetime, dt.date, dt.time)):
+            return {'datetime': value.isoformat()}
+        if isinstance(value, dt.timedelta):
+            return {'timedelta': str(value)}
+        if isinstance(value, Decimal):
+            return {'decimal': str(value)}
+        if isinstance(value, bytes):
+            return {'bytes': value.hex()}
+        raise TypeError(type(value).__name__)
+
+    inventory = {}
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT table_schema, table_name FROM information_schema.tables '
+                       'WHERE table_schema IN (%s,%s) AND table_type=%s ORDER BY table_schema, table_name',
+                       (*DATABASES, 'BASE TABLE'))
+        tables = cursor.fetchall()
+        for database, table in tables:
+            # Names come from the actual server, but still quote identifiers.
+            reference = '.'.join('`' + name.replace('`', '``') + '`' for name in (database, table))
+            cursor.execute('SHOW COLUMNS FROM ' + reference)
+            columns = cursor.fetchall()
+            json_columns = [index for index, column in enumerate(columns) if column[1] == 'json']
+            digests = []
+            with connection.cursor(SSCursor) as data_cursor:
+                data_cursor.execute('SELECT * FROM ' + reference)
+                while rows := data_cursor.fetchmany(1000):
+                    for row in rows:
+                        row = list(row)
+                        for index in json_columns:
+                            if isinstance(row[index], (str, bytes)):
+                                row[index] = json.loads(row[index])
+                        data = json.dumps(row, default=encode, sort_keys=True,
+                                          separators=(',', ':'), allow_nan=False).encode()
+                        digests.append(hashlib.sha256(data).digest())
+            checksum = hashlib.sha256()
+            checksum.update(json.dumps([[column[0], column[1]] for column in columns],
+                                       separators=(',', ':')).encode())
+            digests.sort()
+            for digest in digests:
+                checksum.update(digest)
+            inventory[database + '.' + table] = {'rows': len(digests), 'sha256': checksum.hexdigest()}
+    return inventory
+
+
+def _validate_database_inventory(inventory):
+    if not isinstance(inventory, dict):
+        raise ValueError('Prepared project database inventory is invalid')
+    for table, expected in inventory.items():
+        if (not isinstance(table, str) or not any(table.startswith(database + '.') and
+                len(table) > len(database) + 1 for database in DATABASES)
+                or not isinstance(expected, dict) or set(expected) != {'rows', 'sha256'}
+                or type(expected['rows']) is not int or expected['rows'] < 0
+                or not isinstance(expected['sha256'], str)
+                or not re.fullmatch('[0-9a-f]{64}', expected['sha256'])):
+            raise ValueError('Prepared project database inventory is invalid')
+
+
+def register_empty_project(project_dir, connection=None):
+    """Register a genuinely new native project's SQL identity before its first import.
+
+    Missing identity in a populated project is corruption, never permission to
+    replace its database. Check scientific files and every existing logical table
+    before adding the four initial workspace tables to a still-empty database.
+    """
+    root = Path(project_dir).resolve()
+    project = _json(root / 'project.json')
+    identity = project['project_uuid']
+    provider = _json(root / 'catalog.json')['connection']['credential_provider']
+    if provider.get('kind') != 'native-project':
+        return False
+    owned = connection is None
+    connection = connection or _connection(root)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT table_schema, table_name FROM information_schema.tables '
+                           'WHERE table_schema IN (%s,%s) AND table_type=%s', (*DATABASES, 'BASE TABLE'))
+            tables = cursor.fetchall()
+            if ('recording_workspace', 'project') in tables:
+                cursor.execute('SELECT project_uuid FROM recording_workspace.project')
+                identities = {row[0] for row in cursor.fetchall()}
+                if identities == {identity}:
+                    return False
+                if identities:
+                    raise ValueError('Database must contain exactly the declared project identity')
+            for directory in ('imports', 'protocols', 'query-snapshots', 'exports', 'raw-uploads'):
+                folder = _inside(root, directory)
+                files = _files(folder, skip_marker=False) if folder.exists() else {}
+                if directory == 'protocols':
+                    from workspace_project_preferences import ProjectPreferences, REFERENCE
+                    if REFERENCE.removeprefix('protocols/') in files:
+                        ProjectPreferences(root, identity).read()
+                        files.pop(REFERENCE.removeprefix('protocols/'))
+                if directory == 'exports' and 'README.md' in files:
+                    from workspace_export_folder import GUIDE
+                    if (folder / 'README.md').read_text() == GUIDE:
+                        files.pop('README.md')  # Created by API startup before the read model.
+                if files:
+                    raise ValueError('Project database identity is missing from a populated project; restore its complete database before opening or sharing')
+            for database, table in tables:
+                if table == '~log':
+                    continue  # DataJoint infrastructure log records table declarations.
+                reference = '.'.join('`' + name.replace('`', '``') + '`' for name in (database, table))
+                if database == 'recording_workspace' and table == 'annotation_profile':
+                    # Older empty projects create a default author on first open,
+                    # before the first import writes the Project row.
+                    cursor.execute('SELECT 1 FROM ' + reference + ' WHERE project_uuid<>%s LIMIT 1', (identity,))
+                else:
+                    cursor.execute('SELECT 1 FROM ' + reference + ' LIMIT 1')
+                if cursor.fetchone() is not None:
+                    raise ValueError('Project database identity is missing from a populated project; restore its complete database before opening or sharing')
+            # Same initial definitions as recording_workspace.workspace_tables.
+            cursor.execute('CREATE DATABASE IF NOT EXISTS `schema`')
+            cursor.execute('CREATE DATABASE IF NOT EXISTS recording_workspace')
+            cursor.execute('CREATE TABLE IF NOT EXISTS recording_workspace.project '
+                           '(project_uuid varchar(36) PRIMARY KEY, name varchar(255) NOT NULL, directory varchar(1024) NOT NULL)')
+            cursor.execute('CREATE TABLE IF NOT EXISTS recording_workspace.source '
+                           '(source_sha256 char(64) PRIMARY KEY, project_uuid varchar(36) NOT NULL, '
+                           'experiment_uuid varchar(36) NOT NULL, experiment_id int NOT NULL, manifest json NOT NULL)')
+            cursor.execute('CREATE TABLE IF NOT EXISTS recording_workspace.event '
+                           '(event_uuid varchar(36) PRIMARY KEY, project_uuid varchar(36) NOT NULL, '
+                           'occurred_at datetime NOT NULL, actor varchar(255) NOT NULL, action varchar(63) NOT NULL, payload json NOT NULL)')
+            cursor.execute('CREATE TABLE IF NOT EXISTS recording_workspace.protocol_workspace '
+                           '(protocol_uuid varchar(36) PRIMARY KEY, project_uuid varchar(36) NOT NULL, definition json NOT NULL)')
+            cursor.execute('INSERT INTO recording_workspace.project (project_uuid,name,directory) VALUES (%s,%s,%s)',
+                           (identity, project['name'], str(root)))
+        return True
+    finally:
+        if owned:
+            connection.close()
 
 
 def _json(path):
@@ -48,6 +193,17 @@ def _hash(path):
     return result.hexdigest()
 
 
+def _verify_recording_dependencies(path):
+    """A complete transfer must not depend on other H5 files or raw datasets."""
+    import h5py
+    from recording_workspace import validate_self_contained_h5
+    try:
+        with h5py.File(path, 'r') as handle:
+            validate_self_contained_h5(handle)
+    except OSError as error:
+        raise ValueError('Registered recording is not a readable self-contained H5 file: ' + str(path)) from error
+
+
 def _inside(root, relative):
     if not isinstance(relative, str) or not relative or '\\' in relative:
         raise ValueError('Transfer file reference is invalid')
@@ -68,7 +224,8 @@ def _destination(value, source):
     path = Path(value).expanduser()
     if not path.is_absolute() or path.is_symlink():
         raise ValueError('Choose an absolute, new destination folder')
-    path = path.resolve()
+    from workspace_desktop_paths import require_external_data_path
+    path = require_external_data_path(path)
     if path.exists():
         raise ValueError('Destination already exists; nothing was overwritten')
     if path.is_relative_to(source) or source.is_relative_to(path):
@@ -150,6 +307,34 @@ def _sources(connection, identity):
 
 
 def _dump(project_dir, path):
+    from workspace_state_generation import verify_export_triggers
+
+    connection = _connection(project_dir)
+    class QueryAdapter:
+        def query(self, sql, args=(), *, as_dict=False, **_):
+            with connection.cursor() as cursor:
+                cursor.execute(sql, args)
+                values = cursor.fetchall()
+                names = [column[0] for column in cursor.description] if as_dict else []
+                result = [dict(zip(names, row)) for row in values] if as_dict else values
+            class Result:
+                def fetchall(self):
+                    return result
+            return Result()
+    try:
+        adapter = QueryAdapter()
+        before = verify_export_triggers(adapter, DATABASES)
+        if before['managed_present'] and not before['safe_to_omit']:
+            raise ValueError(before['reason'])
+        _dump_logical(project_dir, path, omit_derived_triggers=before['managed_present'])
+        after = verify_export_triggers(adapter, DATABASES)
+        if before['contract_fingerprint'] != after['contract_fingerprint']:
+            raise ValueError('Database trigger coverage changed during backup; no transfer was published')
+    finally:
+        connection.close()
+
+
+def _dump_logical(project_dir, path, *, omit_derived_triggers=False):
     provider = _json(Path(project_dir) / 'catalog.json')['connection']['credential_provider']
     if provider['kind'] == 'native-project':
         from workspace_native_mysql import connection_parameters, native_binary
@@ -158,6 +343,7 @@ def _dump(project_dir, path):
             '--host=127.0.0.1', '--port=' + str(settings['port']), '--user=' + settings['user'],
             '--single-transaction', '--skip-lock-tables', '--no-tablespaces',
             '--set-gtid-purged=OFF', '--hex-blob', '--skip-comments',
+            *(['--skip-triggers'] if omit_derived_triggers else []),
             '--databases', *DATABASES]
         with path.open('wb') as handle:
             result = subprocess.run(arguments, stdout=handle, stderr=subprocess.PIPE, timeout=600,
@@ -170,7 +356,8 @@ def _dump(project_dir, path):
     container = provider['container']
     # Legacy donors remain in their explicitly configured Docker runtime.
     # Password remains inside Docker's environment, never an argv or artifact.
-    command = 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -uroot --single-transaction --skip-lock-tables --no-tablespaces --set-gtid-purged=OFF --hex-blob --skip-comments --databases schema recording_workspace'
+    trigger_option = ' --skip-triggers' if omit_derived_triggers else ''
+    command = 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -uroot --single-transaction --skip-lock-tables --no-tablespaces --set-gtid-purged=OFF --hex-blob --skip-comments' + trigger_option + ' --databases schema recording_workspace'
     with path.open('wb') as handle:
         result = subprocess.run(['docker', 'exec', container, 'sh', '-c', command], stdout=handle,
                                 stderr=subprocess.PIPE, timeout=600)
@@ -245,16 +432,21 @@ def inspect_package(package_dir):
         _inside(root, relative)
         if not isinstance(expected, dict) or set(expected) != {'size', 'sha256'} or type(expected['size']) is not int or expected['size'] < 0 or not isinstance(expected['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', expected['sha256']):
             raise ValueError('Prepared project file checksum record is invalid')
-        if relative not in {'project.json', 'database.sql'} and relative.split('/')[0] not in DIRECTORIES:
+        if relative not in {'project.json', 'database.sql'} and not any(
+                relative.startswith(directory + '/') for directory in DIRECTORIES):
             raise ValueError('Prepared project contains unsupported runtime files')
     if _files(root) != files:
         raise ValueError('Prepared project checksum or file inventory mismatch')
     from workspace_projects import _identity
     project = _json(root / 'project.json')
-    if project.get('format') != 'recording-project' or type(project.get('version')) is not int or project['version'] != 1 or _identity(project.get('project_uuid')) != _identity(value.get('project_uuid')):
+    if not isinstance(project, dict) or project.get('format') != 'recording-project' or type(project.get('version')) is not int or project['version'] != 1 or _identity(project.get('project_uuid')) != _identity(value.get('project_uuid')):
         raise ValueError('Prepared project identity or format is invalid')
     if not isinstance(project.get('name'), str) or not project['name'].strip() or project.get('catalog_ref', 'catalog.json') != 'catalog.json':
         raise ValueError('Prepared project manifest is invalid')
+    from workspace_project_preferences import ProjectPreferences
+    ProjectPreferences(root, project['project_uuid']).read()
+    if 'database_inventory' in value:
+        _validate_database_inventory(value['database_inventory'])
     sources = value.get('sources')
     if not isinstance(sources, list):
         raise ValueError('Prepared project source inventory is invalid')
@@ -265,13 +457,19 @@ def inspect_package(package_dir):
         sha = source['source_sha256']
         if not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{64}', sha) or sha in seen:
             raise ValueError('Prepared project source identities are invalid or duplicated')
+        metadata_sha = source['metadata_sha256']
+        if not isinstance(metadata_sha, str) or not re.fullmatch('[0-9a-f]{64}', metadata_sha):
+            raise ValueError('Prepared project metadata checksum is invalid')
         seen.add(sha)
         for key in ('recording_ref', 'metadata_ref'):
             _inside(root, source[key])
         if not source['recording_ref'].startswith('raw-uploads/') or not source['metadata_ref'].startswith('imports/'):
             raise ValueError('Prepared source references use unsupported directories')
-        if files.get(source['recording_ref'], {}).get('sha256') != sha or files.get(source['metadata_ref'], {}).get('sha256') != source['metadata_sha256']:
+        if source['recording_ref'] not in files or source['metadata_ref'] not in files:
+            raise ValueError('Prepared project is missing a registered source dependency')
+        if files[source['recording_ref']]['sha256'] != sha or files[source['metadata_ref']]['sha256'] != metadata_sha:
             raise ValueError('Prepared project source checksums disagree')
+        _verify_recording_dependencies(_inside(root, source['recording_ref']))
     return value
 
 
@@ -288,6 +486,28 @@ def _remove_runtime(project_dir):
                             stderr=subprocess.PIPE, timeout=60)
     if result.returncode:
         raise ValueError('Could not remove temporary transfer database; preserve its folder for recovery')
+
+
+@contextmanager
+def _desktop_database_session(project_dir):
+    """Own transfer SQL durably and close it before acknowledging completion."""
+    if os.environ.get('RIEKE_DESKTOP_MODE') != '1':
+        yield
+        return
+    from workspace_desktop import desktop_database_operation
+    identity = desktop_database_operation(project_dir)
+    try:
+        yield
+    finally:
+        try:
+            _remove_runtime(project_dir)
+            desktop_database_operation(project_dir, identity)
+        except BaseException:
+            try:
+                desktop_database_operation(project_dir, identity, failed=True)
+            except Exception:
+                pass  # Persistent registration remains a recovery/update blocker.
+            raise
 
 
 def _artifact_relocations(connection, identity, root, previous=None):
@@ -348,6 +568,7 @@ def restore_project(package_dir, destination):
     target.mkdir(mode=0o700)
     _write(target / PENDING, {'version': 1, 'runtime': 'native-mysql', 'instance_uuid': instance, 'project_uuid': identity})
     runtime_attempted = False
+    desktop_services = ExitStack()
     try:
         for relative in manifest['files']:
             if relative == 'database.sql':
@@ -368,10 +589,14 @@ def restore_project(package_dir, destination):
             raise ValueError('Prepared database changed during restore')
         from workspace_project_database import ensure_project_database
         runtime_attempted = True
+        desktop_services.enter_context(_desktop_database_session(target))
         ensure_project_database(target, _restoring=True)
         _import(target, dump)
         connection = _connection(target)
         try:
+            if ('database_inventory' in manifest
+                    and _database_inventory(connection) != manifest['database_inventory']):
+                raise ValueError('Restored database content disagrees with the prepared project inventory')
             sources = _sources(connection, identity)
             artifacts = _artifact_relocations(connection, identity, target)
             mappings = {source['source_sha256']: source for source in manifest['sources']}
@@ -406,10 +631,12 @@ def restore_project(package_dir, destination):
         _write(target / 'database/transfer-receipt.json', {'format': FORMAT, 'version': 1,
             'project_uuid': identity, 'instance_uuid': instance, 'verified': True,
             'package_manifest_sha256': _hash(package / MANIFEST)})
+        desktop_services.close()
         (target / PENDING).unlink()
         return {'project_uuid': identity, 'instance_uuid': instance, 'directory': str(target),
                 'files': len(manifest['files']), 'source_count': len(manifest['sources']), 'verified': True}
     except BaseException:
+        desktop_services.close()
         if runtime_attempted:
             _remove_runtime(target)
         shutil.rmtree(target)
@@ -427,15 +654,19 @@ def prepare_project(project_dir, destination):
     record = _project_record(root)
     target = _destination(destination, root)
     identity = record['uuid']
-    with _offline(root):
+    with _offline(root), _desktop_database_session(root):
+        from workspace_project_preferences import ProjectPreferences
+        ProjectPreferences(root, identity).read()
         ensure_project_database(root)
         connection = _connection(root)
         staging = Path(tempfile.mkdtemp(prefix='.rieke-transfer-', dir=target.parent))
         try:
+            register_empty_project(root, connection)
             with connection.cursor() as cursor:
                 cursor.execute('SET SESSION lock_wait_timeout=15')
                 cursor.execute('FLUSH TABLES WITH READ LOCK')
             sources = _sources(connection, identity)
+            database_inventory = _database_inventory(connection)
             source_project = _json(root / 'project.json')
             # Only portable identity/display fields enter the transfer manifest.
             project = {key: source_project[key] for key in ('format', 'version', 'project_uuid', 'name', 'display_name', 'created_at') if key in source_project}
@@ -448,8 +679,12 @@ def prepare_project(project_dir, destination):
                 if source_dir.exists():
                     if source_dir.is_symlink():
                         raise ValueError('Managed transfer directories cannot be symbolic links')
+                    # Reject symlinked parents too, including the logs root.
+                    _inside(root, directory)
                     before[directory] = _files(source_dir, skip_marker=False)
-                    shutil.copytree(source_dir, staging / directory)
+                    output_dir = staging / directory
+                    output_dir.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(source_dir, output_dir)
             inventory = []
             for source in sources:
                 manifest = source['manifest']
@@ -471,6 +706,7 @@ def prepare_project(project_dir, destination):
                         raise ValueError('A registered recording is missing; locate it before preparing a complete transfer') from None
                 if _hash(output) != source['source_sha256']:
                     raise ValueError('Recording checksum changed or a recording is missing')
+                _verify_recording_dependencies(output)
                 inventory.append({'source_sha256': source['source_sha256'], 'recording_ref': recording_ref,
                                   'metadata_ref': reference, 'metadata_sha256': manifest['metadata_sha256']})
             _dump(root, staging / 'database.sql')
@@ -484,12 +720,20 @@ def prepare_project(project_dir, destination):
             connection = None
             _write(staging / MANIFEST, {'format': FORMAT, 'version': 1, 'mode': 'complete',
                 'database_format': 'mysql8-logical-v1', 'project_uuid': identity,
-                'sources': inventory, 'files': _files(staging)})
+                'sources': inventory, 'database_inventory': database_inventory, 'files': _files(staging)})
             # Real restore verification, including identities and current source locators.
             verify_parent = Path(tempfile.mkdtemp(prefix='.rieke-verify-', dir=target.parent))
-            verified = restore_project(staging, str(verify_parent / 'project'))
-            _remove_runtime(Path(verified['directory']))
-            shutil.rmtree(verify_parent)
+            try:
+                verified = restore_project(staging, str(verify_parent / 'project'))
+                _remove_runtime(Path(verified['directory']))
+            except BaseException:
+                # A failed runtime shutdown leaves evidence for manual recovery.
+                # Failed restores remove their own partial project already.
+                if not (verify_parent / 'project').exists():
+                    shutil.rmtree(verify_parent)
+                raise
+            else:
+                shutil.rmtree(verify_parent)
             # Claim the final path exclusively before replacing our own empty
             # reservation with the fully verified package.
             try:
@@ -569,7 +813,8 @@ def relocate_project(project_dir, destination):
     source = Path(project_dir).expanduser()
     if not source.is_absolute() or source.is_symlink() or not source.is_dir():
         raise ValueError('Choose an absolute existing project folder, not a symbolic link')
-    source = source.resolve()
+    from workspace_desktop_paths import require_external_data_path
+    source = require_external_data_path(source)
     project = _project_record(source)
     target = _destination(destination, source)
     code_root = Path(__file__).resolve().parents[1]

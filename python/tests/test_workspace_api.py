@@ -5,6 +5,7 @@ files, curation validation, revision checks, and download checks are real.
 """
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -124,6 +125,9 @@ class WorkspaceAPITests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        isolated_index = patch.dict(os.environ, {'RIEKE_PROJECT_INDEX': str(Path(self.temp.name) / 'user-state/project-index.json')})
+        isolated_index.start()
+        self.addCleanup(isolated_index.stop)
         self.service = FixtureService(self.temp.name)
         self.curation = Table(('project_uuid', 'protocol_uuid', 'epoch_uuid'))
         self.datasets = Table(('project_uuid', 'dataset_uuid'))
