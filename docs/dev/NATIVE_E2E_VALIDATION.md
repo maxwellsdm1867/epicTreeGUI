@@ -324,3 +324,44 @@ live check returned the exact proposed child path, while its parent stayed empty
 and the child was not created. Unfinished typed paths can still open Browse.
 10 focused folder-client tests, 12 folder API tests and the scoped production
 build pass. [Empty-parent check](project-browse-empty-parent-regression.jpg).
+
+## Whole UI file and folder audit — 2026-09-29
+
+Reviewed the entire component directory and App import/export pages, searching all
+inputs, file-picker triggers, editable paths and copy-path actions.
+
+| Flow | File or folder action |
+| --- | --- |
+| New project / preferred projects location | Browse folders |
+| Open / move / share / receive project | Browse sources and destination folders |
+| Recording import | Browse H5 files; multiple selection and drag/drop |
+| Tag and saved-query import | Native JSON file picker buttons |
+| Selection masks | Native UGM and JSON file picker buttons |
+| Exports | Download buttons; Open exports folder for local handoff |
+| Project files | In-app categories, folders and breadcrumbs |
+| Tag author profile | Author list and name; preferences saved automatically |
+
+The H5 chooser was a styled label around a hidden input, leaving it outside
+keyboard navigation. It now uses a real Browse button with the same file filters,
+multiple-file selection, queue behavior and disabled state. Cancel enqueues
+nothing; resetting the input allows choosing the same recording again.
+
+The local exports card previously offered only Copy folder path. Open exports
+folder now opens this project's existing exports folder in the system file
+manager. Its endpoint accepts an empty body only, verifies a local app request,
+and rejects missing folders and symlinks. It cannot choose an arbitrary location.
+Copies, exports and original recordings keep their current storage layout.
+
+A scoped checkout passed 255 frontend tests, 18 folder API tests, 10 existing
+open-folder tests and the production build. File-picker controls for tags, queries
+and masks already existed. Filename/path search filters and readonly diagnostic
+paths do not prompt for a filesystem selection.
+
+Live browser checks: Tab focused the H5 Browse button and Enter emitted a
+multiple-file chooser event. No files were selected and import history remained
+empty. Clicking Open exports folder completed without a visible error and
+re-enabled the button; success requires the OS opener to exit successfully for
+the fixed fixture exports path. The native computer-use service was unavailable
+for Finder, so the Finder window itself was not visually inspected.
+[H5 Browse](ui-browse-h5-audit.jpg) and
+[Open exports folder](ui-open-exports-audit.jpg).

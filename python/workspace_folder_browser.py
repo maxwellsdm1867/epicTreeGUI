@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import subprocess
+import sys
 from urllib.parse import urlsplit
 
 PAGE_LIMIT = 200
@@ -96,17 +98,45 @@ def list_folder(path=None, *, offset=0, limit=PAGE_LIMIT):
             'empty': empty and not truncated, 'requested_exists': requested_exists}
 
 
-def register_folder_browser_routes(app):
-    """Require a deliberate same-origin loopback request even though this is GET."""
+def _open_exports_folder(project_dir):
+    if project_dir is None:
+        raise ValueError('Open a project before opening its exports folder.')
+    try:
+        root = Path(project_dir).expanduser().resolve(strict=True)
+        folder = root / 'exports'
+        if folder.is_symlink():
+            raise ValueError('The exports folder must not be a symbolic link.')
+        resolved = folder.resolve(strict=True)
+        if not root.is_dir() or not resolved.is_dir() or resolved != folder or not resolved.is_relative_to(root):
+            raise ValueError('This project exports folder is unavailable or redirects elsewhere.')
+    except (OSError, RuntimeError) as error:
+        raise ValueError('This project exports folder is unavailable. No folder was created.') from error
+    command = ['open', str(resolved)] if sys.platform == 'darwin' else (
+        ['explorer', str(resolved)] if sys.platform == 'win32' else ['xdg-open', str(resolved)])
+    try:
+        subprocess.run(command, check=True, timeout=10,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError('The file manager could not open the exports folder. Check that a file manager is available.') from error
+    return str(resolved)
+
+
+def register_folder_browser_routes(app, *, project_dir=None):
+    """Require deliberate same-origin loopback requests for folder operations."""
     from flask import jsonify, request
 
-    @app.get('/api/folders')
-    def folder_browser():
+    def local_request():
         if (request.remote_addr not in {'127.0.0.1', '::1'}
                 or urlsplit(request.host_url).hostname not in {'localhost', '127.0.0.1', '::1'}
                 or request.headers.get('X-Workspace-Request') != '1'
                 or request.headers.get('Origin', request.host_url.rstrip('/')) != request.host_url.rstrip('/')):
-            return jsonify(error='Folder browsing requires a same-origin local app request.'), 403
+            return jsonify(error='Folder operations require a same-origin local app request.'), 403
+
+    @app.get('/api/folders')
+    def folder_browser():
+        boundary = local_request()
+        if boundary is not None:
+            return boundary
         if (set(request.args) - {'directory', 'offset', 'limit'}
                 or any(len(request.args.getlist(key)) != 1 for key in request.args)):
             return jsonify(error='Folder browsing accepts one directory, offset and limit only.'), 400
@@ -118,5 +148,17 @@ def register_folder_browser_routes(app):
             numbers[key] = int(value)
         try:
             return jsonify(list_folder(request.args.get('directory'), **numbers))
+        except ValueError as error:
+            return jsonify(error=str(error)), 400
+
+    @app.post('/api/exports/open-folder')
+    def open_exports_folder():
+        boundary = local_request()
+        if boundary is not None:
+            return boundary
+        if request.args or request.get_json(silent=True) != {}:
+            return jsonify(error='Opening the exports folder requires an empty object and no query parameters.'), 400
+        try:
+            return jsonify(opened=True, directory=_open_exports_folder(project_dir))
         except ValueError as error:
             return jsonify(error=str(error)), 400

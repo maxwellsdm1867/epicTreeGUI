@@ -156,5 +156,86 @@ class FolderBrowserTests(unittest.TestCase):
                     self.assertEqual(self.client.get('/api/folders', **kwargs).status_code, 403)
 
 
+class ExportsFolderOpenTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.exports = self.root / 'exports'
+        self.exports.mkdir()
+        self.app = Flask(__name__)
+        browser.register_folder_browser_routes(self.app, project_dir=self.root)
+        self.client = self.app.test_client()
+        self.headers = {'X-Workspace-Request': '1'}
+
+    def test_fixed_exports_folder_opens_with_platform_command_without_reads_or_shell(self):
+        for platform, executable in (('darwin', 'open'), ('win32', 'explorer'), ('linux', 'xdg-open')):
+            with self.subTest(platform=platform), patch.object(browser.sys, 'platform', platform), \
+                 patch.object(browser.subprocess, 'run') as run, \
+                 patch.object(Path, 'open', side_effect=AssertionError('No file contents')):
+                result = self.client.post('/api/exports/open-folder', json={}, headers=self.headers)
+                self.assertEqual(result.status_code, 200)
+                self.assertEqual(result.get_json(), {'opened': True, 'directory': str(self.exports)})
+                run.assert_called_once_with([executable, str(self.exports)], check=True, timeout=10,
+                                            stdout=browser.subprocess.DEVNULL, stderr=browser.subprocess.DEVNULL)
+
+    def test_launcher_without_project_cannot_open_an_arbitrary_folder(self):
+        launcher = Flask('launcher')
+        browser.register_folder_browser_routes(launcher)
+        with patch.object(browser.subprocess, 'run') as run:
+            result = launcher.test_client().post('/api/exports/open-folder', json={}, headers=self.headers)
+            self.assertEqual(result.status_code, 400)
+            self.assertIn('Open a project', result.get_json()['error'])
+            run.assert_not_called()
+
+    def test_missing_file_or_symlink_exports_never_launch_or_create_a_folder(self):
+        self.exports.rmdir()
+        with patch.object(browser.subprocess, 'run') as run:
+            result = self.client.post('/api/exports/open-folder', json={}, headers=self.headers)
+            self.assertEqual(result.status_code, 400)
+            self.assertFalse(self.exports.exists())
+            self.exports.write_bytes(b'not a folder')
+            self.assertEqual(self.client.post('/api/exports/open-folder', json={}, headers=self.headers).status_code, 400)
+            self.exports.unlink()
+            for target in (self.root, self.root.parent):
+                with self.subTest(target=target):
+                    self.exports.symlink_to(target, target_is_directory=True)
+                    result = self.client.post('/api/exports/open-folder', json={}, headers=self.headers)
+                    self.assertEqual(result.status_code, 400)
+                    self.assertIn('symbolic link', result.get_json()['error'])
+                    self.exports.unlink()
+            run.assert_not_called()
+
+    def test_arbitrary_paths_queries_and_malformed_bodies_are_rejected(self):
+        with patch.object(browser.subprocess, 'run') as run:
+            for body in (None, [], True, {'directory': '/'}, {'path': str(self.root.parent)}):
+                with self.subTest(body=body):
+                    result = self.client.post('/api/exports/open-folder', json=body, headers=self.headers)
+                    self.assertEqual(result.status_code, 400)
+            self.assertEqual(self.client.post('/api/exports/open-folder?directory=/', json={}, headers=self.headers).status_code, 400)
+            run.assert_not_called()
+
+    def test_file_manager_errors_are_descriptive_and_do_not_modify_storage(self):
+        for error in (FileNotFoundError('missing opener'),
+                      browser.subprocess.CalledProcessError(1, ['open']),
+                      browser.subprocess.TimeoutExpired(['open'], 10)):
+            with self.subTest(error=type(error).__name__), patch.object(browser.subprocess, 'run', side_effect=error):
+                result = self.client.post('/api/exports/open-folder', json={}, headers=self.headers)
+                self.assertEqual(result.status_code, 400)
+                self.assertIn('file manager', result.get_json()['error'])
+                self.assertTrue(self.exports.is_dir())
+                self.assertEqual(list(self.exports.iterdir()), [])
+
+    def test_untrusted_requests_fail_before_filesystem_or_process_access(self):
+        requests = ({'headers': {}},
+                    {'headers': {**self.headers, 'Origin': 'https://other.example'}},
+                    {'headers': self.headers, 'base_url': 'http://localhost.evil.example'},
+                    {'headers': self.headers, 'environ_overrides': {'REMOTE_ADDR': '192.0.2.1'}})
+        with patch.object(browser, '_open_exports_folder', side_effect=AssertionError('No filesystem/process access')):
+            for kwargs in requests:
+                with self.subTest(kwargs=kwargs):
+                    self.assertEqual(self.client.post('/api/exports/open-folder', json={}, **kwargs).status_code, 403)
+
+
 if __name__ == '__main__':
     unittest.main()
