@@ -95,6 +95,9 @@ def register_app_routes(app, *, application_dir=None):
                 from workspace_portability import prepare_project, restore_project
                 function = prepare_project if operation == 'prepare' else restore_project
                 result = function(body['directory'].strip(), body['destination'].strip())
+                if operation == 'restore':
+                    from workspace_startup_registry import remember_project_result
+                    result = remember_project_result(result['directory'], result)
                 with lock:
                     jobs[identity] = {'job_id': identity, 'state': 'complete', 'result': result}
             except Exception as error:
@@ -127,6 +130,8 @@ def register_app_routes(app, *, application_dir=None):
             try:
                 from workspace_portability import relocate_project
                 result = relocate_project(body['directory'].strip(), body['destination'].strip())
+                from workspace_startup_registry import remember_project_result
+                result = remember_project_result(result['directory'], result, previous_directory=body['directory'].strip())
             except (ValueError, OSError) as error:
                 return jsonify(error=str(error)), 400
         return jsonify(result)

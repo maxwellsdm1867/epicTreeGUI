@@ -17,6 +17,23 @@ export function localProjectUrl(url, base) {
   return destination.href;
 }
 
+// A prepared copy contains a logical database backup. It must be restored to
+// a new local folder instead of being opened as a live project.
+export async function inspectAndOpenProject({directory,request,relocateDestination}) {
+  const inspection=await request('/projects/inspect-folder',{method:'POST',body:{directory}});
+  if(inspection?.kind==='project-root-suggestions')return {action:'choose-root',inspection,directory};
+  if(inspection?.valid!==true)throw new Error('The project folder did not pass inspection.');
+  if(inspection.kind==='prepared-transfer')return {action:'restore',inspection,directory};
+  if(inspection.kind&&inspection.kind!=='project')throw new Error('The project service returned an unknown folder type.');
+  if(relocateDestination){
+    const moved=await request('/projects/relocate',{method:'POST',body:{directory,destination:relocateDestination}});
+    if(typeof moved.directory!=='string'||!moved.directory.trim())throw new Error('The project service did not return the moved folder.');
+    directory=moved.directory;
+  }
+  const response=await request('/projects/open-folder',{method:'POST',body:{directory}});
+  return {action:'open',inspection,directory,url:response.url};
+}
+
 export async function runProjectTransfer({mode,directory,destination,request,signal,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
   if (!['prepare','restore'].includes(mode)) throw new Error('Unknown project transfer action.');
   const job=await request(mode==='prepare'?'/projects/prepare-transfer':'/projects/restore-transfer',{

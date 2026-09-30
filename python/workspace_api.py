@@ -127,6 +127,8 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
     frontend = Path(__file__).resolve().parents[1] / "workspace-app/dist"
     app.extensions["workspace_service"] = service
     app.extensions["curation_store"] = store
+    from workspace_project_preferences import register_project_preference_routes
+    register_project_preference_routes(app, project_dir, service.project['project_uuid'], db_lock)
 
     def filters(allowed=()):
         if any(len(request.args.getlist(key)) != 1 for key in ('tag', 'tagged', 'tag_predicate') if key in request.args):

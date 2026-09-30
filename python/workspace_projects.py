@@ -1,4 +1,4 @@
-"""Read-only discovery of sibling recording projects; never scan arbitrary roots.
+"""Read-only discovery of immediate siblings and explicitly remembered projects.
 
 Availability means the local identity manifests are valid and readable. It does
 not claim that the project's SQL server is reachable or that source H5 files exist.
@@ -31,6 +31,8 @@ def _identity(value):
 
 
 def _project_record(directory, *, current=False):
+    if (directory / 'transfer.json').exists() or (directory / 'transfer.json').is_symlink():
+        raise ValueError('Prepared project copies must be restored into a working project folder')
     if (directory / '.portable-restore.pending').exists():
         raise ValueError('Project transfer restore is incomplete; finish recovery before opening it')
     project = _read_manifest(directory / 'project.json')
@@ -62,7 +64,7 @@ def _project_record(directory, *, current=False):
 
 
 def list_projects(project_dir):
-    """Return the current project plus valid immediate siblings, deterministically.
+    """Return current, immediate siblings and remembered external projects.
 
     Sibling directory and manifest symlinks are excluded. Duplicate UUIDs cannot
     establish a second selectable project: current wins; ambiguous non-current
@@ -86,15 +88,54 @@ def list_projects(project_dir):
                 candidates.append(candidate)
         except (OSError, ValueError, UnicodeError):
             continue
-    occurrences = {}
-    for candidate in candidates:
-        occurrences[candidate['uuid']] = occurrences.get(candidate['uuid'], 0) + 1
-    projects = [candidate for candidate in candidates if candidate.get('database_kind') == 'native-mysql' or occurrences[candidate['uuid']] == 1]
-    projects.sort(key=lambda item: (item['name'].casefold(), item['name'], item['path']))
-    from workspace_startup_registry import read_registry, ordered_projects
-    saved = read_registry(current_dir.parent)
-    return {'current_project_uuid': current['uuid'], 'projects': ordered_projects([current, *projects], saved),
-            'managed_root': str(current_dir.parent), 'last_project_uuid': saved.get('last_project_uuid'), 'launcher': False}
+    projects, last = _combined_projects([current, *candidates], current_dir.parent, current_dir)
+    return {'current_project_uuid': current['uuid'], 'projects': projects,
+            'managed_root': str(current_dir.parent), **last, 'launcher': False}
+
+
+def _combined_projects(discovered, root, current=None):
+    """Read only saved exact folders; their parents are never searched."""
+    from workspace_startup_registry import read_registry, read_project_index, ordered_projects
+    local = read_registry(root)
+    index = read_project_index()
+    by_path = {project['path']: project for project in discovered}
+    for saved in index['projects']:
+        path = saved['path']
+        if path in by_path:
+            continue
+        directory = Path(path)
+        try:
+            if directory.is_symlink() or not directory.is_dir():
+                raise ValueError('Project folder is unavailable; reconnect its drive or add its new location')
+            project = _project_record(directory, current=directory == current)
+            if project['uuid'] != saved['project_uuid']:
+                raise ValueError('This folder now contains a different project; add its new location')
+        except (OSError, ValueError, UnicodeError) as error:
+            # Keep removable-drive and moved-project references visible without
+            # trusting stale manifests, following links, or exposing credentials.
+            project = {'uuid': saved['project_uuid'], 'name': saved['name'], 'path': path,
+                       'database_kind': saved['database_kind'], 'current': False,
+                       'available': False, 'unavailable_reason': str(error)}
+        by_path[path] = project
+    projects = list(by_path.values())
+    current_record = next((project for project in projects if project['current']), None)
+    if current_record:
+        projects = [project for project in projects if project['current']
+                    or project['uuid'] != current_record['uuid'] or project.get('database_kind') == 'native-mysql']
+    counts = {}
+    for project in projects:
+        counts[project['uuid']] = counts.get(project['uuid'], 0) + 1
+    projects = [project for project in projects if project['current']
+                or project.get('database_kind') == 'native-mysql' or counts[project['uuid']] == 1]
+    saved_order = {**local, 'project_order': index['project_order'] or local.get('project_order', [])}
+    projects = ordered_projects(projects, saved_order)
+    last_path = index['last_project_path']
+    last = next((project for project in projects if project['path'] == last_path), None)
+    if last is None:
+        matches = [project for project in projects if project['uuid'] == local.get('last_project_uuid')]
+        last = matches[0] if len(matches) == 1 else None
+    return projects, {'last_project_path': last['path'] if last else None,
+                      'last_project_uuid': last['uuid'] if last else None}
 
 
 def managed_root(path):
@@ -118,25 +159,19 @@ def list_managed_projects(root, current_project=None):
                 projects.append(_project_record(directory, current=directory == current_project))
             except (OSError, ValueError, UnicodeError):
                 continue
-    counts = {}
-    for project in projects:
-        counts[project['uuid']] = counts.get(project['uuid'], 0) + 1
-    projects = [p for p in projects if p.get('database_kind') == 'native-mysql' or counts[p['uuid']] == 1]
-    projects.sort(key=lambda p: (p['name'].casefold(), p['name'], p['path']))
-    from workspace_startup_registry import read_registry, ordered_projects
-    saved = read_registry(root)
-    identities = {p['uuid'] for p in projects}
+    projects, last = _combined_projects(projects, root, current_project)
     return {'current_project_uuid': next((p['uuid'] for p in projects if p['current']), None),
-            'projects': ordered_projects(projects, saved), 'managed_root': str(root),
+            'projects': projects, 'managed_root': str(root),
             'workspace_initialized': (root / '.rieke-workspace.json').is_file(),
-            'last_project_uuid': saved.get('last_project_uuid') if saved.get('last_project_uuid') in identities and counts.get(saved.get('last_project_uuid')) == 1 else None}
+            **last}
 
 
-def create_project(root, name, *, directory=None, code_root=None):
+def create_project(root, name, *, directory=None, code_root=None, _lock_path=None):
     """Create only empty manifests/directories. Database provisioning is deferred."""
     import fcntl
     import re
     import datetime as dt
+    from contextlib import ExitStack
     from recording_workspace import write_json
     from workspace_storage import initialize_layout
     root = managed_root(root)
@@ -145,12 +180,13 @@ def create_project(root, name, *, directory=None, code_root=None):
         raise ValueError('Project name must contain 1–120 printable characters')
     name = name.strip()
     root.mkdir(parents=True, exist_ok=True)
-    lock_file = root / '.project-create.lock'
+    lock_file = Path(_lock_path) if _lock_path is not None else root / '.project-create.lock'
     if lock_file.is_symlink():
         raise ValueError('Project registry lock cannot be a symbolic link')
-    with lock_file.open('a') as lock:
+    with lock_file.open('a') as lock, ExitStack() as target_locks:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        if any(p['name'].casefold() == name.casefold() for p in list_managed_projects(root)['projects']):
+        if _lock_path is None and any(p['available'] and Path(p['path']).parent == root and p['name'].casefold() == name.casefold()
+                                     for p in list_managed_projects(root)['projects']):
             raise ValueError('A project with this name already exists; open it or choose another name')
         identity = str(uuid.uuid4())
         slug = re.sub(r'[^a-z0-9]+', '-', name.casefold()).strip('-')[:60] or 'project'
@@ -164,6 +200,11 @@ def create_project(root, name, *, directory=None, code_root=None):
         target = target.resolve()
         if target.is_relative_to(code_root) or code_root.is_relative_to(target):
             raise ValueError('Project storage must be separate from application code')
+        if _lock_path is None:
+            # Managed-root and exact-folder routes must share a target lock.
+            # The root lock still serializes automatic names across siblings.
+            target_lock = target_locks.enter_context(_creation_lock_path(target).open('a'))
+            fcntl.flock(target_lock.fileno(), fcntl.LOCK_EX)
         if target.exists() and (not target.is_dir() or any(target.iterdir())):
             raise ValueError('Project folder already contains files; nothing was overwritten')
         target.mkdir(exist_ok=True)
@@ -191,6 +232,19 @@ def create_project(root, name, *, directory=None, code_root=None):
         return _project_record(target)
 
 
+def _creation_lock_path(directory):
+    from workspace_startup_registry import project_index_path
+    import hashlib
+    preference_root = project_index_path().parent
+    if preference_root.is_symlink():
+        raise ValueError('Local project preferences cannot be a symbolic link')
+    preference_root.mkdir(parents=True, exist_ok=True)
+    lock = preference_root / ('project-create-' + hashlib.sha256(str(directory).encode()).hexdigest()[:32] + '.lock')
+    if lock.is_symlink():
+        raise ValueError('Project creation lock cannot be a symbolic link')
+    return lock
+
+
 def create_project_at(directory, name, *, code_root=None):
     """Use the user's exact project folder, independently of preferred storage."""
     if not isinstance(directory, str) or not directory.strip():
@@ -204,4 +258,4 @@ def create_project_at(directory, name, *, code_root=None):
     # System paths such as macOS /tmp may have a symlinked parent. Resolve
     # the selected location after rejecting a symlink at the project itself.
     path = path.resolve()
-    return create_project(path.parent, name, directory=str(path), code_root=code)
+    return create_project(path.parent, name, directory=str(path), code_root=code, _lock_path=_creation_lock_path(path))

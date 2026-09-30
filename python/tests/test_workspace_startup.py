@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -16,6 +17,8 @@ class ProjectStartupTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)/'managed'
+        isolated_index=patch.dict(os.environ,{'RIEKE_PROJECT_INDEX':str(Path(self.temp.name)/'user-state/project-index.json')})
+        isolated_index.start();self.addCleanup(isolated_index.stop)
         native_start=patch('workspace_native_mysql.ensure_native_database',side_effect=AssertionError('Unit startup tests must not start a native server'))
         native_start.start();self.addCleanup(native_start.stop)
 
@@ -148,7 +151,8 @@ class ProjectStartupTests(unittest.TestCase):
             self.assertEqual(response.status_code,200)
             self.assertEqual(response.get_json(),expected)
             self.assertEqual(opened.call_args.args[1],project['uuid'])
-            self.assertTrue(opened.call_args.kwargs['managed'])
+            self.assertEqual(opened.call_args.args[0], Path(project['path']))
+            self.assertNotIn('managed', opened.call_args.kwargs)
 
     def _legacy_project(self,name):
         """Legacy tests explicitly retain Docker descriptors after the default changed."""

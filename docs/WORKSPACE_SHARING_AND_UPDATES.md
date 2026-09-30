@@ -2,14 +2,47 @@
 
 ## Choose the project folder itself
 
+The left sidebar has two project actions:
+
+- **Add new project** opens an existing working project or a portable copy someone
+  gave you. Selecting a prepared copy checks its inventory and opens the restore
+  form automatically; choose a new local project folder, restore, then open it.
+- **Start a brand new project** asks for a name and an empty folder and creates
+  the project manifests and managed storage. Opening initializes its database.
+
 New project asks for a name and one **Project folder**. That exact folder is the
 project root: it can be anywhere writable, outside the application code. Choose a
 new or empty folder; existing project folders should be opened instead. No extra
 parent workspace or generated subfolder is required.
 
+For example, name a new project **Spike response study** and choose a new or
+empty folder named **Spike response study** in your own research location.
+Matching names make the folder easier to recognize later. The project name is
+shown in the app; the folder name can differ, and neither name is its unique
+identity. A project's name can change without moving its files.
+
+When reopening or receiving that project, select the **Spike response study**
+folder itself. Its project files and contents should be directly inside it.
+Choose its top folder rather than the research folder above it or an `imports`,
+`database` or other folder inside it. The app checks the files to identify the
+project, so a renamed folder can still be recognized.
+
 Open project checks the identity manifests, storage layout and database files
 before starting the project, then checks recording dependencies during opening.
 It opens the folder in place. The preferred projects location is optional.
+
+Created, restored and successfully opened project roots are remembered in a
+local user-profile index, so projects on other drives or outside the preferred
+location remain in the chooser after closing or restarting. The index contains
+folder references and display identities; the project files stay in their
+chosen location. An unavailable drive leaves an unavailable project entry.
+
+Choose the top folder containing `project.json` and `catalog.json`, or the top
+folder of a received portable copy. If you choose a project subfolder, the app
+suggests its nearest valid project root. If you choose a parent, it lists valid
+immediate child roots. Select **Use this folder**, then open or check that folder.
+Several matches remain separate choices; the app does not open one automatically.
+Nearby-folder discovery is bounded and read-only; it does not scan a whole drive.
 
 To organize a closed native project, expand **Optional: move to a preferred
 location**, select **Move this folder before opening**, and review the new exact
@@ -82,9 +115,25 @@ interchange.
 
 **Prepare to share** remains available when you want a separately verified copy
 with a logical database backup and all registered recordings included. It tests a
-restore before reporting success. **Open prepared project** restores that optional
-transfer to a new local folder with fresh native database credentials. Existing
-projects are never overwritten.
+restore before reporting success. After **Close project**, **Prepare portable
+copy** opens sharing with that project's folder already selected. Give the entire
+prepared folder to the recipient. Their **Add new project** action recognizes it
+and restores it into a new folder with fresh native database credentials.
+Existing projects are never overwritten.
+
+The logical backup includes all acquisition and project database tables: saved
+predicates and every preset version, query run records, explorer revisions and
+bindings, tags and authors, review decisions, inclusion masks, tree layouts, source
+state, exports and event history. New copies record table row counts and content
+checksums; restoration compares every table before updating current file paths.
+Existing transfer copies without this additional database inventory remain readable.
+
+Recent search shortcuts and protocol pins/order are stored in
+`protocols/ui-state/project-preferences.json`. The app migrates earlier browser
+shortcuts when their project is opened, so these choices accompany subsequent
+copies. Browser size, pane widths and the current user's author selection remain
+local preferences. Durable import, app-job, error and storage history under
+`logs/` is included; server process records and runtime logs are excluded.
 
 Legacy Docker projects keep their original configuration and data. They are not
 silently converted. Preparing a logical transfer from such a project still needs
@@ -92,8 +141,8 @@ its original database available; restoring that transfer creates a native projec
 that no longer needs Docker. Native-to-native transfers use the bundled server and
 clients throughout.
 
-The optional logical transfer currently requires an initialized project database.
-Runtime logs, caches and existing backup directories are excluded from it.
+Runtime logs, caches and existing backup directories are excluded from logical
+transfers.
 Historical export files retain their original bytes; external readers of old
 exports may need embedded recording paths relinked. Interrupted logical restores
 do not resume automatically; inspect the reported destination before retrying.

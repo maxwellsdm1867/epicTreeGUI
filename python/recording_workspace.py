@@ -21,6 +21,85 @@ import traceback
 import uuid
 
 
+def validate_self_contained_h5(h5):
+    """Inspect links/layouts without reading samples or following external files.
+
+    Walk physical hard-linked objects once: Symphony includes experiment/source
+    backlinks. Inspect every hard-link alias's containing group, and resolve soft
+    links only after external links everywhere in this file have been ruled out.
+    """
+    import h5py
+    pending, seen, soft_links = ['/'], set(), []
+    while pending:
+        obj = h5[pending.pop()]
+        address = h5py.h5o.get_info(obj.id).addr
+        if address in seen:
+            continue
+        seen.add(address)
+        if isinstance(obj, h5py.Dataset):
+            if obj.is_virtual:
+                raise ValueError(f'Virtual dataset dependencies are unsupported: {obj.name}')
+            if obj.external:
+                raise ValueError(f'External dataset storage is unsupported: {obj.name}')
+        elif isinstance(obj, h5py.Group):
+            for name in obj:
+                link = obj.get(name, getlink=True)
+                if isinstance(link, h5py.ExternalLink):
+                    raise ValueError(f'External H5 links are unsupported: {obj.name}/{name}')
+                if isinstance(link, h5py.SoftLink):
+                    soft_links.append(obj.name.rstrip('/') + '/' + name)
+                elif isinstance(link, h5py.HardLink):
+                    pending.append(obj.name.rstrip('/') + '/' + name)
+                else:
+                    raise ValueError(f'Unsupported H5 link: {obj.name}/{name}')
+    for path in soft_links:
+        target = resolve_sealed_h5_path(h5, path)
+        if h5py.h5o.get_info(target.id).addr not in seen:
+            raise ValueError(f'H5 link target is outside the sealed source: {path}')
+
+
+def resolve_sealed_h5_path(h5, path):
+    """Resolve one locator without following unsealed links (bounded trace path).
+
+    Inspect each soft-link expansion, including its intermediate components;
+    inspecting only the final object's filename misses external links that lead
+    back into this file, virtual mappings and external raw-storage datasets.
+    """
+    import h5py
+    if not isinstance(path, str) or not path.startswith('/'):
+        raise ValueError('H5 locator must be an absolute path within its source')
+    parts, current, expansions = path.split('/')[1:], h5['/'], 0
+    while parts:
+        name, parts = parts[0], parts[1:]
+        if not name or name == '.':
+            continue
+        if name == '..' or not isinstance(current, h5py.Group):
+            raise ValueError(f'Invalid H5 source locator: {path}')
+        link = current.get(name, getlink=True)
+        if isinstance(link, h5py.ExternalLink):
+            raise ValueError(f'External H5 links are unsupported: {path}')
+        if isinstance(link, h5py.SoftLink):
+            expansions += 1
+            if expansions > 64:
+                raise ValueError(f'Unresolvable or cyclic H5 soft link: {path}')
+            target = link.path
+            if not target.startswith('/'):
+                target = current.name.rstrip('/') + '/' + target
+            parts, current = target.split('/')[1:] + parts, h5['/']
+            continue
+        if not isinstance(link, h5py.HardLink):
+            raise ValueError(f'Missing or unsupported H5 source link: {path}')
+        current = current[name]
+        if current.file.id != h5.id:
+            raise ValueError(f'H5 link target is outside the sealed source: {path}')
+    if isinstance(current, h5py.Dataset):
+        if current.is_virtual:
+            raise ValueError(f'Virtual dataset dependencies are unsupported: {path}')
+        if current.external:
+            raise ValueError(f'External dataset storage is unsupported: {path}')
+    return current
+
+
 def now():
     return dt.datetime.now(dt.timezone.utc).isoformat()
 

@@ -158,7 +158,8 @@ class WorkspaceService:
             raise ValueError('Project transfer restore is incomplete; finish recovery before opening it')
         config = json.loads((self.project_dir / 'catalog.json').read_text())
         if config.get('connection', {}).get('credential_provider', {}).get('kind') == 'native-project':
-            from workspace_portability import rebase_project_paths
+            from workspace_portability import rebase_project_paths, register_empty_project
+            register_empty_project(self.project_dir)
             rebase_project_paths(self.project_dir)
         self.curation_provider = curation_provider
         self._loaded = False

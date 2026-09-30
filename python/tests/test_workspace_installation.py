@@ -1,5 +1,6 @@
 """Workspace launch contracts, without Docker or installing dependencies."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -73,6 +74,8 @@ class WorkspaceSelectionTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.base=Path(self.temp.name);self.app=self.base/'application';self.app.mkdir()
+        isolated_index=patch.dict(os.environ,{'RIEKE_PROJECT_INDEX':str(self.base/'user-state/project-index.json')})
+        isolated_index.start();self.addCleanup(isolated_index.stop)
         self.root=self.base/'Research data'
 
     def test_select_initializes_preserves_files_and_reuses_existing_workspace(self):

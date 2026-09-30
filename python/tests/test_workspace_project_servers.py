@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import socket
 from pathlib import Path
 import tempfile
@@ -15,6 +16,9 @@ class ProjectServerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / 'project'
+        index = patch.dict(os.environ, {'RIEKE_PROJECT_INDEX': str(Path(self.temp.name) / 'preferences/project-index.json')})
+        index.start()
+        self.addCleanup(index.stop)
         self.path.mkdir()
         bootstrap = patch('workspace_project_database.ensure_project_database')
         bootstrap.start()
@@ -93,6 +97,20 @@ class ProjectServerTests(unittest.TestCase):
             result = open_project(self.path, self.identity, self.path)
             self.assertEqual(result['project_uuid'], self.identity)
             spawn.assert_not_called()
+
+    def test_explicit_folder_wins_over_same_identity_native_copy(self):
+        copy = self.path.parent / 'copy'
+        copy.mkdir()
+        project = json.loads((self.path / 'project.json').read_text())
+        project['name'] = 'A copy sorted before the selected project'
+        (copy / 'project.json').write_text(json.dumps(project))
+        for directory in (self.path, copy):
+            catalog = json.loads((self.path / 'catalog.json').read_text())
+            catalog['managed_database'] = {'kind': 'native-mysql'}
+            (directory / 'catalog.json').write_text(json.dumps(catalog))
+        with patch('workspace_project_servers.ready_url', return_value='http://127.0.0.1:8877/') as ready:
+            open_project(self.path, self.identity, self.path)
+            ready.assert_called_once_with(self.path.resolve(), self.identity)
 
     def test_copied_server_record_never_reuses_original_service(self):
         write_server_record(self.path,self.identity,8877)

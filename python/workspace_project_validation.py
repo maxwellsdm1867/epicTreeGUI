@@ -1,5 +1,6 @@
 """Read-only folder preflight. Database availability and H5 checks happen on open."""
 from pathlib import Path
+from itertools import islice
 
 from workspace_projects import _project_record, _read_manifest
 from workspace_storage import DIRECTORIES, LOG_FOLDERS
@@ -30,7 +31,7 @@ def validate_project_folder(path):
     except (OSError, ValueError, UnicodeError, TypeError) as error:
         raise ValueError(f'Cannot open project: {error}') from error
     catalog = _manifest(root, 'catalog.json')
-    result = {'valid': True, 'project': record, 'checks': ['Project and catalog identities match'],
+    result = {'valid': True, 'kind': 'project', 'project': record, 'checks': ['Project and catalog identities match'],
               'warnings': [], 'database_status': 'legacy_external'}
     provider = catalog.get('connection', {}).get('credential_provider', {})
     if record['database_kind'] != 'native-mysql' and provider.get('kind') != 'native-project':
@@ -93,3 +94,85 @@ def validate_project_folder(path):
         result['warnings'].append('Database is open or was not closed cleanly; opening will check whether local recovery is safe. A moved unclean database cannot be opened.')
     result['warnings'].append('Recording availability and checksums are verified when opening.')
     return result
+
+
+def _inspect_exact(candidate):
+    from workspace_portability import MANIFEST, inspect_package
+    if (candidate / MANIFEST).exists() or (candidate / MANIFEST).is_symlink():
+        transfer = inspect_package(candidate)
+        root = candidate.resolve()
+        project = _manifest(root, 'project.json')
+        return {'valid': True, 'kind': 'prepared-transfer',
+                'project': {'uuid': transfer['project_uuid'],
+                            'name': project.get('display_name') or project['name'],
+                            'path': str(root), 'available': True, 'current': False},
+                'database_status': 'restore_required',
+                'checks': ['Prepared project identity and complete file inventory verified',
+                           'Recording and parsed metadata checksums verified'],
+                'warnings': [], 'source_count': len(transfer['sources'])}
+    return validate_project_folder(candidate)
+
+
+def inspect_project_folder(path):
+    """Inspect an exact root, or propose nearby fully validated roots read-only.
+
+    Search at most eight ancestors and 128 immediate children. Never descend
+    into unrelated directory trees, follow directory aliases, open a server,
+    select a candidate automatically, or change the user's selected folder.
+    """
+    if not isinstance(path, (str, Path)) or not str(path).strip():
+        raise ValueError('Choose an absolute project folder path')
+    candidate = Path(str(path).strip()).expanduser()
+    if not candidate.is_absolute() or candidate.is_symlink():
+        raise ValueError('Choose an absolute project folder path, not a symbolic link')
+    if not candidate.is_dir():
+        raise ValueError('Choose an existing project folder')
+    try:
+        return _inspect_exact(candidate)
+    except (ValueError, OSError, UnicodeError, TypeError, KeyError) as error:
+        original_error = error
+
+    def suggestion(folder, reason):
+        if folder.is_symlink() or not folder.is_dir():
+            return None
+        if not any((folder / marker).exists() or (folder / marker).is_symlink()
+                   for marker in ('project.json', 'transfer.json')):
+            return None
+        try:
+            report = _inspect_exact(folder)
+        except (ValueError, OSError, UnicodeError, TypeError, KeyError):
+            return None
+        project = report['project']
+        return {'path': project['path'], 'name': project['name'], 'kind': report['kind'],
+                'reason': reason}
+
+    candidates = []
+    for parent in islice(candidate.parents, 8):
+        if parent.is_symlink():
+            # A nested selection beneath an alias cannot identify its actual root.
+            break
+        found = suggestion(parent, 'containing-project')
+        if found:
+            candidates.append(found)
+            break  # The closest enclosing valid root owns this selection.
+    if not candidates:
+        try:
+            children = list(islice(candidate.iterdir(), 128))
+        except OSError:
+            children = []
+        for child in sorted(children, key=lambda entry: entry.name.casefold()):
+            found = suggestion(child, 'child-project')
+            if found:
+                candidates.append(found)
+    if not candidates:
+        if isinstance(original_error, ValueError):
+            raise original_error
+        raise ValueError(f'Cannot open project: {original_error}') from original_error
+    if candidates[0]['reason'] == 'containing-project':
+        message = 'This folder is inside a project. Choose its top folder below.'
+    elif len(candidates) == 1:
+        message = 'A project was found one folder below. Choose its top folder below.'
+    else:
+        message = 'Several projects were found one folder below. Choose the project you want.'
+    return {'valid': False, 'kind': 'project-root-suggestions', 'restore_required': False,
+            'message': message, 'candidates': candidates}

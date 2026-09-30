@@ -7,7 +7,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 from workspace_projects import create_project, create_project_at, list_managed_projects, list_projects, managed_root
 from workspace_project_servers import open_project
-from workspace_startup_registry import remember_project
+from workspace_startup_registry import remember_project_result
 
 
 def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=None):
@@ -33,8 +33,8 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
         available = {project['path'] for project in inventory['projects']}
         if len(paths) != len(available) or len(set(paths)) != len(paths) or set(paths) != available:
             raise ValueError('Project list changed; refresh it before rearranging projects')
-        from workspace_startup_registry import remember_project_order
-        remember_project_order(current.parent if current else root_provider(), paths)
+        from workspace_startup_registry import remember_project_paths_order
+        remember_project_paths_order(paths)
         return project_inventory()
 
     @app.post('/api/projects')
@@ -46,24 +46,24 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
             if set(body) - {'name', 'project_directory'}:
                 raise ValueError('Choose one exact project folder; do not combine it with a parent root')
             project = create_project_at(body['project_directory'], body.get('name'))
-            return jsonify(project=project, database_status='not_started',
-                message='Project created in the selected folder. Opening it prepares its database.'), 201
+            return jsonify(remember_project_result(project['path'], {'project': project, 'database_status': 'not_started',
+                'message': 'Project created in the selected folder. Opening it prepares its database.'})), 201
         selected_root = body.get('root_directory')
         if selected_root is not None:
             if not isinstance(selected_root, str) or not selected_root.strip() or not Path(selected_root.strip()).expanduser().is_absolute():
                 raise ValueError('Choose an absolute root folder for the new project')
             selected_root = managed_root(selected_root.strip())
         project = create_project(selected_root or root_provider(), body.get('name'), directory=body.get('directory'))
-        return jsonify(project=project, database_status='not_started',
-            message='Empty project created. Opening it prepares its own database; no recording is required.'), 201
+        return jsonify(remember_project_result(project['path'], {'project': project, 'database_status': 'not_started',
+            'message': 'Empty project created. Opening it prepares its own database; no recording is required.'})), 201
 
     @app.post('/api/projects/inspect-folder')
     def project_inspect_folder():
         body = request.get_json(silent=True)
         if request.args or not isinstance(body, dict) or set(body) != {'directory'}:
             raise ValueError('Choose an existing project folder')
-        from workspace_project_validation import validate_project_folder
-        return jsonify(validate_project_folder(body['directory']))
+        from workspace_project_validation import inspect_project_folder
+        return jsonify(inspect_project_folder(body['directory']))
 
     @app.post('/api/projects/open-folder')
     def project_open_folder():
@@ -76,6 +76,9 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
         if not directory.is_dir():
             raise ValueError('Project folder does not exist; choose an existing project')
         directory = directory.resolve()
+        from workspace_portability import MANIFEST
+        if (directory / MANIFEST).exists() or (directory / MANIFEST).is_symlink():
+            raise ValueError('This is a prepared project copy. Add it through project setup and choose a new project folder to restore it.')
         if not (directory / 'project.json').is_file() or not (directory / 'catalog.json').is_file():
             raise ValueError('Choose the project folder containing project.json and catalog.json, not its parent workspace')
         from workspace_project_validation import validate_project_folder
@@ -85,7 +88,7 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
         if current:
             current_record = next(row for row in list_projects(current)['projects'] if row['current'])
             if directory == current:
-                return jsonify(url=request.host_url, project_uuid=project['uuid'])
+                return jsonify(remember_project_result(directory, {'url': request.host_url, 'project_uuid': project['uuid']}, set_last=True))
             if project['uuid'] == current_record['uuid']:
                 import uuid
                 from workspace_projects import _read_manifest
@@ -105,7 +108,8 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
                 other_instance = restored_instance(directory)
                 if not other_instance or other_instance == restored_instance(current):
                     raise ValueError('This folder duplicates the current project identity; use its original folder')
-        return jsonify(open_project(directory, project['uuid'], retinanalysis_dir))
+        result = open_project(directory, project['uuid'], retinanalysis_dir)
+        return jsonify(remember_project_result(directory, result, set_last=True))
 
     @app.post('/api/projects/<project_uuid>/open')
     def project_open(project_uuid):
@@ -118,9 +122,13 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
         if current:
             record = next((p for p in list_projects(current)['projects'] if p['current']), None)
             if record and record['uuid'] == project_uuid:
-                remember_project(root_provider(), project_uuid)
-                return jsonify(url=request.host_url, project_uuid=project_uuid)
-        return jsonify(open_project(root_provider(), project_uuid, retinanalysis_dir, managed=True))
+                return jsonify(remember_project_result(current, {'url': request.host_url, 'project_uuid': project_uuid}, set_last=True))
+        project = next((project for project in inventory['projects']
+                        if project['uuid'] == project_uuid and project['available']), None)
+        if project is None:
+            raise ValueError('Select an available registered project')
+        result = open_project(Path(project['path']), project_uuid, retinanalysis_dir)
+        return jsonify(remember_project_result(project['path'], result, set_last=True))
 
 
 def create_launcher(root, retinanalysis_dir, *, application_dir=None):

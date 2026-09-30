@@ -158,3 +158,126 @@ Successful import completion now opens the global Review imported data dialog fr
 Removed the duplicate Import progress toolbar button. Import H5s now changes to Importing H5s while work is active and opens the same import/history page. File selection and drop accept multiple H5s, queued at app scope, with only one submitted import at a time. Upload uncertainty or failed imports stop the queue; no automatic POST retries occur. Keep the tab open for browser-held pending files.
 
 Browser file chooser confirmed multiple selection. Submitted a new synthetic H5 followed by an existing H5: first completed at 18:51:28 UTC, second started at 18:51:28.919 UTC and was skipped as duplicate. Review appeared after the queue drained, preserving the successful import review despite the last file being a duplicate. Frontend 211 tests and production build passed.
+
+## Project portability audit (2026-09-29)
+
+- Added explicit **Add new project** and **Start a brand new project** actions in
+  the left sidebar. The first recognizes an ordinary project or a received
+  transfer, and automatically shows the verified-copy restore form. The second
+  creates the selected exact project folder and its managed storage/database.
+- The browser created a disposable native project, imported a read-only real
+  Symphony recording (5 cells, 690 epochs), closed it, prepared a checked copy,
+  added that received copy through the ordinary project action, restored it into
+  a fresh folder and opened its overview and protocols. Both sidebar actions and
+  the verified restore confirmation were visually checked.
+  [Recipient restore](portable-project-restore-e2e.png) and
+  [recipient sidebar](portable-project-sidebar-e2e.png).
+- A production API integration test saved two named predicate versions, a query
+  run, an explorer baseline, authored tags, review/inclusion decisions, a tree
+  layout, recent-search shortcuts, protocol pins and a failed-job record. It
+  prepared a transfer, removed the entire disposable donor, restored to a fresh
+  runtime, then compared the actual recipient API responses and 16 waveform
+  samples. The recipient overview also opened successfully.
+- Packages now preserve durable import/app-job/error/storage history, portable
+  search/navigation preferences and every SQL table. Each new package records
+  table columns, row counts and content checksums; restore compares these before
+  updating current file locators. H5 files with external dependencies and damaged
+  preferences are rejected before a recipient database is started.
+- Native tests also exercise both never-opened and opened/closed empty projects,
+  independently restored copies, donor recording removal, safe rejection of
+  missing identity in populated projects and failed restore cleanup.
+- Browser pinning and running a History noise search wrote both choices into
+  `protocols/ui-state/project-preferences.json` (72 epochs, 2 cells). Failed old
+  browser-preference migration preserves its cache across refresh until a save
+  succeeds; stale incoming/browser values and concurrent changes have coverage.
+- Final backend workspace suite: **705 tests passed**, with native MySQL,
+  native transfer and production API portability gates enabled; no skips.
+  Frontend: **251 tests passed** and production build passed. Whitespace checks
+  passed. Original recordings and research projects were not modified.
+
+Reproduce the full backend checks with a suitable real Symphony fixture:
+
+```sh
+RIEKE_TEST_NATIVE_MYSQL=1 RIEKE_TEST_NATIVE_TRANSFER=1 \
+RIEKE_TEST_PORTABLE_APP=1 RIEKE_PORTABILITY_H5=/absolute/path/to/recording.h5 \
+PYTHONPATH=python .rieke-runtime/venv/bin/python -m unittest discover \
+  -s python/tests -p 'test_*workspace*.py'
+```
+
+These checks use fresh folders, credentials and native runtimes on one Apple
+Silicon Mac. A physical second-computer or other-platform transfer remains
+unverified. Restart existing app services to load the new backend before using
+the rebuilt interface.
+
+### Project UI design follow-up
+
+The chooser now uses two icon-led action cards, a six-icon project contents
+graphic, compact folder names and a collapsed preferred-location control.
+The closed-project notice is a compact status row. The project dialog uses
+**Open / Share / Receive** tabs and shows one task at a time, including concise
+file verification and restore results. Native sharing shows the close action
+before destination fields. Keyboard tab navigation and accessible control names
+are preserved.
+
+The real received-copy flow was exercised again through the redesigned dialog.
+Frontend: 251 tests passed and production build passed. Narrow layouts were
+visually checked; the closed-notice dismiss/copy controls stay on the same row.
+
+Final browser checks also covered invalid-folder rejection and refusal to
+restore into an existing destination. SHA-256 comparisons confirmed that the
+existing project's manifest, catalog, database credentials and guard file were
+unchanged. The new-project form created all managed folders, opened the empty
+production overview, and closed cleanly. Design screenshots are saved as
+`portable-project-chooser-design.png`, `portable-project-share-design.png` and
+`portable-project-restore-e2e.png` alongside this report.
+
+### Project roots anywhere and nearby-folder suggestions
+
+Project creation, open, verified restore and relocation now remember exact
+project roots in a local user-profile index. Inventories retain roots outside
+the preferred location across closing and launcher restart, preserve independent
+native copies by path, and show unavailable external drives. Exact creation and
+opening do not write app registry or lock files into the project's parent.
+Prepared transfer folders are excluded from live-project discovery.
+
+Folder inspection proposes the nearest fully validated containing root for
+a nested selection, or valid immediate children for a parent selection. Searches
+are bounded to eight ancestors and 128 immediate entries; no recursive drive
+scan, runtime start or automatic candidate selection occurs. The UI lists each
+candidate with **Use this folder**, followed by an explicit Open or Check action.
+
+The production service flow opened an external project after detecting its root
+from `imports/`, closed its database cleanly and retained that exact root in the
+launcher inventory. Receipt: `project-root-location-verification.json`.
+Final full native backend suite: **803 tests passed**; frontend: **266 tests
+passed** and production build passed. Live browser automation was unavailable
+for a visual recheck of the new suggestion cards; API and frontend logic checks
+passed. Refresh the preview after restarting its service to load the changes.
+
+### Final review before push
+
+The browser connection recovered for the final UI review. Naming guidance and
+the matching name/folder preview, Back and Escape, parent and nested folder
+suggestions, explicit candidate selection and prepared-copy detection all passed.
+Editing a received path clears its earlier verification. Current screenshots:
+`portable-project-naming-design.jpg`, `portable-project-root-suggestions.jpg`
+and `portable-project-receive-verified.jpg`.
+
+Review fixes reject missing package metadata even when a checksum is null,
+serialize managed and exact creation of the same folder, reapply sidebar move
+intent after a preference conflict, preserve completed operations when saving
+the local project index fails, and keep malformed old browser shortcuts from
+crashing the search screen. The original browser cache is retained until a
+successful save. Regression tests cover each failure.
+
+The push is prepared from a separate snapshot based on the current committed
+code plus only the project portability changes and required dependencies.
+Unrelated desktop, update, source-identity and performance edits are excluded.
+The initial snapshot passed 693 backend tests with all native portability gates
+enabled, 244 frontend tests and the production build. The final safeguards were
+then incorporated and checked again before commit.
+
+Final feature-only snapshot: **697 backend tests passed**, all native gates
+enabled with no skips; **245 frontend tests passed** and production build passed.
+Whitespace checks passed. The additional tests in the larger shared working
+tree belong to other ongoing changes and are not part of this push.
