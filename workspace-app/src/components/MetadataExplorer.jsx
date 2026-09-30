@@ -1,4 +1,5 @@
 import EpochViewer from './EpochViewer.jsx';
+import {treePreviewScope} from '../pagedTreeRequest.js';
 import {predicateWithTagFilters,tagFilterLabel} from '../protocolViewFilter.js';
 import {searchInclusionPredicate,searchEpochInclusion,toggleSearchInclusion} from '../searchInclusion.js';
 import SearchPresets from './SearchPresets.jsx';
@@ -183,6 +184,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
   const resultLoading=hasViewFilter?filteredPreview.loading||!currentFilteredPreview&&!filteredPreview.error:(resultsFromDraft?draftPreview.loading:tree.loading);
   const resultError=hasViewFilter&&filteredPreview.key===filteredKey?filteredPreview.error:(resultsFromDraft?draftPreview.error:tree.error);
   const displayTree=hasViewFilter?{data:currentFilteredPreview,loading:resultLoading,error:resultError}:tree;
+
   useEffect(()=>{const node=layoutRef.current;if(!node)return;const observer=new ResizeObserver(entries=>setLayoutWidth(entries[0].contentRect.width));observer.observe(node);return()=>observer.disconnect();},[step,focused,initialCandidateLoading,!!displayTree.data,displayTree.loading,!!displayTree.error]);
   useEffect(()=>{
     if(!hasViewFilter||!resultPredicate||step==='filter'||!baseResultPreview)return;
@@ -278,7 +280,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
         toolbar={{portalTarget:epochToolbarTarget,designMode:true,onBrowse:showEpochResults,onExport:openResultsExport,exportDisabled,actions:resultActions}}
         layout={{layoutRef,className:'mx-layout',sizes:pane,treeOpen:true,metadataOpen:false,onResize:(name,value)=>{if(name==='tree')setGroupingWidth(value);},onResizeCommit:(name,value)=>{if(name==='tree')try{localStorage.setItem('workspace.explorer.groupingWidth',String(value));}catch{}}}}
         builder={{catalogData:displayTree.data.catalog,value:splits.split(',').filter(Boolean),onChange:changeSplits,preview:pagedInfo&&pagedInfo.split_order?.join(',')===splits?{...displayTree.data.tree,...pagedInfo,count:displayTree.data.matched_count}:displayTree.data.tree,loading:displayTree.loading||pagedStatus.loading,error:displayTree.error||pagedStatus.error}}
-        columnTree={{inclusionForEpoch:epoch=>searchEpochInclusion(epoch,excludedEpochs),onToggleInclusion:toggleInclusion,actionsDisabled:busy,predicate:resultPredicate,splits,revision:`${viewRevision}:${generation}`,initialNavigation:treeNavigation,onNavigationChange:setTreeNavigation,expectedRevision:displayTree.data.tree_revision,onRefreshPreview:()=>setGeneration(value=>value+1),onMetadata:setPagedInfo,onStatus:setPagedStatus,onSelectEpoch:uuid=>{setMatchingNavigation({revision:displayTree.data.tree_revision,focused:uuid});setFocused(null);setResultsFromDraft(false);setStep('results');}}}/>}</Status>
+        columnTree={{inclusionForEpoch:epoch=>searchEpochInclusion(epoch,excludedEpochs),onToggleInclusion:toggleInclusion,actionsDisabled:busy,predicate:resultPredicate,...treePreviewScope(displayTree.data),revision:`${viewRevision}:${generation}`,initialNavigation:treeNavigation,onNavigationChange:setTreeNavigation,onRefreshPreview:()=>setGeneration(value=>value+1),onMetadata:setPagedInfo,onStatus:setPagedStatus,selected:matchingNavigation?.focused,onSelectEpoch:uuid=>setMatchingNavigation({revision:displayTree.data.tree_revision,focused:uuid})}}/>}</Status>
 
     </>}
   </div>;

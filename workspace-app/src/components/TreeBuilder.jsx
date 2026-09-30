@@ -8,6 +8,7 @@ import { startPointerDrag } from '../pointerDrag.js';
 import {COMMON_TREE_FIELDS,treeFieldLabel,treeFieldHint,treeFieldExamples,treeFieldMatches,groupingFieldRank} from '../treeFieldPresentation.js';
 import {jointDefinition,shortFieldLabel,uncombineLevel} from '../jointGrouping.js';
 import JointGroupingEditor from './JointGroupingEditor.jsx';
+import {useDelayedLoading} from './NavigationLoading.jsx';
 
 const categories = ['Common', 'Parameters', 'Combinations', 'Conditions', 'Suggested', 'All'];
 const categoryLabel = category => category === 'Suggested' ? 'Recommended' : category === 'Parameters' ? 'Protocol settings' : category === 'All' ? 'All metadata' : category;
@@ -145,6 +146,7 @@ export default function TreeBuilder({protocolId, catalogPath, catalogData, query
   }
   const isCurrent = !loading && sameOrder((preview?.levels || []).map(level=>level.field),order);
   const pending = loading || orderKey!==valueKey;
+  const showPending=useDelayedLoading(pending&&!error);
   async function copyMatlab(){
     if(!isCurrent||pending||error||!preview?.matlab_command)return;
     try{await navigator.clipboard.writeText(preview.matlab_command);setCopyMessage({text:'Copied EpicTreeGUI command',error:false});}
@@ -210,8 +212,8 @@ export default function TreeBuilder({protocolId, catalogPath, catalogData, query
       <p className="tb-note">Source values only. Missing values remain in the tree.</p>
     </>}</div>
     <div className={`tb-preview-status ${error?'tb-error-status':''}`} role="status">
-      {pending?<LoaderCircle size={13} className="spin"/>:error?<X size={13}/>:<Check size={13}/>}
-      <span>{pending?'Updating tree…':error?'Tree could not be updated. Your data is unchanged.':`${number(preview?.count ?? catalog.data?.total)} matching epochs · tree preview`}</span>
+      {showPending?<LoaderCircle size={13} className="spin"/>:error?<X size={13}/>:<Check size={13}/>}
+      <span>{showPending?'Updating tree…':error?'Tree could not be updated. Your data is unchanged.':`${number(preview?.count ?? catalog.data?.total)} matching epochs · tree preview`}</span>
     </div>
     <details className="tb-matlab-code"><summary><Code2 size={14}/> EpicTreeGUI code</summary>
       <p>Export this layout to EpicTreeGUI, then run this line from the extracted bundle with EpicTreeGUI on your MATLAB path.</p>
