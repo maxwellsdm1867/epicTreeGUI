@@ -39,3 +39,14 @@ test('shared viewer accepts no selected epoch and no source-specific extras',asy
  assert.match(html,/Choose an epoch/);
  assert.doesNotMatch(html,/Include in analysis/);
 });
+test('common recorded scientific context preserves source facts and marks configured-only control history',async()=>{
+ const {default:ScientificContext}=await server.ssrLoadModule('/src/components/ScientificContext.jsx');
+ const html=render(ScientificContext,{epoch:{protocol_name:'example.VariableHistoryNoiseCurInject',cell_type:'On Parasol',source_filename:'fixture.h5',group_label:'[]',parameters:{isControl:1,history1:[0,675],history2:[0,50],target:[0,200]},metadata:{group:{properties:{externalSolutionAdditions:[]}}}}});
+ assert.match(html,/Recording and condition context/);
+ assert.match(html,/Control epoch · target only/);
+ const text=html.replace(/<!--.*?-->/g,'').replace(/<[^>]*>/g,'');
+ assert.match(text,/History 1 · configured only/);
+ assert.match(html,/\[\] \(empty recorded field\)/);
+ assert.match(text,/0 \/ 675/);
+ assert.match(html,/fixture\.h5/);
+});

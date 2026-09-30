@@ -1,3 +1,4 @@
+import ScientificContext from './ScientificContext.jsx';
 import {EpochBrowserToolbar,EpochNavigation} from './EpochBrowserChrome.jsx';
 import EpochBrowserLayout from './EpochBrowserLayout.jsx';
 import EpochTreePane from './EpochTreePane.jsx';
@@ -28,6 +29,6 @@ export default function EpochViewer({className='epoch-inspector-mode',ariaLabel=
     <EpochBrowserLayout {...layout} editing={designMode}
       tree={designMode?<TreeBuilder {...builder}/>:<EpochTreePane {...treePane} childrenInTree={false}>{!layout.metadataOpen&&<StableContent {...resource} className="stable-tag-dock" data={epoch}>{tags}</StableContent>}</EpochTreePane>}
       detail={designMode?<PagedTree {...columnTree} presentation="columns" design/>:detail}
-      metadata={metadata&&<StableContent {...resource} className="stable-metadata" data={epoch}><MetadataPanel {...metadata} epoch={epoch} tags={tags}/></StableContent>}/>
+      metadata={metadata&&<StableContent {...resource} className="stable-metadata" data={epoch}><MetadataPanel {...metadata} epoch={epoch} tags={tags} context={epoch&&<ScientificContext epoch={epoch}/>}/></StableContent>}/>
   </div>;
 }
