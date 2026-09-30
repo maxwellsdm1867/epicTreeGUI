@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {absoluteFolderPath,browseFolder,newFolderPath,readFolderListing} from './folderBrowser.js';
+import {absoluteFolderPath,browseFolder,newFolderPath,readFolderListing,shouldCreateNewFolder} from './folderBrowser.js';
 
 test('native existing selection returns its exact absolute folder and never invokes browser fallback',async()=>{
   let chosen=0;
@@ -48,6 +48,24 @@ test('create can use a native-selected empty root exactly or propose a child fro
   assert.equal(child,'/research/Study');
 });
 
+test('create preserves a missing proposed child when its nearest existing parent is empty',async()=>{
+  const existingEmpty={directory:'/research/Empty root',empty:true,requested_exists:true};
+  const missingChild={directory:'/research/Empty root',empty:true,requested_exists:false};
+  assert.equal(shouldCreateNewFolder(existingEmpty),false);
+  assert.equal(shouldCreateNewFolder(missingChild),true);
+  assert.equal(shouldCreateNewFolder({empty:false,requested_exists:true}),true);
+  const selected=await browseFolder({purpose:'create',directory:'/research/Empty root/NewStudy',nativeBridge:null,chooseDialog:async options=>shouldCreateNewFolder(missingChild)?{directory:missingChild.directory,name:options.initialName}:missingChild.directory});
+  assert.equal(selected,'/research/Empty root/NewStudy');
+});
+
+test('an unfinished typed path does not block native or browser folder selection',async()=>{
+  for(const directory of ['Study','~/Study','/folder\0unfinished']){
+    assert.equal(await browseFolder({directory,nativeBridge:{chooseProjectFolder:async()=>'/research/Chosen'},chooseDialog:()=>assert.fail('Native choice must not open fallback')}),'/research/Chosen');
+    assert.equal(await browseFolder({directory,purpose:'create',suggestedName:'Study',nativeBridge:null,chooseDialog:async options=>{assert.equal(options.initialDirectory,'');assert.equal(options.initialName,'Study');return {directory:'/research',name:options.initialName};}}),'/research/Study');
+  }
+  await assert.rejects(browseFolder({directory:'unfinished',nativeBridge:null,chooseDialog:async()=> 'relative selection'}),/absolute folder/);
+});
+
 test('invalid folder paths and child names fail before callers can mutate the filesystem',async()=>{
   for(const path of ['relative','~/Study','/folder\0secret',42])assert.throws(()=>absoluteFolderPath(path),/absolute folder/);
   for(const name of ['', '.', '..', '../outside','a/b','a\\b','bad\0name'])assert.throws(()=>newFolderPath('/parent',name),/folder name/);
@@ -65,4 +83,5 @@ test('folder listing uses only a paged GET path, preserves shortcuts and checks 
   assert.equal(result,reply);assert.equal(result.truncated,true);
   await assert.rejects(readFolderListing({request:async()=>({...reply,next_offset:200})}),/next folder page/);
   await assert.rejects(readFolderListing({request:async()=>({...reply,empty:'yes'})}),/empty-folder/);
+  await assert.rejects(readFolderListing({request:async()=>({...reply,requested_exists:'yes'})}),/requested-folder/);
 });

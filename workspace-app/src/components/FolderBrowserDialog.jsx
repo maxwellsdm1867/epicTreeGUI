@@ -2,7 +2,7 @@ import {useEffect,useId,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {ArrowLeft,ArrowRight,ChevronRight,Folder,FolderOpen,FolderPlus,Home,LoaderCircle,MapPin,Pencil,X} from 'lucide-react';
 import {api} from '../api.js';
-import {absoluteFolderPath,folderParentPath,newFolderPath,readFolderListing} from '../folderBrowser.js';
+import {absoluteFolderPath,folderParentPath,newFolderPath,readFolderListing,shouldCreateNewFolder} from '../folderBrowser.js';
 import './FolderBrowserDialog.css';
 
 export function openFolderBrowserDialog(options){
@@ -28,7 +28,7 @@ export default function FolderBrowserDialog({purpose='existing',title='Choose a 
   useEffect(()=>{
     const controller=new AbortController();setLoading(true);setError('');
     readFolderListing({directory,offset,request:(path)=>request(path,{signal:controller.signal})}).then(listing=>{
-      if(controller.signal.aborted)return;setData(listing);setLoading(false);if(purpose==='create')setCreateNew(!listing.empty);
+      if(controller.signal.aborted)return;setData(listing);setLoading(false);if(purpose==='create')setCreateNew(shouldCreateNewFolder(listing));
     }).catch(failure=>{if(!controller.signal.aborted){setData(null);setLoading(false);setError(`Cannot browse this folder: ${failure.message}`);}});
     return()=>controller.abort();
   },[directory,offset,retry,request,purpose]);

@@ -316,3 +316,11 @@ the project name and folder value, kept setup open and returned focus to Browse.
 Main Cancel closed setup and restored focus to its sidebar opener at the same
 overview URL. Tab/Shift+Tab remained in the nested picker. Choosing a proposed
 new folder filled the form without creating that folder on disk.
+
+Final audit regression: a missing proposed child inside an empty parent now stays
+a new-folder proposal rather than selecting its parent. The API reports whether
+the requested directory exists; the picker preserves the entered child name. A
+live check returned the exact proposed child path, while its parent stayed empty
+and the child was not created. Unfinished typed paths can still open Browse.
+10 focused folder-client tests, 12 folder API tests and the scoped production
+build pass. [Empty-parent check](project-browse-empty-parent-regression.jpg).

@@ -20,16 +20,19 @@ def _directory(path):
     try:
         # Resolving supports normal macOS aliases such as /var and /tmp.
         candidate = candidate.resolve()
-        while not candidate.exists():
+        requested_exists = candidate.exists()
+        exists = requested_exists
+        while not exists:
             parent = candidate.parent
             if parent == candidate:
                 raise ValueError('The folder does not exist.')
             candidate = parent
+            exists = candidate.exists()
         if not candidate.is_dir():
             raise ValueError('Choose a folder, not a file.')
         if not os.access(candidate, os.R_OK | os.X_OK):
             raise ValueError('Access denied for this folder.')
-        return candidate
+        return candidate, requested_exists
     except PermissionError as error:
         raise ValueError('Access denied for this folder.') from error
     except (OSError, RuntimeError) as error:
@@ -62,7 +65,7 @@ def list_folder(path=None, *, offset=0, limit=PAGE_LIMIT):
     """
     if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= PAGE_LIMIT:
         raise ValueError('Use a nonnegative offset and a folder page size from 1 to 200.')
-    root = _directory(path)
+    root, requested_exists = _directory(path)
     folders, truncated, empty = [], False, True
     try:
         with os.scandir(root) as entries:
@@ -90,7 +93,7 @@ def list_folder(path=None, *, offset=0, limit=PAGE_LIMIT):
             'folders': folders[offset:offset + limit], 'locations': _locations(),
             'offset': offset, 'limit': limit, 'total': len(folders), 'has_more': has_more,
             'next_offset': offset + limit if has_more else None, 'truncated': truncated,
-            'empty': empty and not truncated}
+            'empty': empty and not truncated, 'requested_exists': requested_exists}
 
 
 def register_folder_browser_routes(app):

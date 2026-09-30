@@ -46,6 +46,7 @@ class FolderBrowserTests(unittest.TestCase):
         self.assertEqual([folder['name'] for folder in result['folders']], ['nested'])
         self.assertEqual(before, set(self.root.rglob('*')))
         self.assertFalse(target.exists())
+        self.assertFalse(result['requested_exists'])
 
     def test_home_locations_and_root_parent(self):
         for name in ('Documents', 'Desktop'):
@@ -65,6 +66,7 @@ class FolderBrowserTests(unittest.TestCase):
         result = browser.list_folder(alias / 'nested/future project')
         self.assertEqual(result['directory'], str(self.root / 'alpha/nested'))
         self.assertNotIn('directory alias', result['directory'])
+        self.assertTrue(browser.list_folder(alias)['requested_exists'])
 
     def test_pagination_is_explicit_and_bounded(self):
         first = browser.list_folder(self.root, limit=2)
@@ -91,6 +93,7 @@ class FolderBrowserTests(unittest.TestCase):
         selected = self.root / 'empty folder'
         selected.mkdir()
         self.assertTrue(browser.list_folder(selected)['empty'])
+        self.assertTrue(browser.list_folder(selected)['requested_exists'])
         for name in ('recording.h5', '.hidden file'):
             with self.subTest(name=name):
                 file = selected / name
@@ -99,6 +102,16 @@ class FolderBrowserTests(unittest.TestCase):
                 self.assertEqual(result['folders'], [])
                 self.assertFalse(result['empty'])
                 file.unlink()
+
+    def test_missing_destination_inside_empty_parent_is_not_an_existing_empty_folder(self):
+        parent = self.root / 'Empty parent'
+        parent.mkdir()
+        result = browser.list_folder(parent / 'New study')
+        self.assertEqual(result['directory'], str(parent))
+        self.assertTrue(result['empty'])
+        self.assertFalse(result['requested_exists'])
+        self.assertTrue(browser.list_folder(parent)['requested_exists'])
+        self.assertFalse((parent / 'New study').exists())
 
     def test_inaccessible_children_are_omitted_and_selected_folder_reports_error(self):
         actual_access = os.access
