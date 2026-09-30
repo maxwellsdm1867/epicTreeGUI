@@ -1457,7 +1457,9 @@ def create_app(project_dir, retinanalysis_dir, *, service=None, store=None, expl
             return jsonify(error="Unknown API endpoint"), 404
         if not frontend.exists():
             return "Build workspace-app first with npm run build.", 503
-        return send_from_directory(frontend, path)
+        from workspace_frontend import project_frontend_response
+        from workspace_projects import list_projects
+        return project_frontend_response(frontend, path, lambda: list_projects(project_dir))
 
     if shared_annotations:
         from workspace_external_tags import register_external_tag_routes

@@ -21,6 +21,22 @@ def register_project_routes(app, *, retinanalysis_dir, project_dir=None, root=No
         result = list_projects(current) if current else list_managed_projects(root_provider())
         return jsonify({**result, 'launcher': current is None})
 
+    @app.post('/api/projects/order')
+    def project_order():
+        body = request.get_json(silent=True)
+        if request.args or not isinstance(body, dict) or set(body) != {'paths'}:
+            raise ValueError('Project order requires the complete project folder list')
+        paths = body['paths']
+        if not isinstance(paths, list) or len(paths) > 1000 or any(not isinstance(path, str) or len(path) > 4096 for path in paths):
+            raise ValueError('Project order must contain validated project folders')
+        inventory = list_projects(current) if current else list_managed_projects(root_provider())
+        available = {project['path'] for project in inventory['projects']}
+        if len(paths) != len(available) or len(set(paths)) != len(paths) or set(paths) != available:
+            raise ValueError('Project list changed; refresh it before rearranging projects')
+        from workspace_startup_registry import remember_project_order
+        remember_project_order(current.parent if current else root_provider(), paths)
+        return project_inventory()
+
     @app.post('/api/projects')
     def project_create():
         body = request.get_json(silent=True)
@@ -158,7 +174,8 @@ def create_launcher(root, retinanalysis_dir, *, application_dir=None):
     def frontend_page(path='index.html'):
         if path.startswith('api/'):
             return jsonify(error='Open a project before using project operations.'),404
-        return send_from_directory(frontend,path)
+        from workspace_frontend import project_frontend_response
+        return project_frontend_response(frontend, path, lambda: {**list_managed_projects(selected_root[0]), 'launcher': True})
     return app
 
 

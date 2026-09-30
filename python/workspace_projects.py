@@ -91,9 +91,9 @@ def list_projects(project_dir):
         occurrences[candidate['uuid']] = occurrences.get(candidate['uuid'], 0) + 1
     projects = [candidate for candidate in candidates if candidate.get('database_kind') == 'native-mysql' or occurrences[candidate['uuid']] == 1]
     projects.sort(key=lambda item: (item['name'].casefold(), item['name'], item['path']))
-    from workspace_startup_registry import read_registry
+    from workspace_startup_registry import read_registry, ordered_projects
     saved = read_registry(current_dir.parent)
-    return {'current_project_uuid': current['uuid'], 'projects': [current, *projects],
+    return {'current_project_uuid': current['uuid'], 'projects': ordered_projects([current, *projects], saved),
             'managed_root': str(current_dir.parent), 'last_project_uuid': saved.get('last_project_uuid'), 'launcher': False}
 
 
@@ -122,12 +122,12 @@ def list_managed_projects(root, current_project=None):
     for project in projects:
         counts[project['uuid']] = counts.get(project['uuid'], 0) + 1
     projects = [p for p in projects if p.get('database_kind') == 'native-mysql' or counts[p['uuid']] == 1]
-    projects.sort(key=lambda p: (not p['current'], p['name'].casefold(), p['path']))
-    from workspace_startup_registry import read_registry
+    projects.sort(key=lambda p: (p['name'].casefold(), p['name'], p['path']))
+    from workspace_startup_registry import read_registry, ordered_projects
     saved = read_registry(root)
     identities = {p['uuid'] for p in projects}
     return {'current_project_uuid': next((p['uuid'] for p in projects if p['current']), None),
-            'projects': projects, 'managed_root': str(root),
+            'projects': ordered_projects(projects, saved), 'managed_root': str(root),
             'workspace_initialized': (root / '.rieke-workspace.json').is_file(),
             'last_project_uuid': saved.get('last_project_uuid') if saved.get('last_project_uuid') in identities and counts.get(saved.get('last_project_uuid')) == 1 else None}
 

@@ -28,7 +28,7 @@ class ProjectDiscoveryTests(unittest.TestCase):
             'connection': {'password': 'must never leave registry'}, 'database': 'fixture'}))
         return path
 
-    def test_current_first_display_name_preferred_and_no_connection_contents_returned(self):
+    def test_stable_order_display_name_preferred_and_no_connection_contents_returned(self):
         other = self.make_project('other', 'Internal name', display_name='Spike Response Model')
         before = (self.current / 'project.json').stat().st_mtime_ns
         result = list_projects(self.current)
@@ -53,8 +53,47 @@ class ProjectDiscoveryTests(unittest.TestCase):
             (path/'catalog.json').write_text(json.dumps(catalog))
         result=list_projects(self.current)
         self.assertEqual(len(result['projects']),2)
-        self.assertEqual([p['current'] for p in result['projects']],[True,False])
+        self.assertEqual([p['current'] for p in result['projects']],[False,True])
         self.assertEqual(len(list_managed_projects(self.root)['projects']),2)
+
+    def test_switching_current_project_never_promotes_it(self):
+        from workspace_projects import list_managed_projects
+        other = self.make_project('alpha', 'Alpha')
+        third = self.make_project('zeta', 'Zeta')
+        expected = [str(other.resolve()), str(self.current.resolve()), str(third.resolve())]
+        for current in (self.current, other, third):
+            result = list_projects(current)
+            self.assertEqual([row['path'] for row in result['projects']], expected)
+            self.assertEqual(next(row['path'] for row in result['projects'] if row['current']), str(current.resolve()))
+            self.assertEqual([row['path'] for row in list_managed_projects(self.root, current)['projects']], expected)
+
+    def test_drag_order_survives_switches_and_last_project_updates(self):
+        from workspace_startup_registry import remember_project, remember_project_order
+        other = self.make_project('alpha', 'Alpha')
+        paths = [str(self.current.resolve()), str(other.resolve())]
+        remember_project_order(self.root, paths)
+        remember_project(self.root, json.loads((other / 'project.json').read_text())['project_uuid'])
+        for current in (self.current, other):
+            self.assertEqual([row['path'] for row in list_projects(current)['projects']], paths)
+        third = self.make_project('new', 'A new project')
+        self.assertEqual([row['path'] for row in list_projects(other)['projects']], paths + [str(third.resolve())])
+
+    def test_order_route_accepts_only_a_complete_validated_folder_list(self):
+        from flask import Flask, jsonify
+        from workspace_launcher import register_project_routes
+        app = Flask(__name__)
+        app.register_error_handler(ValueError, lambda error: (jsonify(error=str(error)), 400))
+        register_project_routes(app, retinanalysis_dir=self.root, project_dir=self.current)
+        other = self.make_project('alpha', 'Alpha')
+        client = app.test_client()
+        paths = [str(self.current.resolve()), str(other.resolve())]
+        result = client.post('/api/projects/order', json={'paths': paths})
+        self.assertEqual(result.status_code, 200, result.get_json())
+        self.assertEqual([row['path'] for row in result.get_json()['projects']], paths)
+        before = (self.root / '.rieke-os.json').read_text()
+        for invalid in [paths[:1], [paths[0], paths[0]], paths + ['/outside'], 'bad', [1], None]:
+            self.assertEqual(client.post('/api/projects/order', json={'paths': invalid}).status_code, 400)
+            self.assertEqual((self.root / '.rieke-os.json').read_text(), before)
 
     def test_only_valid_immediate_siblings_are_discovered(self):
         self.make_project('container/nested', 'Nested project')
@@ -111,7 +150,7 @@ class ProjectDiscoveryTests(unittest.TestCase):
         self.make_project('a', 'Beta')
         invalid = self.make_project('invalid-id', 'Bad identity', 'not-a-uuid')
         self.assertEqual([row['name'] for row in list_projects(self.current)['projects']],
-                         ['Current project', 'Alpha', 'Beta'])
+                         ['Alpha', 'Beta', 'Current project'])
         with self.assertRaises(ValueError):
             list_projects(invalid)
 
