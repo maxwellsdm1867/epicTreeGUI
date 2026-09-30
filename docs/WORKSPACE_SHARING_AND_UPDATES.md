@@ -2,6 +2,11 @@
 
 ## Choose the project folder itself
 
+The **+** in the left project rail opens a popup over the current workspace.
+Choose either project action inside it. The workspace remains visible; **×**
+or **Escape** closes the popup and returns focus to **+**. Creating a new
+project from the welcome screen also opens a popup.
+
 The left sidebar has two project actions:
 
 - **Add new project** opens an existing working project or a portable copy someone

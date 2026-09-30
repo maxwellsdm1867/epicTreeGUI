@@ -281,3 +281,14 @@ Final feature-only snapshot: **697 backend tests passed**, all native gates
 enabled with no skips; **245 frontend tests passed** and production build passed.
 Whitespace checks passed. The additional tests in the larger shared working
 tree belong to other ongoing changes and are not part of this push.
+
+### Project popup follow-up
+
+The project rail **+** now opens a native modal chooser above the existing app.
+Creation stays within that popup; the welcome screen also opens creation in a
+modal. A live disposable workspace verified that its overview URL and contents
+remain in place, **×** and **Escape** return focus to **+**, and forward/reverse
+Tab stay inside the popup. No project files were created by this UI check.
+Screenshots: `project-popup-over-workspace.jpg` and
+`project-create-popup-over-workspace.jpg`. The feature-only frontend suite and
+production build were checked again for this UI correction.

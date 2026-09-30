@@ -14,18 +14,19 @@ function ProjectContents({creating=false}){
   </div>;
 }
 
-export default function ProjectOnboarding({registry,onSelect,onCreated,onCancel,onWorkspaceChanged,onOpenProject,createOnly=false,loading=false,error=null}){
+export default function ProjectOnboarding({registry,onSelect,onCreated,onCancel,onWorkspaceChanged,onOpenProject,onNewProject,onBusyChange,createOnly=false,modal=false,titleId,loading=false,error=null}){
   const [creating,setCreating]=useState(createOnly),[name,setName]=useState(''),[directory,setDirectory]=useState(''),[busy,setBusy]=useState(false),[failure,setFailure]=useState(''),[created,setCreated]=useState(null);
   const [selectedRegistry,setSelectedRegistry]=useState(null),[rootEditing,setRootEditing]=useState(false),[rootPath,setRootPath]=useState(registry?.managed_root||''),[rootMessage,setRootMessage]=useState('');
   const currentRegistry=selectedRegistry||registry;
   const projects=currentRegistry?.projects||[];
   const recent=projects.filter(item=>item.uuid===currentRegistry?.last_project_uuid),last=projects.find(item=>item.path===currentRegistry?.last_project_path)||(recent.length===1?recent[0]:null);
   useEffect(()=>{
-    if(!onCancel)return;
+    if(!onCancel||modal)return;
     function cancel(event){if(event.key==='Escape'&&!busy&&!loading){event.preventDefault();onCancel();}}
     document.addEventListener('keydown',cancel);
     return()=>document.removeEventListener('keydown',cancel);
-  },[onCancel,busy,loading]);
+  },[onCancel,busy,loading,modal]);
+  useEffect(()=>{onBusyChange?.(busy||loading);},[busy,loading,onBusyChange]);
   useEffect(()=>{if(selectedRegistry&&registry?.managed_root===selectedRegistry.managed_root&&registry?.workspace_initialized===selectedRegistry.workspace_initialized)setSelectedRegistry(null);},[registry,selectedRegistry]);
   async function chooseRoot(event){
     event.preventDefault();if(busy||!rootPath.trim())return;setBusy(true);setFailure('');setRootMessage('');
@@ -38,8 +39,8 @@ export default function ProjectOnboarding({registry,onSelect,onCreated,onCancel,
     try{const result=await api('/projects',{method:'POST',body:{name:name.trim(),...(directory.trim()?{project_directory:directory.trim()}:{})}});if(!result.project?.uuid)throw new Error('The server did not return a project identity. Refresh the project list before retrying.');setCreated({...result.project,registry_warning:result.registry_warning});await onCreated?.(result.project);}
     catch(error){setFailure(error.message);}finally{setBusy(false);}
   }
-  return <section className={`project-onboarding ${createOnly?'creation-only':''}`} aria-label="Project setup">
-    <header><span className="onboarding-mark"><Activity size={25} aria-hidden="true"/></span><div><small>RIEKE OS</small><h1>{created?'Project ready':creating?'New project':'Your projects'}</h1></div>{onCancel&&<button className="icon-button" onClick={onCancel} disabled={busy} aria-label="Close project setup"><X size={19}/></button>}</header>
+  return <section className={`project-onboarding ${createOnly?'creation-only':''} ${modal?'project-onboarding-modal':''}`} aria-label="Project setup">
+    <header><span className="onboarding-mark"><Activity size={25} aria-hidden="true"/></span><div><small>RIEKE OS</small><h1 id={titleId}>{created?'Project ready':creating?'New project':'Your projects'}</h1></div>{onCancel&&<button className="icon-button" onClick={onCancel} disabled={busy||loading} aria-label="Close project setup"><X size={19}/></button>}</header>
     {(error||failure)&&<div className="onboarding-error" role="alert">{failure||error}</div>}
     {created?<div className="onboarding-created" role="status"><span className="onboarding-ready-icon"><Check size={25} aria-hidden="true"/></span><div><strong>{created.name}</strong><span title={created.path} aria-label={`Project folder: ${created.path}`}>{shortPath(created.path)}</span></div><p role={loading?'status':undefined}>{loading?<><LoaderCircle size={15} className="spin"/> Opening project…</>:'Ready to add recordings.'}</p>{created.registry_warning&&<p className="onboarding-registry-warning">{created.registry_warning}</p>}<div className="onboarding-actions"><button disabled={loading} className="primary" onClick={()=>onSelect?.(created)}>Open project <ArrowRight size={15}/></button>{!createOnly&&<button disabled={loading} onClick={()=>{setCreated(null);setCreating(false);setFailure('');}}>Back to projects</button>}</div></div>:creating?<form className="onboarding-create-form" onSubmit={create}>
       <label><span className="onboarding-step-label"><b aria-hidden="true">1</b> Project name</span><small>Shown in the app</small><input autoFocus required maxLength={120} value={name} disabled={busy} onChange={event=>setName(event.target.value)} placeholder="Spike response study"/></label>
@@ -47,7 +48,7 @@ export default function ProjectOnboarding({registry,onSelect,onCreated,onCancel,
       <div className="onboarding-folder-preview"><div className="onboarding-location"><FolderOpen size={21} aria-hidden="true"/><span><strong title={name.trim()||directory.trim()}>{name.trim()||folderName(directory.trim())||'Your project'}</strong><small title={directory.trim()} aria-label={directory.trim()?`Project folder: ${directory.trim()}`:undefined}>{directory.trim()?`Folder · ${shortPath(directory.trim())}`:'Choose a folder above'}</small></span></div><ProjectContents creating/></div>
       <footer>{!createOnly&&<button type="button" disabled={busy} onClick={()=>setCreating(false)}>Back to projects</button>}<button type="submit" className="primary" disabled={busy||!name.trim()||!directory.trim()}>{busy?<><LoaderCircle size={15} className="spin"/> Creating project…</>:<>Create & open <ArrowRight size={15}/></>}</button></footer>
     </form>:<>
-      <div className="onboarding-main-actions">{onOpenProject&&<button className="onboarding-action-card" disabled={loading||busy} onClick={onOpenProject}><span className="onboarding-action-icon"><FolderOpen size={27} aria-hidden="true"/></span><span><strong>Add new project</strong><small>Existing project root or portable copy</small></span><ArrowRight size={17} aria-hidden="true"/></button>}<button className="onboarding-action-card" disabled={loading||busy} onClick={()=>setCreating(true)}><span className="onboarding-action-icon"><Plus size={27} aria-hidden="true"/></span><span><strong>Start a brand new project</strong><small>Empty project</small></span><ArrowRight size={17} aria-hidden="true"/></button></div>
+      <div className="onboarding-main-actions">{onOpenProject&&<button className="onboarding-action-card" disabled={loading||busy} onClick={onOpenProject}><span className="onboarding-action-icon"><FolderOpen size={27} aria-hidden="true"/></span><span><strong>Add new project</strong><small>Existing project root or portable copy</small></span><ArrowRight size={17} aria-hidden="true"/></button>}<button className="onboarding-action-card" disabled={loading||busy} onClick={()=>onNewProject?onNewProject():setCreating(true)}><span className="onboarding-action-icon"><Plus size={27} aria-hidden="true"/></span><span><strong>Start a brand new project</strong><small>Empty project</small></span><ArrowRight size={17} aria-hidden="true"/></button></div>
       <ProjectContents/>
       <div className="onboarding-list-heading"><h2>Your project roots</h2><span>{projects.length}</span></div>
       {loading&&<p className="onboarding-loading" role="status"><LoaderCircle size={15} className="spin"/> Opening project…</p>}
