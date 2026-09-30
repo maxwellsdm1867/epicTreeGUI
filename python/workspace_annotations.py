@@ -12,6 +12,7 @@ import hashlib
 import time
 import uuid
 from collections import Counter
+from workspace_author_preferences import selected_author, author_profiles, remember_author
 
 from recording_workspace import workspace_tables
 from workspace_audit import build_audit_payload
@@ -107,8 +108,12 @@ class SharedAnnotations:
     def list_profiles(self):
         rows=(self.Profile&{'project_uuid':self.project_uuid}).to_dicts()
         profiles={row['profile_uuid']:{'profile_uuid':row['profile_uuid'],'display_name':row['display_name'],'local':True} for row in rows}
-        default=self.default_profile;profiles.setdefault(default['profile_uuid'],default)
-        return {'profiles':sorted(profiles.values(),key=lambda p:(p['display_name'].casefold(),p['profile_uuid'])),
+        default=self.default_profile;master=author_profiles()
+        if not any(profile['display_name'].casefold()==default['display_name'].casefold() for profile in master):
+            profiles.setdefault(default['profile_uuid'],default)
+        for profile in master:profiles.setdefault(profile['profile_uuid'],{**profile,'local':True})
+        preferred=selected_author()
+        return {'selected_profile_uuid':preferred['profile_uuid'] if preferred else None,'profiles':sorted(profiles.values(),key=lambda p:(p['display_name'].casefold(),p['profile_uuid'])),
                 'default_profile_uuid':default['profile_uuid'],'attribution':'local_profile_not_authentication'}
 
     def _ensure_profiles(self,profiles,actor,pending=None):
@@ -140,6 +145,15 @@ class SharedAnnotations:
             self._ensure_profiles([{'profile_uuid':key,'display_name':name}],actor)
             self._event('annotation_profile_created',actor,{'profile_uuid':key,'display_name':name,'attribution':'local_profile_not_authentication'})
         return {'profile_uuid':key,'display_name':name,'local':True}
+
+    def select_profile(self, key, actor):
+        key=identity(key)
+        profile=next((row for row in self.list_profiles()['profiles'] if row['profile_uuid']==key),None)
+        if not profile:raise ValueError('Choose an existing tag author')
+        with self.lock(),self.dj.conn().transaction:
+            self._ensure_profiles([{field:profile[field] for field in ('profile_uuid','display_name')}],text(actor))
+        remember_author(profile)
+        return {'profile':profile,'selected_profile_uuid':key}
 
     def _scope(self,kind,ids,maximum=MAX_TARGETS):
         ready=getattr(self.service,'_ready',None)
@@ -268,6 +282,10 @@ class SharedAnnotations:
             default=self.default_profile
             if any(key[2]==default['profile_uuid'] for key,_,_,_ in parsed) and not any(p.get('profile_uuid')==default['profile_uuid'] for p in incoming):
                 incoming.append({k:default[k] for k in ('profile_uuid','display_name')})
+            used_authors={key[2] for key,_,_,_ in parsed}
+            for profile in author_profiles():
+                if profile['profile_uuid'] in used_authors and not any(p.get('profile_uuid')==profile['profile_uuid'] for p in incoming):
+                    incoming.append(profile)
             pending_profiles=[]
             authors=self._ensure_profiles(incoming,actor,pending_profiles)
             saved={(row['target_kind'],row['target_uuid'],row['profile_uuid']):row for row in self._rows()}
@@ -333,6 +351,10 @@ def register_annotation_routes(app,service,store,db_lock):
     def annotation_profile_create():
         value=body({'display_name'})
         with db_lock:return jsonify(store.create_profile(value.get('display_name'),actor())),201
+    @app.post('/api/annotation-profiles/selected')
+    def annotation_profile_select():
+        value=body({'profile_uuid'})
+        with db_lock:return jsonify(store.select_profile(value.get('profile_uuid'),actor()))
     @app.get('/api/annotation-tags')
     def annotation_suggestions():
         if set(request.args)-{'q','limit'} or any(len(v)!=1 for _,v in request.args.lists()):raise ValueError('Invalid tag suggestion query')
