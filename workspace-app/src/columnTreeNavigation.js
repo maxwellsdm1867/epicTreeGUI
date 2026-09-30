@@ -14,3 +14,9 @@ export function columnSelectionNeedsAnchor(columns,selected,pending=false){
   const leaf=columns.at(-1);
   return pending||leaf?.kind!=='epochs'||!leaf.epochs?.some(epoch=>epoch.epoch_uuid===selected);
 }
+
+// Closing a column returns to its parent page without selecting scientific data.
+export function columnBranchNavigation(page,item,expandedKey){
+ const opening=expandedKey!==item.key;
+ return {opening,path:opening?item.path:page.path,offset:opening?0:page.offset};
+}

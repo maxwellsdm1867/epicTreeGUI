@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {columnAncestorPages,canReuseColumn,columnSelectionNeedsAnchor} from './columnTreeNavigation.js';
+import {columnAncestorPages,canReuseColumn,columnSelectionNeedsAnchor,columnBranchNavigation} from './columnTreeNavigation.js';
 
 test('selected epoch reconstructs ancestor pages beyond the first sixty branches',()=>{
   const page={revision:'exact',path:['date-key','cell-key','block-key'],ancestors:[{parent_offset:120},{parent_offset:60},{parent_offset:180}]};
@@ -24,4 +24,10 @@ test('external selections already present need no request, while pending or othe
   assert.equal(columnSelectionNeedsAnchor(columns,'different'),true);
   assert.equal(columnSelectionNeedsAnchor(columns,'shown',true),true);
   assert.equal(columnSelectionNeedsAnchor(columns,null),false);
+});
+
+test('closing a column branch returns to its parent page without selecting a descendant',()=>{
+ const page={path:['date'],offset:60},cell={key:'cell3',path:['date','cell3']};
+ assert.deepEqual(columnBranchNavigation(page,cell,'cell3'),{opening:false,path:['date'],offset:60});
+ assert.deepEqual(columnBranchNavigation(page,cell,'cell5'),{opening:true,path:['date','cell3'],offset:0});
 });
