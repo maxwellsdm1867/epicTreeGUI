@@ -30,7 +30,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = 'maxwellsdm1867/epicTreeGUI'
+REPOSITORY = 'maxwellsdm1867/Rieke-OS'
 API = f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
 TRUST_KEY = 'release-signing-public.pem'
 MANIFEST_ASSET = 'rieke-release-manifest.json'
@@ -79,10 +79,21 @@ def installation_status(root=ROOT):
     metadata = release_metadata(root)
     trusted = (Path(root) / TRUST_KEY).is_file()
     installation = managed_installation(root)
+    staged = None
+    if installation:
+        try:
+            candidate = _read(installation / 'staged.json')['version']
+            _version(candidate)
+            ready = _read(installation / 'releases' / candidate / '.release-ready.json')
+            if ready.get('version') == candidate and _version(candidate) > _version(metadata['version']):
+                staged = candidate
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
     return {'installed': metadata['version'], 'state': 'not_checked', 'available': None,
             'release_url': None, 'checked_at': None, 'can_install': False,
             'installation': str(installation) if installation else None,
             'can_stage': bool(installation) and trusted and bool(shutil.which('openssl')),
+            'staged_version': staged,
             'message': ('Check for an official release.' if trusted else
                         'Release checking is available. Installation awaits a trusted signed release and managed launcher.')}
 
@@ -124,7 +135,7 @@ def check_for_updates(root=ROOT, *, force=False):
     with _cache_lock:
         cached = _cache.get(str(root))
         if not force and cached and time.monotonic() - cached[0] < 900:
-            return dict(cached[1])
+            return {**cached[1], 'staged_version': installation_status(root)['staged_version']}
         result = installation_status(root)
         result['checked_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         try:
@@ -150,6 +161,14 @@ def check_for_updates(root=ROOT, *, force=False):
                                    else f'The release server returned HTTP {error.code}. Try again later.'))
         except (OSError, URLError, ValueError, TypeError) as error:
             result.update(state='error', message='Could not verify release availability. Your current app remains usable.')
+        if result['state'] == 'error' and cached and cached[1]['state'] == 'update_available':
+            # Keep the last discovered release through transient offline/server
+            # failures, including when the page is reopened against this service.
+            previous = cached[1]
+            result.update(state='update_available', available=previous['available'],
+                          release_url=previous['release_url'], release_notes=previous.get('release_notes', ''),
+                          checked_at=previous['checked_at'], check_error=result['message'],
+                          message=previous['message'])
         _cache[str(root)] = (time.monotonic(), dict(result))
         return result
 
@@ -282,12 +301,27 @@ def stage_release(installation, *, root=ROOT):
             raise ValueError('Artifact must belong to this official release')
         if type(artifact.get('size')) is not int or not 0 < artifact['size'] <= MAX_ARTIFACT:
             raise ValueError('Invalid release artifact size')
+        if active:
+            old = _read(installation / 'releases' / active['version'] / '.release-ready.json')
+            if old['database_compatibility'] != manifest.get('database_compatibility'):
+                raise ValueError('This update requires a separately verified project migration; automatic download is disabled')
+        destination = installation / 'releases' / version
+        command = shlex.join([sys.executable, str(installation / 'manager.py'),
+                              '--installation', str(installation), 'activate-and-launch'])
+        result = {'state': 'staged', 'version': version, 'apply_command': command,
+                  'message': 'Update ready. Close Rieke OS and all project services; the next launch will use this version.'}
+        if destination.exists():
+            # Other tabs/project services may already have prepared this exact
+            # signed artifact. Reuse only its matching completed receipt.
+            ready = _read(destination / '.release-ready.json') if (destination / '.release-ready.json').is_file() else {}
+            if ready != {'version': version, 'commit': manifest['commit'], 'sha256': artifact['sha256'],
+                         'database_compatibility': manifest['database_compatibility']}:
+                raise ValueError('Release directory already exists; inspect the previous stage before retrying')
+            _atomic(installation / 'staged.json', {'version': version})
+            return result
         archive = _download(url, artifact['size'])
         if len(archive) != artifact['size'] or hashlib.sha256(archive).hexdigest() != artifact.get('sha256'):
             raise ValueError('Release artifact checksum or size does not match')
-        destination = installation / 'releases' / version
-        if destination.exists():
-            raise ValueError('Release directory already exists; inspect the previous stage before retrying')
         destination.mkdir(parents=True)
         try:
             _extract(archive, destination)
@@ -307,10 +341,7 @@ def stage_release(installation, *, root=ROOT):
             # Keep failure evidence; never delete anything outside this newly created release.
             _atomic(destination / '.stage-failed.json', {'version': version, 'message': 'Stage did not finish; active release unchanged.'})
             raise
-        command = shlex.join([sys.executable, str(installation / 'manager.py'),
-                              '--installation', str(installation), 'activate-and-launch'])
-        return {'state': 'staged', 'version': version, 'apply_command': command,
-                'message': 'Verified and prepared. Close all Rieke OS launchers and project services, then run the apply command. It waits up to five minutes and never kills active writers.'}
+        return result
 
 
 def activate_staged(installation):
@@ -324,10 +355,14 @@ def activate_staged(installation):
             raise ValueError('Staged release is not ready')
         active = _read(installation / 'active.json') if (installation / 'active.json').exists() else None
         if active:
+            _version(active['version'])
+            if _version(version) <= _version(active['version']):
+                raise ValueError('Staged update must be newer than the active release')
             old = _read(installation / 'releases' / active['version'] / '.release-ready.json')
             if old['database_compatibility'] != ready['database_compatibility']:
                 raise ValueError('This update requires a separately verified project migration; automatic activation is disabled')
         _atomic(installation / 'active.json', {'version': version, 'previous': active['version'] if active else None})
+        (installation / 'staged.json').unlink()
         return {'state': 'activated', 'version': version}
 
 
@@ -363,6 +398,13 @@ def main(argv=None):
     elif args.command == 'activate-and-launch':
         return activate_and_launch(installation)
     else:
+        if args.command == 'launch' and (installation / 'staged.json').is_file():
+            try:
+                activate_staged(installation)
+            except (OSError, ValueError) as error:
+                # A busy installation or incompatible update must not prevent
+                # launching the current release. Never stop another service.
+                print(f'Update deferred; launching the current version: {error}', file=sys.stderr)
         with installation_lock(installation) as lock_fd:
             env = dict(os.environ, RIEKE_INSTALLATION_ROOT=str(installation))
             extra = args.arguments[1:] if args.arguments[:1] == ['--'] else args.arguments

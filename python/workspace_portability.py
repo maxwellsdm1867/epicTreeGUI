@@ -7,7 +7,7 @@ Run with the managed Python environment. Close project sessions before preparing
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import datetime as dt
 from decimal import Decimal
 import fcntl
@@ -224,7 +224,8 @@ def _destination(value, source):
     path = Path(value).expanduser()
     if not path.is_absolute() or path.is_symlink():
         raise ValueError('Choose an absolute, new destination folder')
-    path = path.resolve()
+    from workspace_desktop_paths import require_external_data_path
+    path = require_external_data_path(path)
     if path.exists():
         raise ValueError('Destination already exists; nothing was overwritten')
     if path.is_relative_to(source) or source.is_relative_to(path):
@@ -306,6 +307,34 @@ def _sources(connection, identity):
 
 
 def _dump(project_dir, path):
+    from workspace_state_generation import verify_export_triggers
+
+    connection = _connection(project_dir)
+    class QueryAdapter:
+        def query(self, sql, args=(), *, as_dict=False, **_):
+            with connection.cursor() as cursor:
+                cursor.execute(sql, args)
+                values = cursor.fetchall()
+                names = [column[0] for column in cursor.description] if as_dict else []
+                result = [dict(zip(names, row)) for row in values] if as_dict else values
+            class Result:
+                def fetchall(self):
+                    return result
+            return Result()
+    try:
+        adapter = QueryAdapter()
+        before = verify_export_triggers(adapter, DATABASES)
+        if before['managed_present'] and not before['safe_to_omit']:
+            raise ValueError(before['reason'])
+        _dump_logical(project_dir, path, omit_derived_triggers=before['managed_present'])
+        after = verify_export_triggers(adapter, DATABASES)
+        if before['contract_fingerprint'] != after['contract_fingerprint']:
+            raise ValueError('Database trigger coverage changed during backup; no transfer was published')
+    finally:
+        connection.close()
+
+
+def _dump_logical(project_dir, path, *, omit_derived_triggers=False):
     provider = _json(Path(project_dir) / 'catalog.json')['connection']['credential_provider']
     if provider['kind'] == 'native-project':
         from workspace_native_mysql import connection_parameters, native_binary
@@ -314,6 +343,7 @@ def _dump(project_dir, path):
             '--host=127.0.0.1', '--port=' + str(settings['port']), '--user=' + settings['user'],
             '--single-transaction', '--skip-lock-tables', '--no-tablespaces',
             '--set-gtid-purged=OFF', '--hex-blob', '--skip-comments',
+            *(['--skip-triggers'] if omit_derived_triggers else []),
             '--databases', *DATABASES]
         with path.open('wb') as handle:
             result = subprocess.run(arguments, stdout=handle, stderr=subprocess.PIPE, timeout=600,
@@ -326,7 +356,8 @@ def _dump(project_dir, path):
     container = provider['container']
     # Legacy donors remain in their explicitly configured Docker runtime.
     # Password remains inside Docker's environment, never an argv or artifact.
-    command = 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -uroot --single-transaction --skip-lock-tables --no-tablespaces --set-gtid-purged=OFF --hex-blob --skip-comments --databases schema recording_workspace'
+    trigger_option = ' --skip-triggers' if omit_derived_triggers else ''
+    command = 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -uroot --single-transaction --skip-lock-tables --no-tablespaces --set-gtid-purged=OFF --hex-blob --skip-comments' + trigger_option + ' --databases schema recording_workspace'
     with path.open('wb') as handle:
         result = subprocess.run(['docker', 'exec', container, 'sh', '-c', command], stdout=handle,
                                 stderr=subprocess.PIPE, timeout=600)
@@ -457,6 +488,28 @@ def _remove_runtime(project_dir):
         raise ValueError('Could not remove temporary transfer database; preserve its folder for recovery')
 
 
+@contextmanager
+def _desktop_database_session(project_dir):
+    """Own transfer SQL durably and close it before acknowledging completion."""
+    if os.environ.get('RIEKE_DESKTOP_MODE') != '1':
+        yield
+        return
+    from workspace_desktop import desktop_database_operation
+    identity = desktop_database_operation(project_dir)
+    try:
+        yield
+    finally:
+        try:
+            _remove_runtime(project_dir)
+            desktop_database_operation(project_dir, identity)
+        except BaseException:
+            try:
+                desktop_database_operation(project_dir, identity, failed=True)
+            except Exception:
+                pass  # Persistent registration remains a recovery/update blocker.
+            raise
+
+
 def _artifact_relocations(connection, identity, root, previous=None):
     """Verify current exported-artifact locators without rewriting frozen exports."""
     root = Path(root)
@@ -515,6 +568,7 @@ def restore_project(package_dir, destination):
     target.mkdir(mode=0o700)
     _write(target / PENDING, {'version': 1, 'runtime': 'native-mysql', 'instance_uuid': instance, 'project_uuid': identity})
     runtime_attempted = False
+    desktop_services = ExitStack()
     try:
         for relative in manifest['files']:
             if relative == 'database.sql':
@@ -535,6 +589,7 @@ def restore_project(package_dir, destination):
             raise ValueError('Prepared database changed during restore')
         from workspace_project_database import ensure_project_database
         runtime_attempted = True
+        desktop_services.enter_context(_desktop_database_session(target))
         ensure_project_database(target, _restoring=True)
         _import(target, dump)
         connection = _connection(target)
@@ -576,10 +631,12 @@ def restore_project(package_dir, destination):
         _write(target / 'database/transfer-receipt.json', {'format': FORMAT, 'version': 1,
             'project_uuid': identity, 'instance_uuid': instance, 'verified': True,
             'package_manifest_sha256': _hash(package / MANIFEST)})
+        desktop_services.close()
         (target / PENDING).unlink()
         return {'project_uuid': identity, 'instance_uuid': instance, 'directory': str(target),
                 'files': len(manifest['files']), 'source_count': len(manifest['sources']), 'verified': True}
     except BaseException:
+        desktop_services.close()
         if runtime_attempted:
             _remove_runtime(target)
         shutil.rmtree(target)
@@ -597,7 +654,7 @@ def prepare_project(project_dir, destination):
     record = _project_record(root)
     target = _destination(destination, root)
     identity = record['uuid']
-    with _offline(root):
+    with _offline(root), _desktop_database_session(root):
         from workspace_project_preferences import ProjectPreferences
         ProjectPreferences(root, identity).read()
         ensure_project_database(root)
@@ -756,7 +813,8 @@ def relocate_project(project_dir, destination):
     source = Path(project_dir).expanduser()
     if not source.is_absolute() or source.is_symlink() or not source.is_dir():
         raise ValueError('Choose an absolute existing project folder, not a symbolic link')
-    source = source.resolve()
+    from workspace_desktop_paths import require_external_data_path
+    source = require_external_data_path(source)
     project = _project_record(source)
     target = _destination(destination, source)
     code_root = Path(__file__).resolve().parents[1]

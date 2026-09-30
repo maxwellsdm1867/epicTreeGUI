@@ -74,6 +74,27 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual(updates.check_for_updates(self.root, force=True)['state'], 'error')
         self.assertFalse((self.installation / 'active.json').exists())
 
+    def test_known_update_survives_failed_refresh_but_not_release_withdrawal(self):
+        with patch.object(updates, '_download', return_value=json.dumps(self.release()).encode()):
+            available = updates.check_for_updates(self.root)
+        for failure in (OSError('offline'), HTTPError(updates.API, 503, '', {}, None)):
+            with patch.object(updates, '_download', side_effect=failure):
+                result = updates.check_for_updates(self.root, force=True)
+                self.assertEqual(result['state'], 'update_available')
+                self.assertEqual(result['available'], '0.2.0')
+                self.assertEqual(result['release_url'], available['release_url'])
+                self.assertEqual(result['checked_at'], available['checked_at'])
+                self.assertIn('check_error', result)
+                self.assertEqual(updates.check_for_updates(self.root), result)
+        with patch.object(updates, '_download', return_value=json.dumps(self.release('0.1.0')).encode()):
+            result = updates.check_for_updates(self.root, force=True)
+            self.assertEqual(result['state'], 'up_to_date')
+            self.assertNotIn('check_error', result)
+        with patch.object(updates, '_download', return_value=json.dumps(self.release()).encode()):
+            updates.check_for_updates(self.root, force=True)
+        with patch.object(updates, '_download', side_effect=HTTPError(updates.API, 404, '', {}, None)):
+            self.assertEqual(updates.check_for_updates(self.root, force=True)['state'], 'unavailable')
+
     def test_managed_status_requires_ready_release_inside_managed_installation(self):
         release = self.ready('0.1.0')
         (release / updates.TRUST_KEY).write_text('trusted public key')
@@ -122,6 +143,41 @@ class UpdateTests(unittest.TestCase):
         updates.activate_staged(self.installation)
         self.assertEqual(updates._read(self.installation / 'active.json'), {'version': '0.2.0', 'previous': '0.1.0'})
         self.assertTrue((self.installation / 'releases/0.1.0').exists())
+        self.assertFalse((self.installation / 'staged.json').exists())
+
+    def test_real_manager_launch_applies_prepared_update_and_preserves_preferences(self):
+        for version in ('0.1.0', '0.2.0'):
+            release = self.ready(version)
+            (release / 'rieke.py').write_text(f'import sys, json; print(json.dumps({{"version":{version!r},"args":sys.argv[1:]}}))')
+        self.write(self.installation / 'active.json', {'version': '0.1.0'})
+        self.write(self.installation / 'staged.json', {'version': '0.2.0'})
+        self.write(self.installation / 'preferences/workspace-selection.json', {'managed_root': '/research'})
+        command = [updates.sys.executable, str(Path(updates.__file__)), '--installation',
+                   str(self.installation), 'launch', '--', '--port', '8910']
+        # Another open project defers activation and still launches the old app.
+        with updates.installation_lock(self.installation):
+            held = subprocess.run(command, check=True, capture_output=True, text=True)
+        self.assertEqual(json.loads(held.stdout)['version'], '0.1.0')
+        self.assertIn('Update deferred', held.stderr)
+        launched = subprocess.run(command, check=True, capture_output=True, text=True)
+        self.assertEqual(json.loads(launched.stdout), {'version': '0.2.0', 'args': ['launch', '--port', '8910']})
+        self.assertEqual(updates._read(self.installation / 'active.json'), {'version': '0.2.0', 'previous': '0.1.0'})
+        self.assertEqual(updates._read(self.installation / 'preferences/workspace-selection.json'), {'managed_root': '/research'})
+        self.assertTrue((self.installation / 'releases/0.1.0').exists())
+        # Subsequent launches use the new release without reapplying its receipt.
+        self.assertEqual(json.loads(subprocess.check_output(command, text=True))['version'], '0.2.0')
+
+    def test_manager_defers_incompatible_update_and_refuses_stale_staged_version(self):
+        self.ready('0.1.0')
+        self.ready('0.2.0', compatibility=2)
+        self.write(self.installation / 'active.json', {'version': '0.1.0'})
+        self.write(self.installation / 'staged.json', {'version': '0.2.0'})
+        with patch.object(updates.subprocess, 'call', return_value=0) as launch:
+            self.assertEqual(updates.main(['--installation', str(self.installation), 'launch']), 0)
+        self.assertIn('0.1.0/rieke.py', launch.call_args.args[0][1])
+        self.write(self.installation / 'staged.json', {'version': '0.1.0'})
+        with self.assertRaisesRegex(ValueError, 'newer'):
+            updates.activate_staged(self.installation)
 
     @unittest.skipUnless(shutil.which('openssl'), 'OpenSSL signature verification unavailable')
     def test_real_signature_accepts_trusted_payload_rejects_tampering(self):
@@ -179,6 +235,41 @@ class UpdateTests(unittest.TestCase):
                 updates.stage_release(self.installation)
         execute.assert_not_called()
         self.assertFalse((self.installation / 'releases').exists())
+
+    def test_multiple_services_reuse_only_matching_verified_staged_release(self):
+        release_dir = self.ready('0.2.0')
+        prefix = f'https://github.com/{updates.REPOSITORY}/releases/download/v0.2.0/'
+        release = {**self.release(), 'assets': [{'name': updates.MANIFEST_ASSET, 'browser_download_url': prefix + updates.MANIFEST_ASSET}]}
+        artifact = {'platform': f'{updates.sys.platform}-{updates.platform.machine().lower()}',
+                    'url': prefix + 'app.tar.gz', 'size': 3, 'sha256': 'a' * 64}
+        manifest = {'version': '0.2.0', 'commit': 'b' * 40, 'database_compatibility': 1, 'artifacts': [artifact]}
+        self.write(release_dir / '.release-ready.json', {'version': '0.2.0', 'commit': 'b' * 40,
+                                                      'database_compatibility': 1, 'sha256': 'a' * 64})
+        with patch.object(updates, '_download', side_effect=[json.dumps(release).encode(), b'envelope']) as download, \
+                patch.object(updates, 'verify_manifest', return_value=manifest), patch.object(updates.subprocess, 'run') as setup:
+            self.assertEqual(updates.stage_release(self.installation)['version'], '0.2.0')
+            self.assertEqual(download.call_count, 2)
+            setup.assert_not_called()
+        self.write(release_dir / '.release-ready.json', {'version': '0.2.0'})
+        with patch.object(updates, '_download', side_effect=[json.dumps(release).encode(), b'envelope']), \
+                patch.object(updates, 'verify_manifest', return_value=manifest):
+            with self.assertRaisesRegex(ValueError, 'inspect'):
+                updates.stage_release(self.installation)
+
+    def test_incompatible_signed_release_is_rejected_before_artifact_download(self):
+        self.ready('0.1.0')
+        self.write(self.installation / 'active.json', {'version': '0.1.0'})
+        prefix = f'https://github.com/{updates.REPOSITORY}/releases/download/v0.2.0/'
+        release = {**self.release(), 'assets': [{'name': updates.MANIFEST_ASSET, 'browser_download_url': prefix + updates.MANIFEST_ASSET}]}
+        manifest = {'version': '0.2.0', 'database_compatibility': 2,
+                    'artifacts': [{'platform': f'{updates.sys.platform}-{updates.platform.machine().lower()}',
+                                   'url': prefix + 'app.tar.gz', 'size': 3}]}
+        with patch.object(updates, '_download', side_effect=[json.dumps(release).encode(), b'envelope']) as download, \
+                patch.object(updates, 'verify_manifest', return_value=manifest), patch.object(updates.subprocess, 'run') as setup:
+            with self.assertRaisesRegex(ValueError, 'migration'):
+                updates.stage_release(self.installation)
+            self.assertEqual(download.call_count, 2)
+            setup.assert_not_called()
 
     def test_managed_server_rejects_old_release_even_with_same_project_uuid(self):
         from workspace_project_servers import write_server_record, ready_url

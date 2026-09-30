@@ -71,3 +71,26 @@ test('nearby project roots are returned for explicit selection without opening o
   assert.equal(result.inspection,inspection);
   assert.deepEqual(calls,['/projects/inspect-folder']);
 });
+
+
+test('legacy inspection offers a separate desktop copy before opening or relocating',async()=>{
+  const inspection={valid:true,kind:'project',desktop_compatibility:{requires_migration:true,migration_available:true}};
+  const calls=[];
+  const result=await inspectAndOpenProject({directory:'/old/project',relocateDestination:'/new/project',request:async path=>{calls.push(path);return inspection;}});
+  assert.equal(result.action,'migrate');
+  assert.deepEqual(calls,['/projects/inspect-folder']);
+});
+
+test('migration requires verified copy and unchanged source acknowledgments',async()=>{
+  const {runProjectTransfer}=await import('./projectTransfer.js');
+  for(const extra of [{migrated:true,source_unchanged:true},{migrated:true},{source_unchanged:true}]){
+    const result={verified:true,directory:'/desktop/copy',...extra};
+    const replies=[{job_id:'copy'},{state:'complete',result}];
+    const calls=[];
+    const operation=runProjectTransfer({mode:'migrate',directory:'/old/project',destination:'/desktop/copy',request:async(path,options)=>{calls.push({path,options});return replies.shift();}});
+    if(extra.migrated&&extra.source_unchanged)assert.equal(await operation,result);
+    else await assert.rejects(operation,/unchanged source/);
+    assert.equal(calls[0].path,'/projects/migrate-source');
+    assert.deepEqual(calls[0].options.body,{directory:'/old/project',destination:'/desktop/copy'});
+  }
+});

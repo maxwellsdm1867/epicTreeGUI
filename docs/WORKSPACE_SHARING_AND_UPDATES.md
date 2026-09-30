@@ -66,30 +66,41 @@ disk, close the project, copy its whole folder with the file manager, and open t
 copy before removing the old folder.
 
 
-## Automatic update notifications
+## Automatic update availability
 
 Rieke OS checks the official GitHub release channel when you open the app, every
 15 minutes while the page is visible, and when you return after that interval.
-No button press is required. A newer release produces an **Update available**
-notice in the app and an update indicator in the header. Dismissing the notice
-leaves the header indicator available.
+No button press is required. A newer release highlights **Release / Publish**
+with a persistent **Update** badge in the project sidebar and project chooser.
+There is no toast, system notification, or automatically opened dialog. Opening
+and closing the panel leaves the badge available until a successful check shows
+there is no newer release.
 
-The header distinguishes **Up to date**, **No release published**, and **Update
-check unavailable**. An offline check does not count as up to date. Open the
-indicator for installed version, last check, release notes, and an optional manual
-retry. Manual retries bypass the automatic check cache.
+Open **Release / Publish** for installed version, last check, release notes, and
+an optional manual retry. The panel distinguishes **Up to date**, **No release
+published**, and **Update check unavailable**. An offline check does not count as
+up to date or erase an update already discovered during this app-service session;
+the panel explains when a refresh failed. Manual retries bypass the automatic
+check cache.
 
-Managed installations with the official trusted signing key can download and
-verify a release from this panel. The download prepares a separate installation;
-it does not replace the running app or modify projects. After staging, follow the
-displayed apply command. Activation waits for project services to close and
-refuses incompatible database versions. Automatic shutdown/restart from the
+Managed installations with the official trusted signing key automatically
+download and verify a new release in the background. The download prepares a
+separate installation; it does not replace the running app or modify projects.
+The badge changes to **Ready** once preparation completes. Close Rieke OS and all
+project services, then launch normally through the stable manager or a workspace
+launcher created by the managed app. That launch applies the prepared update.
+If another service is still open, the current version continues to run.
+Incompatible database versions are refused. Automatic shutdown/restart from the
 browser is not implemented. Development checkouts can check for releases but
 cannot install them in place.
 
 No signed release or trusted production key has been published by this change.
 Release workflows and signing setup must be configured before downloads become
 available to users.
+
+MATLAB is optional: the app runs without it. Only opening the EpicTreeGUI export
+in MATLAB needs a MATLAB installation. The self-contained desktop installer is
+still release-engineering work; the current source bundle requires setup tools.
 
 ## Open, move, or share a project folder
 

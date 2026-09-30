@@ -102,21 +102,21 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
   useEffect(()=>()=>{draftController.current?.abort();treeController.current?.abort();},[]);
   useEffect(()=>{
     if(!applied)return;
-    if(!focused&&applied.preview&&splits===applied.recipe.splits&&generation===applied.previewGeneration&&viewRevision===applied.previewRevision){setTree({data:applied.preview,loading:false,error:null});return;}
+    if(!focused&&applied.preview&&(step!=='tree'||applied.preview.catalog_summary!==false)&&splits===applied.recipe.splits&&generation===applied.previewGeneration&&viewRevision===applied.previewRevision){setTree({data:applied.preview,loading:false,error:null});return;}
     const controller=new AbortController();treeController.current?.abort();treeController.current=controller;
     setTree(previous=>({...previous,loading:true,error:null}));
-    api('/explore/preview',{method:'POST',body:{predicate:applied.recipe.predicate,splits,summary_only:true,baseline_revision_uuid:applied.revision_uuid,...(focused?{focused_uuid:focused}:{})},signal:controller.signal})
+    api('/explore/preview',{method:'POST',body:{predicate:applied.recipe.predicate,splits,summary_only:true,catalog_summary:step==='tree',baseline_revision_uuid:applied.revision_uuid,...(focused?{focused_uuid:focused}:{})},signal:controller.signal})
       .then(data=>{if(!controller.signal.aborted)setTree({data:{...data,_focusedUuid:focused},loading:false,error:null});})
       .catch(error=>{if(!controller.signal.aborted)setTree(previous=>({...previous,loading:false,error:error.message}));});
     return()=>controller.abort();
-  },[applied,splits,viewRevision,generation,focused]);
+  },[applied,splits,viewRevision,generation,focused,step]);
   useEffect(()=>{if(focusVerified&&tree.data.focused_in_scope===false)setFocused(null);},[focusVerified,tree.data]);
   const changeSplits=useCallback(fields=>{const text=fields.join(',');setSplits(text);setFilterSplits(text);setPath([]);setTreeNavigation(null);setFocused(null);},[]);
   async function previewDraft(predicate=compiled.predicate,grouping=filterSplits,baseline=restored?.revision_uuid,openResults=false){
     if(!predicate)return;
     const controller=new AbortController();draftController.current?.abort();draftController.current=controller;
     const key=predicateIdentity({predicate,splits:grouping});setDraftPreview({data:null,loading:true,error:null,key});
-    try{const data=await api('/explore/preview',{method:'POST',body:{predicate,splits:grouping,summary_only:true,...(baseline?{baseline_revision_uuid:baseline}:{})},signal:controller.signal});if(!controller.signal.aborted){setDraftPreview({data,loading:false,error:null,key});setAnnotationHold(null);if(openResults){setResultsFromDraft(true);setStep('results');setDestination(null);setFocused(null);}}}
+    try{const data=await api('/explore/preview',{method:'POST',body:{predicate,splits:grouping,summary_only:true,catalog_summary:false,...(baseline?{baseline_revision_uuid:baseline}:{})},signal:controller.signal});if(!controller.signal.aborted){setDraftPreview({data,loading:false,error:null,key});setAnnotationHold(null);if(openResults){setResultsFromDraft(true);setStep('results');setDestination(null);setFocused(null);}}}
     catch(error){if(!controller.signal.aborted)setDraftPreview({data:null,loading:false,error:error.message,key});}
   }
   async function saveRevision(kind,nextStep='results',notifyParent=true){
@@ -125,7 +125,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
     if(!predicate||busy)return;
     setBusy(true);setBusyAction('save');setError('');setNotice('');
     try{
-      const body={predicate,splits:kind==='filter'?filterSplits:splits,name:name.trim() || 'Metadata selection',summary_only:true};
+      const body={predicate,splits:kind==='filter'?filterSplits:splits,name:name.trim() || 'Metadata selection',summary_only:true,catalog_summary:nextStep==='tree'};
       const parent=kind==='filter'?(restored?.revision_uuid || applied?.revision_uuid):applied?.revision_uuid;
       if(parent)body.parent_revision_uuid=parent;
       const result=await api('/explore/revisions',{method:'POST',body});
@@ -152,7 +152,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
       const nextName=preset.name&&preset.name!=='Metadata selection'?preset.name:predicateSummary(predicate);
       if(action==='pin'){await storePreset({...preset,name:nextName,pinned:!item.pinned});return;}
       if(action==='edit'){setActivePreset(item.preset_uuid?item:null);setImportedPreset(null);setDraft(nextDraft);setName(nextName);setFilterSplits(grouping);setRestored(null);setEditorOpen(true);return;}
-      const result=await api('/explore/run',{method:'POST',body:{predicate,splits:grouping},signal:controller.signal});
+      const result=await api('/explore/run',{method:'POST',body:{predicate,splits:grouping,catalog_summary:false},signal:controller.signal});
       if(controller.signal.aborted)return;
       setViewFilters({});setExcludedEpochs([]);setExportCandidate(null);setAnnotationHold(null);setActivePreset(item.preset_uuid?item:null);setImportedPreset(null);setDepartedInitial(true);setDraft(nextDraft);setName(nextName);setFilterSplits(grouping);setSplits(grouping);setRestored(null);setApplied(null);setTreeNavigation(null);setMatchingNavigation(null);setFocused(null);setDestination(null);
       setDraftPreview({data:result,loading:false,error:null,key:predicateIdentity({predicate,splits:grouping})});setResultsFromDraft(true);setStep('results');setEditorOpen(false);
@@ -184,14 +184,18 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
   const resultPreview=hasViewFilter?currentFilteredPreview:baseResultPreview;
   const resultLoading=hasViewFilter?filteredPreview.loading||!currentFilteredPreview&&!filteredPreview.error:(resultsFromDraft?draftPreview.loading:tree.loading);
   const resultError=hasViewFilter&&filteredPreview.key===filteredKey?filteredPreview.error:(resultsFromDraft?draftPreview.error:tree.error);
-  const displayTree=hasViewFilter?{data:currentFilteredPreview,loading:resultLoading,error:resultError}:tree;
+  const availableTree=hasViewFilter?{data:currentFilteredPreview,loading:resultLoading,error:resultError}:tree;
+  // Search previews intentionally omit scoped field statistics. Wait for the
+  // design preview before mounting a builder that displays those statistics.
+  const displayTree=step==='tree'&&availableTree.data?.catalog_summary===false
+    ?{...availableTree,data:null,loading:!availableTree.error}:availableTree;
 
   useEffect(()=>{const node=layoutRef.current;if(!node)return;const observer=new ResizeObserver(entries=>setLayoutWidth(entries[0].contentRect.width));observer.observe(node);return()=>observer.disconnect();},[step,focused,initialCandidateLoading,!!displayTree.data,displayTree.loading,!!displayTree.error]);
   useEffect(()=>{
     if(!hasViewFilter||!resultPredicate||step==='filter'||!baseResultPreview)return;
     const controller=new AbortController();
     setFilteredPreview({data:null,loading:true,error:null,key:filteredKey});
-    api('/explore/preview',{method:'POST',body:{predicate:resultPredicate,splits:resultSplits,summary_only:true},signal:controller.signal})
+    api('/explore/preview',{method:'POST',body:{predicate:resultPredicate,splits:resultSplits,summary_only:true,catalog_summary:step==='tree'},signal:controller.signal})
       .then(data=>{if(!controller.signal.aborted)setFilteredPreview({data,loading:false,error:null,key:filteredKey});})
       .catch(error=>{if(!controller.signal.aborted)setFilteredPreview({data:null,loading:false,error:error.message,key:filteredKey});});
     return()=>controller.abort();
@@ -211,7 +215,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
       if(busy||!resultPredicate)return;
       setBusy(true);setError('');
       try{
-        const result=await api('/explore/revisions',{method:'POST',body:{predicate:searchInclusionPredicate(resultPredicate,excludedEpochs),splits:resultSplits,name:name.trim()||'Metadata selection',summary_only:true,...(applied?.revision_uuid?{parent_revision_uuid:applied.revision_uuid}:{})}});
+        const result=await api('/explore/revisions',{method:'POST',body:{predicate:searchInclusionPredicate(resultPredicate,excludedEpochs),splits:resultSplits,name:name.trim()||'Metadata selection',summary_only:true,catalog_summary:false,...(applied?.revision_uuid?{parent_revision_uuid:applied.revision_uuid}:{})}});
         if(!result.recipe||!result.revision_uuid)throw new Error('The server did not return an export selection.');
         if(!(result.summary?.matched_count??result.recipe.epoch_count??result.recipe.epochs?.length)){setError('No included epochs remain. Include an epoch before exporting.');return;}
         setExportCandidate(result);setHistoryVersion(value=>value+1);setDestination('export');
@@ -228,7 +232,7 @@ export default function MetadataExplorer({initialEditorOpen=false,openRequest=0,
     setEditorOpen(true);
   }
   async function applyPopupSearch(nextDraft,predicate,signal){
-    const result=await api('/explore/run',{method:'POST',body:{predicate,splits:filterSplits},signal});
+    const result=await api('/explore/run',{method:'POST',body:{predicate,splits:filterSplits,catalog_summary:false},signal});
     if(signal.aborted)return;
     setViewFilters({});setExcludedEpochs([]);setExportCandidate(null);setAnnotationHold(null);setNotice('');setDraft(nextDraft);setDraftPreview({data:result,loading:false,error:null,key:predicateIdentity({predicate,splits:filterSplits})});
     setMatchingNavigation(null);setResultsFromDraft(true);setFocused(null);setDestination(null);setStep('results');setEditorOpen(false);

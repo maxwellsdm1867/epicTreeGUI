@@ -439,11 +439,35 @@ class NativeTransferCommandTests(unittest.TestCase):
             sql = [call.args[0] for call in connection.cursor.return_value.__enter__.return_value.execute.call_args_list]
             self.assertTrue(any('DROP USER' in query for query in sql))
             self.assertFalse(any('GRANT ALL PRIVILEGES ON *.*' in query for query in sql))
-            connection.close.assert_called_once()
+            self.assertEqual(connection.close.call_count, 2)
 
 
 @unittest.skipUnless(os.environ.get('RIEKE_TEST_NATIVE_TRANSFER') == '1', 'opt-in disposable native MySQL integration')
 class NativeRoundTripTests(unittest.TestCase):
+    def install_derived_authorities(self, root, identity):
+        import datajoint as dj
+        from workspace_native_mysql import connection_parameters
+        from workspace_state_generation import bootstrap, verify_export_triggers
+        from workspace_recovery_generation import RecoveryTracker
+        parameters = connection_parameters(root)
+        connection = dj.Connection(**{key: parameters[key] for key in ('host', 'port', 'user', 'password')})
+        try:
+            for statement in (
+                'CREATE TABLE IF NOT EXISTS recording_workspace.curation (project_uuid varchar(36),protocol_uuid varchar(36),epoch_uuid varchar(36),tags JSON,revision int, PRIMARY KEY(project_uuid,protocol_uuid,epoch_uuid)) ENGINE=InnoDB',
+                'CREATE TABLE IF NOT EXISTS recording_workspace.shared_annotation (project_uuid varchar(36),target_kind varchar(16),target_uuid varchar(36),profile_uuid varchar(36),tags JSON,revision int,PRIMARY KEY(project_uuid,target_kind,target_uuid,profile_uuid)) ENGINE=InnoDB',
+                'CREATE TABLE IF NOT EXISTS recording_workspace.annotation_profile (project_uuid varchar(36),profile_uuid varchar(36),display_name varchar(120),PRIMARY KEY(project_uuid,profile_uuid)) ENGINE=InnoDB'):
+                connection.query(statement)
+            reader = bootstrap(connection, identity)
+            self.assertTrue(reader.ready, reader.reason)
+            with RecoveryTracker(connection, identity).capture(None) as plan:
+                self.assertIsNotNone(plan)
+                plan.verify()
+            report = verify_export_triggers(connection, transfer.DATABASES)
+            self.assertTrue(report['safe_to_omit'], report)
+            self.assertGreater(report['known_trigger_count'], 9)
+        finally:
+            connection.close()
+
     def test_new_empty_projects_open_close_prepare_and_restore(self):
         from workspace_project_database import ensure_project_database
         open_app = """
@@ -617,9 +641,11 @@ assert not app.extensions['workspace_service'].rows
                     saved_export = self.save_export(connection, root, identity)
                 finally:
                     connection.close()
+                self.install_derived_authorities(root, identity)
                 result = transfer.prepare_project(root, base / 'shared-folder')
                 self.assertTrue(result['verified'])
                 package = Path(result['directory'])
+                self.assertNotIn('CREATE DEFINER=', (package / 'database.sql').read_text())
                 self.assertFalse((package / 'catalog.json').exists())
                 self.assertFalse((package / 'database').exists())
                 # Hashes establish integrity, not trust: even correctly resealed
@@ -667,6 +693,9 @@ assert not app.extensions['workspace_service'].rows
                             self.assertEqual(cursor.fetchone()[0], str(target))
                     finally:
                         connection.close()
+                    # Restore uses its restricted SQL user; derived root-owned
+                    # triggers are recreated only by the local app bootstrap.
+                    self.install_derived_authorities(target, identity)
                 self.assertNotEqual(results[0]['instance_uuid'], results[1]['instance_uuid'])
                 self.assertNotEqual((runtimes[0] / 'database/native-credentials.json').read_bytes(),
                                     (runtimes[1] / 'database/native-credentials.json').read_bytes())

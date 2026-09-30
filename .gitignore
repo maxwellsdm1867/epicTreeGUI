@@ -69,3 +69,9 @@ docs/legacy/old_epochtree/
 
 # Clone-local Rieke OS dependencies/config (never scientific project data)
 /.rieke-runtime/
+
+# Desktop build closure and local packages (source/locks remain tracked)
+/desktop/node_modules/
+/desktop/build/
+/desktop/dist/
+/desktop/resources/

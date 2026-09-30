@@ -111,6 +111,11 @@ class ProjectServerTests(unittest.TestCase):
         with patch('workspace_project_servers.ready_url', return_value='http://127.0.0.1:8877/') as ready:
             open_project(self.path, self.identity, self.path)
             ready.assert_called_once_with(self.path.resolve(), self.identity)
+        from workspace_desktop import desktop_open_project
+        services = Mock()
+        with patch('workspace_desktop._SERVICES', services):
+            desktop_open_project(self.path, self.identity, self.path)
+        services.open.assert_called_once_with(str(self.path.resolve()), self.identity, self.path, 300)
 
     def test_copied_server_record_never_reuses_original_service(self):
         write_server_record(self.path,self.identity,8877)

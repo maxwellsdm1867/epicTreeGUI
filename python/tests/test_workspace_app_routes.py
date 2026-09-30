@@ -1,5 +1,6 @@
 """Local update checks and transfer job lifecycle without touching user data."""
 import threading
+import os
 import time
 import types
 import unittest
@@ -44,6 +45,49 @@ class AppRouteTests(unittest.TestCase):
             response = self.client.post('/api/app/updates/stage', json={}, headers={**self.headers,
                 'X-Rieke-Update-Token': response.json['update_token']})
             self.assertEqual(response.status_code, 409)
+            module.stage_release.assert_not_called()
+
+    def test_managed_check_downloads_automatically_once_without_blocking(self):
+        finish = threading.Event()
+        started = threading.Event()
+        def stage(**kwargs):
+            started.set()
+            finish.wait(3)
+            return {'version': '0.2.0', 'state': 'staged'}
+        stage_mock = Mock(side_effect=lambda *args, **kwargs: stage(**kwargs))
+        status = {'state': 'update_available', 'available': '0.2.0', 'can_stage': True}
+        module = types.SimpleNamespace(check_for_updates=Mock(return_value=status), stage_release=stage_mock)
+        with patch.dict('sys.modules', workspace_updates=module), patch.dict(os.environ, RIEKE_INSTALLATION_ROOT='/installation'):
+            try:
+                response = self.post('/api/app/updates/check', {})
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(started.wait(1))
+                self.assertEqual(response.json['download']['state'], 'running')
+                self.post('/api/app/updates/check', {})
+                self.assertEqual(stage_mock.call_count, 1)
+            finally:
+                finish.set()
+            for _ in range(100):
+                result = self.client.get('/api/app/updates/download').json
+                if result['state'] != 'running': break
+                time.sleep(.01)
+            self.assertEqual(result['state'], 'complete')
+            self.post('/api/app/updates/check', {})
+            self.assertEqual(stage_mock.call_count, 1)
+
+    def test_automatic_download_requires_managed_trust_and_fresh_unstaged_release(self):
+        base = {'state': 'update_available', 'available': '0.2.0', 'can_stage': True}
+        module = types.SimpleNamespace(check_for_updates=Mock(), stage_release=Mock())
+        with patch.dict('sys.modules', workspace_updates=module), patch.dict(os.environ, RIEKE_INSTALLATION_ROOT='/installation'):
+            for status in ({**base, 'can_stage': False}, {**base, 'check_error': 'Offline'},
+                           {**base, 'staged_version': '0.2.0'}, {**base, 'state': 'up_to_date'}):
+                module.check_for_updates.return_value = status
+                self.assertEqual(self.post('/api/app/updates/check', {}).status_code, 200)
+            module.stage_release.assert_not_called()
+        with patch.dict('sys.modules', workspace_updates=module), patch.dict(os.environ):
+            os.environ.pop('RIEKE_INSTALLATION_ROOT', None)
+            module.check_for_updates.return_value = base
+            self.post('/api/app/updates/check', {})
             module.stage_release.assert_not_called()
 
     def test_transfer_serializes_jobs_and_reports_success_only_after_completion(self):

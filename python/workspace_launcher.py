@@ -139,7 +139,8 @@ def create_launcher(root, retinanalysis_dir, *, application_dir=None):
     application = Path(application_dir or Path(__file__).resolve().parents[1]).resolve()
     app = Flask(__name__, static_folder=None)
     app.config.update(MAX_CONTENT_LENGTH=64*1024)
-    frontend = Path(__file__).resolve().parents[1] / 'workspace-app/dist'
+    frontend = (Path(os.environ['RIEKE_DESKTOP_FRONTEND']) if os.environ.get('RIEKE_DESKTOP_MODE') == '1'
+                else Path(__file__).resolve().parents[1] / 'workspace-app/dist')
     @app.before_request
     def local_only():
         host = request.host.split(':',1)[0]
@@ -160,6 +161,11 @@ def create_launcher(root, retinanalysis_dir, *, application_dir=None):
     def error(error):
         if isinstance(error,HTTPException):
             return jsonify(error=error.description),error.code
+        if os.environ.get('RIEKE_DESKTOP_MODE') == '1':
+            from workspace_desktop import DesktopProjectCompatibilityError
+            if isinstance(error, DesktopProjectCompatibilityError):
+                return jsonify(error=str(error), code=error.code, requires_migration=True,
+                               migration_endpoint='/api/projects/migrate-source'), 409
         if isinstance(error,(ValueError,KeyError,FileNotFoundError)):
             return jsonify(error=str(error)),400
         app.logger.exception('Project launcher operation failed')

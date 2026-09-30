@@ -17,5 +17,5 @@ export default function FolderPathInput({value,onChange,disabled=false,purpose='
     }catch(error){if(mounted.current)setError(error.message||'The folder chooser could not open.');}
     finally{if(mounted.current){restoreFocus.current=true;setChoosing(false);onBusyChange?.(false);}}
   }
-  return <div className="folder-path-field"><div className="folder-path-control"><input {...inputProps} value={value} disabled={disabled||choosing} onChange={event=>{setError('');onChange(event.target.value);}}/><button ref={browseButton} type="button" disabled={disabled||choosing} aria-label={`Browse: ${title}`} onClick={browse}>{choosing?<LoaderCircle size={15} className="spin"/>:<FolderOpen size={15}/>}Browse…</button></div>{error&&<span className="folder-path-error" role="alert">{error}</span>}</div>;
+  return <div className="folder-path-field"><div className="folder-path-control"><input {...inputProps} readOnly value={value} title={value||'Choose a folder with Browse'} placeholder="Choose a folder with Browse…" disabled={disabled||choosing}/><button ref={browseButton} type="button" disabled={disabled||choosing} aria-label={`Browse: ${title}`} onClick={browse}>{choosing?<LoaderCircle size={15} className="spin"/>:<FolderOpen size={15}/>}Browse…</button></div>{error&&<span className="folder-path-error" role="alert">{error}</span>}</div>;
 }

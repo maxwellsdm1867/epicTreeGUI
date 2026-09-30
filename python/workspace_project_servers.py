@@ -98,6 +98,9 @@ def project_server_port(project_dir, identity):
 
 
 def open_project(project_dir, identity, retinanalysis_dir, *, timeout=300, managed=False):
+    if os.environ.get('RIEKE_DESKTOP_MODE') == '1':
+        from workspace_desktop import desktop_open_project
+        return desktop_open_project(project_dir, identity, retinanalysis_dir, timeout=timeout, managed=managed)
     registry = list_managed_projects(project_dir) if managed else list_projects(project_dir)
     selected_path = str(Path(project_dir).expanduser().resolve())
     project = next((row for row in registry['projects'] if row['uuid'] == identity and row['available']

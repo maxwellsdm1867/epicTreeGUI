@@ -36,6 +36,12 @@ def validate_project_folder(path):
     provider = catalog.get('connection', {}).get('credential_provider', {})
     if record['database_kind'] != 'native-mysql' and provider.get('kind') != 'native-project':
         result['warnings'].append('Legacy database configuration: database availability and linked recording files are checked when opening.')
+        import os
+        if os.environ.get('RIEKE_DESKTOP_MODE') == '1':
+            result['desktop_compatibility'] = {'can_open': False, 'requires_migration': True,
+                'migration_available': provider.get('kind') == 'docker-container-env',
+                'migration_endpoint': '/api/projects/migrate-source',
+                'message': 'Create a desktop copy in a separate folder. The original project and source database stay unchanged.'}
         return result
     # _configuration checks descriptors and rejects symlinked native state without
     # calling the runtime, opening a database connection, or changing file modes.

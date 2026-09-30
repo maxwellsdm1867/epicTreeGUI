@@ -14,7 +14,8 @@ export function mergeEpochSelection(selected,ids){
 
 // Range order is the displayed date/cell order, then each cell's epoch order.
 // Fetch intervening pages before publishing any selection, never a partial range.
-export async function epochSelectionRange({cells,anchor,target,loadPage}){
+export async function epochSelectionRange({cells,anchor,target,loadPage,pageRevision=page=>page.query_revision}){
+  if(typeof anchor.revision!=='string'||!anchor.revision||target.revision!==anchor.revision)throw new Error('Epoch query changed. Refresh and select the range again.');
   const startCell=cells.findIndex(cell=>cell.cell_uuid===anchor.cellUuid);
   const endCell=cells.findIndex(cell=>cell.cell_uuid===target.cellUuid);
   if(startCell<0||endCell<0)throw new Error('The selection anchor is no longer in this view. Select an epoch again.');
@@ -30,6 +31,7 @@ export async function epochSelectionRange({cells,anchor,target,loadPage}){
   for(const {cell,from,to} of spans){
     for(let offset=Math.floor(from/60)*60;offset<=to;offset+=60){
       const page=await loadPage(cell.cell_uuid,offset);
+      if(pageRevision(page)!==anchor.revision)throw new Error('Epoch query changed. Refresh and select the range again.');
       if(page.total!==cell.epochs||page.offset!==offset)throw new Error('Epoch order changed. Refresh and select the range again.');
       for(let index=Math.max(from,offset);index<=Math.min(to,offset+59);index++){
         const row=page.epochs[index-offset];

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   ArrowLeft, ArrowRight, ArrowUp, Check, ChevronRight, Code2, Database,
-  File, FileJson, Folder, FolderOpen, HardDrive, Link2, LockKeyhole,
+  File, FileJson, Folder, FolderOpen, Link2, LockKeyhole,
   RefreshCw, ShieldCheck, Upload, AlertTriangle, Copy, BookOpen, Download, Settings2, Activity,
 } from 'lucide-react';
 import { useResource, number } from '../api.js';
@@ -39,7 +39,7 @@ const fileGroups = [
 ];
 const sectionNames={'raw-uploads':'Recording files',imports:'Imports',exports:'Exports',protocols:'Protocols','query-snapshots':'Saved queries',database:'Database',backups:'Backups',logs:'Activity logs',cache:'Temporary indexes'};
 
-export default function ProjectFiles({onStores}) {
+export default function ProjectFiles({onStores,onFolder}) {
   const [path, setPath] = useState('');
   const [offset, setOffset] = useState(0);
   const [copied,setCopied]=useState(false),[copyError,setCopyError]=useState('');
@@ -67,7 +67,9 @@ export default function ProjectFiles({onStores}) {
     </div>
     <Status {...storage} retry={storage.reload}>{data && <>
       <section className="pf-location" aria-label="Storage locations">
-        <div className="pf-root-icon"><HardDrive size={23}/></div>
+        <button type="button" className="pf-root-icon" onClick={onFolder} disabled={!onFolder}
+          aria-label="Project folder actions" title="Project folder actions · open, close or share a project"
+          aria-haspopup="dialog"><FolderOpen size={23}/></button>
         <div className="pf-location-main"><span className="pf-field-label">PROJECT FOLDER</span>
           <strong className="pf-path">{data.root}</strong>
           <details className="pf-code-location"><summary><Code2 size={13}/> App code location · separate from project data</summary>

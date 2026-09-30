@@ -36,6 +36,25 @@ class WorkspaceInstallationTests(unittest.TestCase):
                                 cwd=self.base, check=True, capture_output=True, text=True)
         self.assertEqual(json.loads(result.stdout), ['launch', '--workspace', str(self.workspace), '--port', '8900'])
 
+    def test_managed_workspace_launcher_uses_stable_manager_across_release_changes(self):
+        import os
+        import workspace_updates as updates
+        installation = self.base / 'installation'
+        release = installation / 'releases/0.1.0'
+        release.mkdir(parents=True)
+        (installation / 'installation.json').write_text(json.dumps({'format': 'rieke-installation', 'version': 1, 'repository': updates.REPOSITORY}))
+        (release / 'rieke-release.json').write_text(json.dumps({'format': 'rieke-application-release', 'version': '0.1.0', 'repository': updates.REPOSITORY, 'updater_protocol': 1}))
+        (release / '.release-ready.json').write_text('{"version":"0.1.0"}')
+        (installation / 'manager.py').write_text('import sys, json; print(json.dumps(sys.argv[1:]))')
+        with patch.dict(os.environ, RIEKE_INSTALLATION_ROOT=str(installation)):
+            initialize_workspace(self.workspace, release)
+        import shutil
+        shutil.rmtree(release)  # Workspace entry point has no dependency on this old version's path.
+        result = subprocess.run([sys.executable, str(self.workspace / LAUNCHER), '--port', '8900'],
+                                cwd=self.base, check=True, capture_output=True, text=True)
+        self.assertEqual(json.loads(result.stdout), ['--installation', str(installation), 'launch', '--',
+                                                  '--workspace', str(self.workspace), '--port', '8900'])
+
     def test_reject_overwrite_code_overlap_project_and_symlink(self):
         initialize_workspace(self.workspace, self.app)
         original = (self.workspace / LAUNCHER).read_bytes()

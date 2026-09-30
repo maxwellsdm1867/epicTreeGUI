@@ -138,12 +138,10 @@ def _combined_projects(discovered, root, current=None):
                       'last_project_uuid': last['uuid'] if last else None}
 
 
-def managed_root(path):
+def managed_root(path, *, allow_workspace_descendant=False):
     """Validate a managed root without following a caller supplied symlink."""
-    candidate = Path(path).expanduser()
-    if candidate.is_symlink():
-        raise ValueError('Managed project root cannot be a symbolic link')
-    return candidate.resolve()
+    from workspace_paths import workspace_root
+    return workspace_root(path, allow_workspace_descendant=allow_workspace_descendant)
 
 
 def list_managed_projects(root, current_project=None):
@@ -174,7 +172,14 @@ def create_project(root, name, *, directory=None, code_root=None, _lock_path=Non
     from contextlib import ExitStack
     from recording_workspace import write_json
     from workspace_storage import initialize_layout
-    root = managed_root(root)
+    # An explicit exact project folder does not select/create a new workspace.
+    # It may be grouped under one, but never inside another project.
+    root = managed_root(root, allow_workspace_descendant=_lock_path is not None)
+    from workspace_desktop_paths import require_external_data_path
+    require_external_data_path(root, reject_ancestor=False)
+    if directory is not None and isinstance(directory, str) and directory.strip():
+        chosen = Path(directory).expanduser()
+        require_external_data_path(chosen if chosen.is_absolute() else root / chosen)
     code_root = Path(code_root or Path(__file__).resolve().parents[1]).resolve()
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120 or any(ord(c) < 32 for c in name):
         raise ValueError('Project name must contain 1–120 printable characters')
@@ -252,6 +257,8 @@ def create_project_at(directory, name, *, code_root=None):
     path = Path(directory.strip()).expanduser()
     if not path.is_absolute() or path.is_symlink():
         raise ValueError('Choose an absolute project folder, not a symbolic link')
+    from workspace_desktop_paths import require_external_data_path
+    require_external_data_path(path)
     code = Path(code_root or Path(__file__).resolve().parents[1]).resolve()
     if path.resolve().is_relative_to(code) or code.is_relative_to(path.resolve()):
         raise ValueError('Project storage must be separate from application code')

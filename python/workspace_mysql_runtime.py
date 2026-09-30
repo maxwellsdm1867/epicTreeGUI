@@ -68,6 +68,20 @@ def mysql_runtime(root=ROOT):
     """Return pinned private executable paths without connecting or starting SQL."""
     root = Path(root).resolve()
     spec, _ = runtime_spec(root)
+    if os.environ.get('RIEKE_DESKTOP_RUNTIME'):
+        # Desktop resources were linked and signed by the build. Launch never
+        # invokes micromamba, changes dependency paths or repairs signatures.
+        runtime = Path(os.environ['RIEKE_DESKTOP_RUNTIME']).resolve(strict=True)
+        manifest = json.loads((runtime / 'runtime-manifest.json').read_text())
+        if (manifest.get('format') != 'rieke-desktop-runtime' or manifest.get('version') != 1
+                or manifest.get('mysql_version') != spec['mysql_version']):
+            raise ValueError('Packaged MySQL compatibility manifest is invalid')
+        prefix = runtime / 'mysql'
+        if prefix.is_symlink() or not prefix.resolve().is_relative_to(runtime):
+            raise ValueError('Packaged MySQL prefix escapes application resources')
+        if hashlib.sha256((runtime / 'mysql-lock.json').read_bytes()).hexdigest() != hashlib.sha256((root / LOCK).read_bytes()).hexdigest():
+            raise ValueError('Packaged MySQL runtime lock differs from application code')
+        return _probe(prefix, spec['mysql_version'])
     prefix = root / '.rieke-runtime/mysql'
     if prefix.is_symlink():
         raise ValueError('Bundled MySQL prefix must not be a symbolic link')

@@ -116,8 +116,36 @@ pauses expiry. Clicking View details opens the import workbench. Existing histor
 is not replayed as new notifications after reload. Completion no longer opens a
 modal automatically; the review dialog is available explicitly from Review import.
 The browser verified a real duplicate import notification and automatic expiry,
-with no persistent header bar or automatic review dialog. App update notices also
-expire; their availability indicator remains in Release / Publish.
+with no persistent header bar or automatic review dialog. App updates now appear
+quietly as a persistent Update badge in Release / Publish, without a toast.
+
+## Quiet updates and publication audit — 2026-09-29
+
+- Checked both live GitHub repositories. The development checkout's updater
+  pointed at epicTreeGUI, whose release channel is empty. Rieke-OS is the actual
+  public distribution, with stable source releases through v0.1.2 and one source
+  installation verification workflow. Corrected discovery and release URLs to
+  Rieke-OS; a fresh backend check returns `update_available`, available `0.1.2`,
+  and `can_stage: false` for this development checkout.
+- Browser preview with simulated update responses verified the persistent
+  Update/Ready row, no update toast or automatic dialog, opening/closing the
+  panel without dismissing availability, retaining the known update after a
+  failed refresh, and clearing it after a successful up-to-date response.
+  [Simulated Ready preview](quiet-update-ready-preview.jpg).
+- 50 relevant updater, route, workspace installation and bootstrap tests pass;
+  frontend logic tests and production build pass. The manager subprocess test
+  uses minimal fixture applications to exercise real interprocess locks and
+  next-launch selection. It verifies deferral while another holder is open,
+  activation after closure, retention of the previous release, and preservation
+  of preferences. It is not a real old-to-new production application upgrade.
+- Prepared a tag-triggered signed build and protected publication job; its
+  publication condition allows only Rieke-OS. No workflow was dispatched and no
+  release was published. The updater and workflow still need to be carried into
+  the public distribution, with signing configured and real upgrade validation.
+- The one-click desktop installer remains unfinished. Existing source releases
+  bootstrap development tools and dependencies; they are not offline prebuilt
+  applications. MATLAB is required only for the optional EpicTreeGUI workflow,
+  not core app launch, import, or updating.
 
 ## Pinned query approval demonstration
 
@@ -365,3 +393,60 @@ the fixed fixture exports path. The native computer-use service was unavailable
 for Finder, so the Finder window itself was not visually inspected.
 [H5 Browse](ui-browse-h5-audit.jpg) and
 [Open exports folder](ui-open-exports-audit.jpg).
+
+
+## Final unsigned Electron artifact validation — 2026-09-30 UTC
+
+The final local DMG and ZIP passed the complete packaged checks. See
+[the consolidated receipt](desktop-final-e2e-receipt.json) for exact artifact
+hashes, the runtime manifest and per-suite evidence. The app contains 40,172
+runtime resources and 798 native binaries.
+
+- 955 Python tests passed; 15 optional tests skipped.
+- 291 frontend and 27 desktop unit tests passed.
+- 21 real packaged UI/lifecycle checks and a separate broken-backend startup
+  case passed, including actual H5 import, bridge/native close deferral, draft
+  recovery, rapid project handoff, cold restart and renderer crash recovery.
+- 15 real scientific cases passed, including reference/SQLite/MAT numeric
+  fidelity, native portability, a separate legacy copy and monitor crash with
+  the importer retaining its project lease.
+- Extracted DMG/ZIP resource and native audits, 23 rejection faults, isolated
+  native restart/backup/restore and DMG-extracted recording workflow passed.
+- 10 pinned updater transport scenarios passed with zero unhandled rejections
+  and zero native installs, including a fresh-client retry after interruption.
+
+All scientific test services exited cleanly. Original H5 and packaged resource
+checksums stayed unchanged. Normal desktop operation requires no Docker. The
+legacy-copy fixture used a test Unix inspection transport with real native SQL,
+scientific data and history. No user source database or project was migrated.
+Frozen historical exports retain their original pointers; a new migrated export
+was separately verified against the copy’s H5 data.
+
+The user’s older installed app was left running and was not replaced. The
+reference bundle for the artifact audit was the built candidate; extracted DMG
+and ZIP copies were tested at isolated paths. This is an unsigned dirty-source
+local candidate. Signing/notarization, real signed old-to-new installation and
+recovery, a second clean machine/different user and macOS 14.0 remain release
+gates. No MATLAB engine was used; MAT structure and lazy numeric pointers were
+checked with bundled SciPy and H5. Native chooser results were stubbed at the OS
+dialog boundary. The receipts do not claim universal OS shutdown or power-loss
+qualification.
+
+The upper-right app icon update was rebuilt and rerun through the same packaged
+UI, startup-failure, scientific and DMG/ZIP audits. The actual bundled purple R
+loads at 48 px in the launcher and 32 px in the workspace. Native 1440 px and
+960 px window checks confirm that the icon remains visible without overlapping
+the toolbar. See the [workspace preview](desktop-ui-e2e/workspace-icon-1440.png)
+and [narrow preview](desktop-ui-e2e/workspace-icon-960.png). The final consolidated
+receipt records the refreshed artifact hashes; all five published files remained
+unchanged during verification.
+
+An additional [no-Docker recording workflow](desktop-no-docker-e2e.json) passed
+against the same final packaged runtime. Separate negative controls rejected
+three container command executions and two Docker socket connections before
+host access. With a fresh HOME and restricted PATH, project creation, real H5
+import, tags, query, reference export, reopen and orderly shutdown passed with
+zero container command or non-MySQL Unix socket attempts. Packaged resources
+remained unchanged; the user's Docker daemon and installed app were untouched.
+This uses Python process/socket instrumentation and the exact bundled native
+MySQL executable, rather than a kernel sandbox or clean-machine qualification.

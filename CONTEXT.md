@@ -28,6 +28,34 @@ _Avoid_: Matching cells solely by a repeated label such as Cell2
 Recording date plus original cell name/number, with a separate cell-type tag; include a session qualifier when labels collide. Stable cell UUIDs are available as details.
 _Avoid_: Using a mutable cell-type classification as a database key
 
+**Recorded cell identity**:
+The identity of a cell in an acquisition, together with its recorded source and experimental ancestry. Matching dates, labels, classifications or measured values do not establish that two records identify the same cell.
+_Avoid_: Cell number as identity, identity inferred from matching metadata
+
+**Cell correspondence**:
+A reviewed scientific claim that distinct recorded cell identities refer to the same biological cell, supported by retained evidence and provenance.
+_Avoid_: Automatic merge, renaming a cell to resolve uncertain identity
+
+**Source revision**:
+One exact version of a recording's original contents. Moving or renaming an unchanged recording does not create a new source revision; changing its contents does.
+_Avoid_: Filename as identity
+
+**Identity conflict**:
+Evidence that a recorded identifier, its ancestry, or its source revision disagrees with another representation of the same acquisition. A conflict is distinct from two legitimate acquisitions sharing a display label.
+_Avoid_: Duplicate inferred from name, overwriting to reconcile
+
+**Shared tag**:
+A project annotation attached to an exact cell or epoch identity, with its author profile and provenance retained across protocol workspaces.
+_Avoid_: A dataset-specific inclusion decision, an acquisition identifier
+
+**Inherited cell tag**:
+A cell annotation visible on its epochs through their recorded cell UUID relationship. Inheritance does not copy or reassign the annotation to each epoch.
+_Avoid_: Inheritance by matching cell labels or dates
+
+**Dataset tag**:
+A curation tag scoped to an epoch within a particular protocol workspace. Multiple dataset tags and shared tags may coexist without changing acquisition identity.
+_Avoid_: Treating all tags as one unscoped set
+
 **Recorded duration**:
 The sum of recording durations for distinct epochs in an explicit scope and timebase, counting an epoch once across its streams and excluding gaps.
 _Avoid_: Session elapsed time, stimulation time, summing the same epoch once per device
